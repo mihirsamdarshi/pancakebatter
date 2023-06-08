@@ -14,7 +14,7 @@ spec:
         kind: HelmRepository
         name: hajimari
         namespace: flux-system
-  maxHistory: 3
+  maxHistory: 2
   install:
     createNamespace: true
     remediation:
@@ -40,6 +40,7 @@ spec:
       namespaceSelector:
         matchNames:
           - default
+          - monitoring
     ingress:
       main:
         enabled: true

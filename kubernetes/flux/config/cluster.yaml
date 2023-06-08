@@ -8,7 +8,7 @@ spec:
   interval: 30m
   ref:
     branch: main
-  url: "htts://github.com/mihirsamdarshi/homelab"
+  url: "https://github.com/mihirsamdarshi/homelab"
   ignore: |
     # exclude all
     /*
