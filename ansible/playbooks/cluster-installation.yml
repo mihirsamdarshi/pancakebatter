@@ -57,14 +57,14 @@
         regexp: "https://127.0.0.1:6443"
         replace: "https://{{ k3s_registration_address }}:6443"
 
-    # Unmanaging and removing the Cilium HelmChart is required for
+    # Unmanaging and removing the Cilium HelmChart is required for 
     # flux to take over managing the lifecycle of Cilium
 
     - name: Post installation of custom manifests tasks
       run_once: true
       when:
         - k3s_server_manifests_templates | length > 0
-          or k3s_server_manifests_urls | length > 0
+            or k3s_server_manifests_urls | length > 0
         - k3s_control_node is defined
         - k3s_control_node
       block:
