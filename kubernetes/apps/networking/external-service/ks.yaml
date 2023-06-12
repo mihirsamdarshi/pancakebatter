@@ -1,0 +1,37 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: cluster-apps-external-certificates
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: cluster-apps-metallb-config
+  path: ./kubernetes/apps/networking/external-service/certificates
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: home-kubernetes
+  wait: false # no flux ks dependents
+  interval: 30m
+  retryInterval: 1m
+  timeout: 5m
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: cluster-apps-external-proxmox
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: cluster-apps-metallb-config
+    - name: cluster-apps-external-certificates
+  path: ./kubernetes/apps/networking/external-service/proxmox
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: home-kubernetes
+  wait: false # no flux ks dependents
+  interval: 30m
+  retryInterval: 1m
+  timeout: 5m

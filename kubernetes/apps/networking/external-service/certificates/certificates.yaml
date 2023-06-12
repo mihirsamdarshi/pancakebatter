@@ -1,0 +1,30 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: "proxmox.${SECRET_DOMAIN/./-}-production"
+  namespace: networking
+spec:
+  secretName: "proxmox.${SECRET_DOMAIN/./-}-production-tls"
+  issuerRef:
+    name: letsencrypt-production
+    kind: ClusterIssuer
+  commonName: "proxmox.${SECRET_DOMAIN_LOCAL}"
+  dnsNames:
+    - "proxmox.${SECRET_DOMAIN_LOCAL}"
+    - "*.proxmox.${SECRET_DOMAIN_LOCAL}"
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: "proxmox.${SECRET_DOMAIN/./-}-staging"
+  namespace: networking
+spec:
+  secretName: "proxmox.${SECRET_DOMAIN/./-}-staging-tls"
+  issuerRef:
+    name: letsencrypt-staging
+    kind: ClusterIssuer
+  commonName: "proxmox.${SECRET_DOMAIN_LOCAL}"
+  dnsNames:
+    - "proxmox.${SECRET_DOMAIN_LOCAL}"
+    - "*.proxmox.${SECRET_DOMAIN_LOCAL}"
