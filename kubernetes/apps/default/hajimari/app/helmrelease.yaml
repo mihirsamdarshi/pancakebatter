@@ -41,6 +41,9 @@ spec:
         matchNames:
           - default
           - monitoring
+          - kube-system
+          - flux-system
+          - networking
     ingress:
       main:
         enabled: true

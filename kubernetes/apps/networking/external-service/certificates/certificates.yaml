@@ -2,10 +2,10 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: "proxmox.${SECRET_DOMAIN/./-}-production"
+  name: "proxmox-${SECRET_DOMAIN/./-}-production"
   namespace: networking
 spec:
-  secretName: "proxmox.${SECRET_DOMAIN/./-}-production-tls"
+  secretName: "proxmox-${SECRET_DOMAIN/./-}-production-tls"
   issuerRef:
     name: letsencrypt-production
     kind: ClusterIssuer
@@ -17,10 +17,10 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: "proxmox.${SECRET_DOMAIN/./-}-staging"
+  name: "proxmox-${SECRET_DOMAIN/./-}-staging"
   namespace: networking
 spec:
-  secretName: "proxmox.${SECRET_DOMAIN/./-}-staging-tls"
+  secretName: "proxmox-${SECRET_DOMAIN/./-}-staging-tls"
   issuerRef:
     name: letsencrypt-staging
     kind: ClusterIssuer

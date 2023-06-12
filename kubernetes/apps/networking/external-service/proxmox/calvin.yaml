@@ -22,7 +22,8 @@ metadata:
   name: &app calvin-proxmox
   namespace: networking
   annotations:
-    hajimari.io/icon: "home-assistant"
+    hajimari.io/appName: Hobbes - Proxmox
+    hajimari.io/icon: "simple-icons:proxmox"
   labels:
     app.kubernetes.io/name: *app
     app.kubernetes.io/instance: *app

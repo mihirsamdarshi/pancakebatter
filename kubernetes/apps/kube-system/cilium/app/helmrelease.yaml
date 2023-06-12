@@ -69,6 +69,7 @@ spec:
           enabled: true
           className: nginx
           annotations:
+            hajimari.io/appName: Cilium
             hajimari.io/icon: simple-icons:cilium
           hosts:
             - &host "hubble.${SECRET_DOMAIN_LOCAL}"
