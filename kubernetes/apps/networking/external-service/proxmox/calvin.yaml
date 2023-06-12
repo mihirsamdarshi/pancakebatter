@@ -11,9 +11,8 @@ spec:
   type: ExternalName
   externalName: 10.69.4.20
   ports:
-    - name: http
+    - name: https
       port: 443
-      protocol: TCP
       targetPort: 8006
 ---
 apiVersion: networking.k8s.io/v1
