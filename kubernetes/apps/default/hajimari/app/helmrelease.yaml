@@ -48,7 +48,7 @@ spec:
         annotations:
           hajimari.io/enable: "false"
         hosts:
-          - host: &host "hajimari.${SECRET_DOMAIN}"
+          - host: &host "hajimari.${SECRET_DOMAIN_LOCAL}"
             paths:
               - path: /
                 pathType: Prefix
