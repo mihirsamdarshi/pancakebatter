@@ -14,3 +14,8 @@ ubuntu:
     - socat
     - python3-kubernetes
     - python3-yaml
+    - libnfs-utils
+    - open-iscsi
+    - multipath-tools
+    - scsitools
+    - lsscsi
