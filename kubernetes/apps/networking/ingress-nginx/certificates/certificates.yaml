@@ -13,7 +13,6 @@ spec:
   dnsNames:
     - "${SECRET_DOMAIN}"
     - "*.${SECRET_DOMAIN}"
-    - "${SECRET_DOMAIN_LOCAL}"
     - "*.${SECRET_DOMAIN_LOCAL}"
 ---
 apiVersion: cert-manager.io/v1
@@ -30,5 +29,4 @@ spec:
   dnsNames:
     - "${SECRET_DOMAIN}"
     - "*.${SECRET_DOMAIN}"
-    - "${SECRET_DOMAIN_LOCAL}"
     - "*.${SECRET_DOMAIN_LOCAL}"

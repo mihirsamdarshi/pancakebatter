@@ -6,6 +6,8 @@ metadata:
   namespace: flux-system
 spec:
   path: ./kubernetes/apps/monitoring/loki-stack/app
+  dependsOn:
+    - name: cluster-apps-kube-prometheus-stack
   prune: true
   sourceRef:
     kind: GitRepository
