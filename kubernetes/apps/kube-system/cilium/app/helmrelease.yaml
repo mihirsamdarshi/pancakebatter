@@ -36,15 +36,15 @@ spec:
       socketPath: /var/run/k3s/containerd/containerd.sock
     hubble:
       enabled: true
-      tls:
-        auto:
-          enabled: true
-          method: certmanager
-          certValidityDuration: 1095
-          certManagerIssuerRef:
-            name: letsencrypt-production
-            kind: ClusterIssuer
-            group: cert-manager.io
+#      tls:
+#        auto:
+#          enabled: true
+#          method: certmanager
+#          certValidityDuration: 1095
+#          certManagerIssuerRef:
+#            name: letsencrypt-production
+#            kind: ClusterIssuer
+#            group: cert-manager.io
       metrics:
         enabled:
           - dns:query;ignoreAAAA
