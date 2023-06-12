@@ -6,8 +6,8 @@ metadata:
 spec:
   interval: 30m
   dependsOn:
-    - name: cluster-apps-kube-prometheus-stack
-      namespace: flux-system
+    - name: kube-prometheus-stack
+      namespace: monitoring
   chart:
     spec:
       chart: grafana
