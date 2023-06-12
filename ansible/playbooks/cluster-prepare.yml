@@ -26,6 +26,14 @@
             path: /etc/hosts
             block: |
               127.0.1.1   {{ inventory_hostname }}
+        - name: Networking | Enable mulipathing
+          ansible.builtin.copy:
+            dest: /etc/multipath.conf
+            content: |
+              defaults {
+                  user_friendly_names yes
+                  find_multipaths yes
+              }
 
     - name: Packages
       block:
@@ -74,6 +82,14 @@
         - name: System Configuration (1) | Enable fstrim
           ansible.builtin.systemd:
             service: fstrim.timer
+            enabled: true
+        - name: System Configuration (1) | Enable multipath-tools
+          ansible.builtin.systemd:
+            service: multipath-tools.service
+            enabled: true
+        - name: System Configuration (1) | Enable open-iscsi
+          ansible.builtin.systemd:
+            service: open-iscsi.service
             enabled: true
 
     - name: System Configuration (2)
