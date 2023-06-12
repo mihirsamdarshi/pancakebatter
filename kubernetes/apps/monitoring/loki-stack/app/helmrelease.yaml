@@ -40,3 +40,5 @@ spec:
         table_manager:
           retention_deletes_enabled: true
           retention_period: 12h
+    minio:
+      enabled: true
