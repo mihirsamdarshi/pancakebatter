@@ -1,0 +1,72 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: iscsi-democratic-csi
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: democratic-csi
+      version: 0.13.7
+      sourceRef:
+        kind: HelmRepository
+        name: democratic-csi
+        namespace: flux-system
+  values:
+    csiDriver:
+      name: "iscsi"
+    storageClasses:
+      - name: iscsi
+        defaultClass: false
+        reclaimPolicy: Delete
+        volumeBindingMode: Immediate
+        allowVolumeExpansion: true
+        parameters:
+          fsType: ext4
+          detachedVolumesFromSnapshots: "false"
+        mountOptions: []
+        secrets:
+          provisioner-secret:
+          controller-publish-secret:
+          node-stage-secret:
+          node-publish-secret:
+          controller-expand-secret:
+    volumeSnapshotClasses:
+      - name: iscsi
+        parameters:
+          detachedSnapshots: "true"
+    driver:
+      config:
+        driver: freenas-api-iscsi
+        instance_id:
+        httpConnection:
+          protocol: http
+          host: 10.69.4.20
+          port: 80
+          apiKey: "${TRUENAS_API_KEY}"
+          allowInsecure: true
+        zfs:
+          datasetParentName: nasty/Kubernetes/iSCSI/v
+          detachedSnapshotsDatasetParentName: nasty/Kubernetes/iSCSI/s
+          zvolCompression:
+          zvolDedup:
+          zvolEnableReservation: false
+          zvolBlocksize:
+        iscsi:
+          targetPortal: "10.69.4.20:3260"
+          targetPortals: []
+          interface:
+          namePrefix: csi-
+          nameSuffix: "-clustera"
+          targetGroups:
+            - targetGroupPortalGroup: 1
+              targetGroupInitiatorGroup: 1
+              targetGroupAuthType: None
+              targetGroupAuthGroup:
+          extentInsecureTpc: true
+          extentXenCompat: false
+          extentDisablePhysicalBlocksize: true
+          extentBlocksize: 512
+          extentRpm: "SSD"
+          extentAvailThreshold: 0
