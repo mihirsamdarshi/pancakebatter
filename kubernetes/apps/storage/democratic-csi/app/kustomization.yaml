@@ -5,3 +5,4 @@ namespace: storage
 resources:
   - ./iscsi.yaml
   - ./nfs.yaml
+  - ./test.yaml
