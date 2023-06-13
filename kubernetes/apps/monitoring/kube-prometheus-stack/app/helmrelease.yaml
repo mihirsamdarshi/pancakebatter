@@ -57,6 +57,44 @@ spec:
                     {{ range .Labels.SortedPairs }} • *{{ .Name }}:* `{{ .Value }}`
                     {{ end }}
                   {{ end }}
+        route:
+          group_by: ["alertname", "job"]
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 6h
+          receiver: "discord"
+          routes:
+            - receiver: "discord"
+              match_re:
+                severity: critical
+              continue: true
+        inhibit_rules:
+          - source_match:
+              severity: "critical"
+            target_match:
+              severity: "warning"
+            equal: ["alertname", "namespace"]
+      ingress:
+        enabled: true
+        ingressClassName: nginx
+        annotations:
+          hajimari.io/appName: Alert Manager
+          hajimari.io/icon: simple-icons:prometheus
+        pathType: Prefix
+        hosts:
+          - &host "alert-manager.${SECRET_DOMAIN_LOCAL}"
+        tls:
+          - hosts:
+              - *host
+      alertmanagerSpec:
+        storage:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: local-path
+              resources:
+                requests:
+                  storage: 1Gi
+
     grafana:
       enabled: false
       forceDeployDashboards: true
