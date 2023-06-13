@@ -4,6 +4,8 @@ kind: Kustomization
 resources:
   - ./namespace.yaml
   - ./cilium/ks.yaml
+  - ./k8tz/ks.yaml
   - ./local-path-provisioner/ks.yaml
   - ./metrics-server/ks.yaml
+  - ./nvidia-gpu-operator/ks.yaml
   - ./reloader/ks.yaml
