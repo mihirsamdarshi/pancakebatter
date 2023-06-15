@@ -36,18 +36,14 @@ spec:
     alertmanager:
       config:
         global:
-          slack_api_url: "${ALERT_MANAGER_DISCORD_WEBHOOK}"
           resolve_timeout: 5m
         receivers:
           - name: "discord"
-            slack_configs:
-              - channel: "#prometheus"
-                icon_url: https://avatars3.githubusercontent.com/u/3380462
-                username: Prometheus Alert Manager
-                send_resolved: true
+            discord_configs:
+              - webhook_url: "${ALERT_MANAGER_DISCORD_WEBHOOK}"
                 title: |-
                   [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ if ne .CommonAnnotations.summary ""}}{{ .CommonAnnotations.summary }}{{ else }}{{ .CommonLabels.alertname }}{{ end }}
-                text: >-
+                message: >-
                   {{ range .Alerts -}}
                     **Alert:** {{ .Annotations.title }}{{ if .Labels.severity }} - `{{ .Labels.severity }}`{{ end }}
 
