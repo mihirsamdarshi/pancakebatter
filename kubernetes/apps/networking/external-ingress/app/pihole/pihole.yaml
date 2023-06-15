@@ -30,6 +30,11 @@ metadata:
   labels:
     app.kubernetes.io/name: *app
     app.kubernetes.io/instance: *app
+  annotations:
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+        if ($uri !~ "^/admin") {
+          rewrite ^/(.*)$ /admin/$1 break;
+        }
 spec:
   ingressClassName: nginx
   rules:
