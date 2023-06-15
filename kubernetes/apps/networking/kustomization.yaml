@@ -5,7 +5,7 @@ resources:
   - ./namespace.yaml
   - ./cloudflared/ks.yaml
   - ./external-dns/ks.yaml
-  - ./external-service/ks.yaml
+  - ./external-ingress/ks.yaml
   - ./ingress-nginx/ks.yaml
   - ./k8s-gateway/ks.yaml
   - ./metallb/ks.yaml
