@@ -5,5 +5,5 @@ resources:
   - ./namespace.yaml
   - ./addons/ks.yaml
   - ./weave-gitops/ks.yaml
-  - ./podmonitor/ks.yaml
   - ./alerts/ks.yaml
+  - ./podmonitor
