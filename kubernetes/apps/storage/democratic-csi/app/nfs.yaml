@@ -44,7 +44,7 @@ spec:
         instance_id:
         httpConnection:
           protocol: http
-          host: 10.69.4.20
+          host: "${TRUENAS_IP_ADDRESS}"
           port: 80
           apiKey: "${TRUENAS_API_KEY}"
           allowInsecure: true
@@ -57,7 +57,7 @@ spec:
           datasetPermissionsUser: 0
           datasetPermissionsGroup: 0
         nfs:
-          shareHost: 10.69.4.20
+          shareHost: "${TRUENAS_IP_ADDRESS}"
           shareAlldirs: false
           shareAllowedHosts: []
           shareAllowedNetworks: []

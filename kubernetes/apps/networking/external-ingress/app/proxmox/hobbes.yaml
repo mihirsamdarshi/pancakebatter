@@ -20,7 +20,7 @@ metadata:
   namespace: networking
 subsets:
   - addresses:
-      - ip: 10.69.4.20
+      - ip: "${HOBBES_IP_ADDRESS}"
     ports:
       - port: 8006
 ---

@@ -42,7 +42,7 @@ spec:
         instance_id:
         httpConnection:
           protocol: http
-          host: 10.69.4.20
+          host: "${TRUENAS_IP_ADDRESS}"
           port: 80
           apiKey: "${TRUENAS_API_KEY}"
           allowInsecure: true
@@ -54,7 +54,7 @@ spec:
           zvolEnableReservation: false
           zvolBlocksize:
         iscsi:
-          targetPortal: "10.69.4.20:3260"
+          targetPortal: "${TRUENAS_IP_ADDRESS}:3260"
           targetPortals: []
           interface:
           namePrefix: csi-
