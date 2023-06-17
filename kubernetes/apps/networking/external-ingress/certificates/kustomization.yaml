@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - ./proxmox.yaml
   - ./pihole.yaml
+  - ./truenas.yaml

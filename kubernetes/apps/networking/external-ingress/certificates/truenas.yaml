@@ -1,0 +1,14 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: "truenas-${SECRET_DOMAIN/./-}-production"
+  namespace: networking
+spec:
+  secretName: "truenas-${SECRET_DOMAIN/./-}-production-tls"
+  issuerRef:
+    name: letsencrypt-production
+    kind: ClusterIssuer
+  commonName: "truenas.${SECRET_DOMAIN_LOCAL}"
+  dnsNames:
+    - "truenas.${SECRET_DOMAIN_LOCAL}"
