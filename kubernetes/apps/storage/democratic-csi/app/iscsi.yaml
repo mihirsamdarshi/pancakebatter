@@ -17,7 +17,7 @@ spec:
     csiDriver:
       name: "iscsi"
     storageClasses:
-      - name: iscsi
+      - name: freenas-iscsi-csi
         defaultClass: false
         reclaimPolicy: Delete
         volumeBindingMode: Immediate
@@ -33,7 +33,7 @@ spec:
           node-publish-secret:
           controller-expand-secret:
     volumeSnapshotClasses:
-      - name: iscsi
+      - name: freenas-iscsi-csi
         parameters:
           detachedSnapshots: "true"
     driver:

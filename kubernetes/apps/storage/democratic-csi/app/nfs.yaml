@@ -17,7 +17,7 @@ spec:
     csiDriver:
       name: "nfs"
     storageClasses:
-      - name: nfs
+      - name: freenas-nfs-csi
         defaultClass: false
         reclaimPolicy: Delete
         volumeBindingMode: Immediate
@@ -35,7 +35,7 @@ spec:
           node-publish-secret:
           controller-expand-secret:
     volumeSnapshotClasses:
-      - name: nfs
+      - name: freenas-nfs-csi
         parameters:
           detachedSnapshots: "true"
     driver:
