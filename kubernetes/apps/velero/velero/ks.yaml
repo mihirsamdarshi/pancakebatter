@@ -5,8 +5,8 @@ metadata:
   name: cluster-apps-velero
   namespace: flux-system
 spec:
-  path: ./kubernetes/apps/storage/velero/app
-  prune: true
+  path: ./kubernetes/apps/velero/velero/app
+  prune: false
   sourceRef:
     kind: GitRepository
     name: home-kubernetes

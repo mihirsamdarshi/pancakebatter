@@ -30,6 +30,7 @@ spec:
         bucket: velero
         default: true
         config:
+          region: us-east-1
           s3ForcePathStyle: true
           s3Url: https://s3.truenas.${SECRET_DOMAIN_LOCAL}
       resticTimeout: 6h
@@ -52,9 +53,20 @@ spec:
 
     backupsEnabled: true
     snapshotsEnabled: false
-    upgradeCRDs: true
 
+    upgradeCRDs: true
     cleanUpCRDs: false
+
+    deployRestic: true
+    restic:
+      podVolumePath: /var/lib/kubelet/pods
+      privileged: true
+      resources:
+        requests:
+          memory: 200Mi
+          cpu: 15m
+        limits:
+          memory: 3000Mi
 
     resources:
       requests:

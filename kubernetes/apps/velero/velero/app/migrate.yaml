@@ -5,7 +5,7 @@ metadata:
   # to identify it rather than the name
   name: change-storage-class-config
   # must be in the velero namespace
-  namespace: storage
+  namespace: velero
   # the below labels should be used verbatim in your
   # ConfigMap.
   labels:
