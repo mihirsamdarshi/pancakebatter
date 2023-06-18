@@ -1,0 +1,28 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: "minio-${SECRET_DOMAIN/./-}-production"
+  namespace: networking
+spec:
+  secretName: "minio-${SECRET_DOMAIN/./-}-production-tls"
+  issuerRef:
+    name: zerossl-production
+    kind: ClusterIssuer
+  commonName: "s3.truenas.${SECRET_DOMAIN_LOCAL}"
+  dnsNames:
+    - "s3.truenas.${SECRET_DOMAIN_LOCAL}"
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: "minio-ui-${SECRET_DOMAIN/./-}-production"
+  namespace: networking
+spec:
+  secretName: "minio-ui-${SECRET_DOMAIN/./-}-production-tls"
+  issuerRef:
+    name: zerossl-production
+    kind: ClusterIssuer
+  commonName: "ui.s3.truenas.${SECRET_DOMAIN_LOCAL}"
+  dnsNames:
+    - "ui.s3.truenas.${SECRET_DOMAIN_LOCAL}"
