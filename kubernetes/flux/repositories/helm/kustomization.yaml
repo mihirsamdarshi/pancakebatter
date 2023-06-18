@@ -19,4 +19,5 @@ resources:
   - ./nvidia.yaml
   - ./prometheus-community.yaml
   - ./stakater.yaml
+  - ./vmware-tanzu.yaml
   - ./weave-gitops.yaml

@@ -44,6 +44,7 @@ tasks:
         prettier
         sops
         stern
+        velero
         weaveworks/tap/gitops
         yamllint
         yq
