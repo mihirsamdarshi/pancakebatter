@@ -26,3 +26,17 @@ spec:
   nfs:
     server: "${TRUENAS_IP_ADDRESS}"
     path: /mnt/nasty/Media/TV
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: truenas-media-qb
+spec:
+  capacity:
+    storage: 1Mi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: "${TRUENAS_IP_ADDRESS}"
+    path: /mnt/nasty/AppData/qbit
