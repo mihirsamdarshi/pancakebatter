@@ -26,3 +26,17 @@ spec:
     requests:
       storage: 1Mi
   volumeName: truenas-media-tv
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: truenas-media-qb
+  namespace: media
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 1Mi
+  volumeName: truenas-media-qb
