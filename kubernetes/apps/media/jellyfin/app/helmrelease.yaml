@@ -83,7 +83,8 @@ spec:
               - path: /
                 pathType: Prefix
         tls:
-          - hosts:
+          - secretName: "jellyfin-${SECRET_DOMAIN/./-}-production-tls"
+            hosts:
               - *host
 
     persistence:
@@ -149,6 +150,7 @@ spec:
           tls:
             - hosts:
                 - *host
+              secretName: "config-jellyfin-${SECRET_DOMAIN/./-}-production-tls"
         volumeMounts:
           - name: config
             mountPath: /config
