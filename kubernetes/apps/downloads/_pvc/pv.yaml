@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: truenas-media-movies
+  name: truenas-data-qbit
 spec:
   capacity:
     storage: 1Mi
@@ -11,12 +11,12 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   nfs:
     server: "${TRUENAS_IP_ADDRESS}"
-    path: /mnt/nasty/Media/Movies
+    path: /mnt/nasty/AppData/qbit
 ---
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: truenas-media-tv
+  name: truenas-media-all
 spec:
   capacity:
     storage: 1Mi
@@ -25,4 +25,4 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   nfs:
     server: "${TRUENAS_IP_ADDRESS}"
-    path: /mnt/nasty/Media/TV
+    path: /mnt/nasty/Media

@@ -2,8 +2,8 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: truenas-media-movies
-  namespace: media
+  name: truenas-data-qbit
+  namespace: downloads
 spec:
   accessModes:
     - ReadWriteMany
@@ -11,13 +11,13 @@ spec:
   resources:
     requests:
       storage: 1Mi
-  volumeName: truenas-media-movies
+  volumeName: truenas-data-qbit
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: truenas-media-tv
-  namespace: media
+  name: truenas-media-all
+  namespace: downloads
 spec:
   accessModes:
     - ReadWriteMany
@@ -25,4 +25,4 @@ spec:
   resources:
     requests:
       storage: 1Mi
-  volumeName: truenas-media-tv
+  volumeName: truenas-media-all
