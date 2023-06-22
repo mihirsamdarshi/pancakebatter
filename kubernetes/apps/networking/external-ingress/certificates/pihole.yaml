@@ -7,7 +7,7 @@ metadata:
 spec:
   secretName: "pihole-${SECRET_DOMAIN/./-}-production-tls"
   issuerRef:
-    name: letsencrypt-production
+    name: zerossl-production
     kind: ClusterIssuer
   commonName: "pihole.${SECRET_DOMAIN_LOCAL}"
   dnsNames:
