@@ -85,8 +85,7 @@ spec:
       VPN_INTERFACE_MTU: "1420"
       VPN_LOCAL_CIDRS: 10.0.0.0/8 192.168.0.0/16
       VPN_TRAFFIC_PORT: "2049"
-      VXLAN_ID: 43
-      VXLAN_IP_NETWORK: 172.16.1
+      VXLAN_IP_NETWORK: 172.16.0
 
     webhook:
       gatewayAnnotation: setGateway
