@@ -27,8 +27,8 @@ spec:
 
   values:
     image:
-      repository: lscr.io/linuxserver/qbittorrent
-      tag: 4.5.4
+      repository: ghcr.io/onedr0p/qbittorrent
+      tag: 4.5.4@sha256:f0a74313d750bc437ba2ad34f3412de5ab9a978f3f5b74227a1bda69271fef3e
 
     env:
       WEBUI_PORT: &port 8080
@@ -95,6 +95,8 @@ spec:
           level: s0
 
     podSecurityContext:
+      runAsUser: 568
+      runAsGroup: 568
       fsGroup: 568
       fsGroupChangePolicy: OnRootMismatch
 
