@@ -74,6 +74,7 @@ applies the changes to my cluster.
 |---------------------------|--------------------------------|--------|--------------|-------------------------------------------|------------------|---------------------------|
 | Dell Precision Tower 9710 | 2 x Intel Xeon CPU E5-2687W v4 | 128 GB | 2TB NVME     | 6 x 4TB HDD / 2 x 8TB HDD / 1 x 240GB SSD | Debian 11 (PVE)  | Virtualization Host / NAS |
 | Dell Optiplex 5050        | 1 x Intel Core i5-7600T        | 32GB   | 256GB NVMe   | -                                         | Debian 11 (PVE)  | Virtualization Host       |
+| Dell Optiplex 5060        | 1 x Intel Core i5-8500T        | 32GB   | 256GB NVMe   | -                                         | Debian 11 (PVE)  | Virtualization Host       |
 | Raspberry Pi 4 Model B    | 1 x Broadcom BCM2711           | 8GB    | 64GB SD Card | -                                         | Raspbian         | Misc                      |
 | TP-Link TL-SG105          | -                              | -      | -            | -                                         | -                | Network Switch            |
 
