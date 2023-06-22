@@ -120,44 +120,9 @@ spec:
         type: emptyDir
         mountPath: /shared
 
-    podAnnotations:
-      setGateway: "true"
-
     resources:
       requests:
         cpu: 100m
         memory: 400Mi
       limits:
         memory: 1Gi
-
-    addons:
-      vpn:
-        enabled: true
-        type: gluetun
-        gluetun:
-          image:
-            repository: docker.io/qmcgaw/gluetun
-            tag: v3.34.3
-
-        securityContext:
-          runAsGroup: 0
-          runAsUser: 0
-          capabilities:
-            add:
-              - NET_ADMIN
-              - SYS_MODULE
-        env:
-          VPN_SERVICE_PROVIDER: "custom"
-          VPN_TYPE: "wireguard"
-
-        envFrom:
-          - secretRef:
-              name: qbittorrent-secret
-
-        scripts:
-          up: |-
-            #!/bin/bash
-            echo "connected" > /shared/vpnstatus
-          down: |-
-            #!/bin/bash
-            echo "disconnected" > /shared/vpnstatus
