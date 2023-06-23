@@ -126,3 +126,6 @@ spec:
         memory: 400Mi
       limits:
         memory: 1Gi
+
+    podAnnotations:
+      setGateway: "true"
