@@ -23,12 +23,6 @@ spec:
 
     DNS: 172.16.1.1
 
-    service:
-      vpn:
-        enabled: true
-        type: LoadBalancer
-        externalTrafficPolicy: Cluster
-
     addons:
       vpn:
         enabled: true
