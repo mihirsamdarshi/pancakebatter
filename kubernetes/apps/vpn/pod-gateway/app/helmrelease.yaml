@@ -23,13 +23,9 @@ spec:
       # -- image tag of the gateway and inserted helper containers
       tag: dev@sha256:6f122f00490c76aa57980666dd5b694636bca71f1bc37792ade3f03b45b4a651
 
-    # -- IP address of the DNS server within the vxlan tunnel.
-    # All mutated PODs will get this as their DNS server.
-    # It must match VXLAN_GATEWAY_IP in settings.sh
-    DNS: 172.16.1.1
     # -- The DNSPolicy to apply to the POD. Only when set to "None" will the
     # DNS value above apply. To avoid altering POD DNS (i.e., to allow
-    # initContainers to use DNS before the the VXLAN is up), set to "ClusterFirst"
+    # initContainers to use DNS before the VXLAN is up), set to "ClusterFirst"
     DNSPolicy: ClusterFirst
 
     routed_namespaces:
@@ -42,7 +38,7 @@ spec:
       #
       # This is needed, for example, in case your CNI does
       # not add a non-default rule for the K8S addresses (Flannel does).
-      NOT_ROUTED_TO_GATEWAY_CIDRS: 10.0.0.0/8 192.168.0.0/16
+      NOT_ROUTED_TO_GATEWAY_CIDRS: "10.0.0.0/8 192.168.0.0/16"
 
       # -- Vxlan ID to use
       VXLAN_ID: 42
@@ -58,7 +54,7 @@ spec:
       # -- If VPN_BLOCK_OTHER_TRAFFIC is true, allow VPN traffic over this port
       VPN_TRAFFIC_PORT: "2049"
       # -- Traffic to these IPs will be sent through the K8S gateway
-      VPN_LOCAL_CIDRS: 10.0.0.0/8 192.168.0.0/16
+      VPN_LOCAL_CIDRS: "10.0.0.0/8 192.168.0.0/16"
       # -- DNS queries to these domains will be resolved by K8S DNS instead of
       # the default (typcally the VPN client changes it)
       DNS_LOCAL_CIDRS: "local"
@@ -109,6 +105,9 @@ spec:
             - to:
                 - ipBlock:
                     cidr: 10.42.0.0/16
+            - to:
+                - ipBlock:
+                    cidr: 10.43.0.0/16
 
         resources:
           requests:
