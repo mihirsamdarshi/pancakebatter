@@ -36,10 +36,10 @@ cluster.
 
 ### Installation
 
-My cluster is [k3s](https://k3s.io/) provisioned overtop ubuntu proxmox VMs using
+My cluster is [k3s](https://k3s.io/) provisioned overtop Ubuntu Proxmox VMs using
 the [Ansible](https://www.ansible.com/) galaxy role [ansible-role-k3s](https://github.com/PyratLabs/ansible-role-k3s).
 This is a semi hyper-converged cluster, workloads are sharing the same available resources on my nodes while I have a
-separate server for data storage.
+separate VM running TrueNAS Scale for data storage.
 
 🔸 [Click here](./ansible) to see my Ansible playbooks and roles._
 
@@ -78,16 +78,12 @@ applies the changes to my cluster.
 | Raspberry Pi 4 Model B    | 1 x Broadcom BCM2711           | 8GB    | 64GB SD Card | -                                         | Raspbian         | Misc                      |
 | TP-Link TL-SG105          | -                              | -      | -            | -                                         | -                | Network Switch            |
 
----
-
 ## 🤝 Gratitude and Thanks
 
 Thanks to all the people who donate their time to the [Kubernetes@Home](https://discord.gg/k8s-at-home) Discord
 community. A lot of inspiration for my cluster comes from the people that have shared their clusters using
-the [k8s-at-home](https://github.com/topics/k8s-at-home) GitHub topic. Be sure to check out
-the [Kubernetes@Home search](https://nanne.dev/k8s-at-home-search/) for ideas on how to deploy applications or get ideas
-on what you can deploy.
----
+the [k8s-at-home](https://github.com/topics/k8s-at-home) GitHub topic and
+the [Kubernetes@Home search](https://nanne.dev/k8s-at-home-search/) .
 
 ## 🔏 License
 
