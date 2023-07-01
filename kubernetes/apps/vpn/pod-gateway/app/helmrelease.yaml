@@ -103,7 +103,6 @@ spec:
           limits:
             memory: 64M
 
-
       netshoot:
         enabled: true
         resources:
