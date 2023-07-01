@@ -94,20 +94,7 @@ spec:
               - SYS_MODULE
 
         networkPolicy:
-          enabled: true
-          egress:
-            - to:
-                - ipBlock:
-                    cidr: 0.0.0.0/0
-              ports:
-                - port: 51820
-                  protocol: UDP
-            - to:
-                - ipBlock:
-                    cidr: 10.42.0.0/16
-            - to:
-                - ipBlock:
-                    cidr: 10.43.0.0/16
+          enabled: false
 
         resources:
           requests:
