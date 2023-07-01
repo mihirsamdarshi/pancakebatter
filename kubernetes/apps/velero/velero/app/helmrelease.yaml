@@ -27,6 +27,7 @@ spec:
       backupStorageLocation:
         - name: default
           bucket: velero
+          provider: aws
           default: true
           config:
             region: us-east-1
