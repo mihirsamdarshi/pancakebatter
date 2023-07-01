@@ -22,5 +22,7 @@ spec:
     remediation:
       retries: 3
   values:
+    labels:
+      velero.io/exclude-from-backup: "true"
     kind: DaemonSet
     timezone: America/Los_Angeles
