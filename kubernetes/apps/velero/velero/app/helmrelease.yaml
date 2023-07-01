@@ -33,7 +33,8 @@ spec:
             region: us-east-1
             s3ForcePathStyle: true
             s3Url: https://s3.truenas.${SECRET_DOMAIN_LOCAL}
-      resticTimeout: 6h
+      fsBackupTimeout: 6h
+      defaultVolumesToFsBackup: true
 
     initContainers:
       - name: velero-plugin-for-aws
@@ -42,6 +43,14 @@ spec:
         volumeMounts:
           - mountPath: /target
             name: plugins
+
+    schedules:
+      prometheus-daily:
+        schedule: "0 7 * * *"
+        template:
+          ttl: "120h"
+          includedNamespaces:
+            - monitoring
 
     credentials:
       existingSecret: velero-truenas-secret
