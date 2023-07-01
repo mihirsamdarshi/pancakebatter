@@ -24,15 +24,14 @@ spec:
       retries: 3
   values:
     configuration:
-      provider: aws
       backupStorageLocation:
-        name: default
-        bucket: velero
-        default: true
-        config:
-          region: us-east-1
-          s3ForcePathStyle: true
-          s3Url: https://s3.truenas.${SECRET_DOMAIN_LOCAL}
+        - name: default
+          bucket: velero
+          default: true
+          config:
+            region: us-east-1
+            s3ForcePathStyle: true
+            s3Url: https://s3.truenas.${SECRET_DOMAIN_LOCAL}
       resticTimeout: 6h
 
     initContainers:
@@ -57,8 +56,8 @@ spec:
     upgradeCRDs: true
     cleanUpCRDs: false
 
-    deployRestic: true
-    restic:
+    deployNodeAgent: true
+    nodeAgent:
       podVolumePath: /var/lib/kubelet/pods
       privileged: true
       resources:
