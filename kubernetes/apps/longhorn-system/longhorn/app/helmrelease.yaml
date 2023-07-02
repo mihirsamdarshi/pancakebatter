@@ -32,7 +32,7 @@ spec:
       backupTarget: "nfs://${TRUENAS_IP_ADDRESS}:/mnt/nasty/Kubernetes/Longhorn"
       restoreVolumeRecurringJobs: true
       defaultDataLocality: best-effort
-      defaultReplicaCount: 4
+      defaultReplicaCount: 3
       createDefaultDiskLabeledNodes: true
       replicaZoneSoftAntiAffinity: false
       nodeDownPodDeletionPolicy: delete-both-statefulset-and-deployment-pod
