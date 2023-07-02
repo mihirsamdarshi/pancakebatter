@@ -92,7 +92,7 @@ spec:
         type: pvc
         size: 2G
         accessMode: ReadWriteOnce
-        storageClass: freenas-iscsi-csi
+        storageClass: longhorn
         enabled: true
       movies:
         enabled: true

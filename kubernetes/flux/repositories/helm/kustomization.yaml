@@ -6,7 +6,6 @@ resources:
   - ./bitnami.yaml
   - ./bjw-s.yaml
   - ./cilium.yaml
-  - ./democratic-csi.yaml
   - ./external-dns.yaml
   - ./grafana.yaml
   - ./hajimari.yaml

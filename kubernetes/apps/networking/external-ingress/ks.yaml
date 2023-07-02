@@ -24,7 +24,7 @@ metadata:
   namespace: flux-system
 spec:
   dependsOn:
-    - name: cluster-apps-metallb-config
+    - name: cluster-apps-ingress-nginx
     - name: cluster-apps-external-ingress-certificates
   path: ./kubernetes/apps/networking/external-ingress/app
   prune: true

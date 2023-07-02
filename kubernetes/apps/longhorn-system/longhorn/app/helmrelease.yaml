@@ -33,7 +33,6 @@ spec:
       restoreVolumeRecurringJobs: true
       defaultDataLocality: best-effort
       defaultReplicaCount: 4
-      defaultLonghornStaticStorageClass: longhorn-backup
       createDefaultDiskLabeledNodes: true
       replicaZoneSoftAntiAffinity: false
       nodeDownPodDeletionPolicy: delete-both-statefulset-and-deployment-pod
