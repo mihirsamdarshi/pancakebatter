@@ -82,6 +82,3 @@ spec:
       serviceMonitor:
         enabled: true
     rollOutCiliumPods: true
-    autoDirectNodeRoutes: true
-    ipv4NativeRoutingCIDR: ${CLUSTER_CIDR}
-    tunnel: "disabled"
