@@ -78,10 +78,15 @@ applies the changes to my cluster.
 | Raspberry Pi 4 Model B    | 1 x Broadcom BCM2711           | 8GB    | 64GB SD Card | -                                         | Raspbian         | Misc                      |
 | TP-Link TL-SG105          | -                              | -      | -            | -                                         | -                | Network Switch            |
 
+## 🔨Cluster Rebuild Counter
+
+| Times Rebuilt | Last Updated |
+|---------------|--------------|
+| **9**         | 7/2/2023     |
+
 ## 🤝 Gratitude and Thanks
 
-Thanks to all the people who donate their time to the [Kubernetes@Home](https://discord.gg/k8s-at-home) Discord
-community. A lot of inspiration for my cluster comes from the people that have shared their clusters using
+A lot of inspiration for my cluster comes from the people that have shared their clusters using
 the [k8s-at-home](https://github.com/topics/k8s-at-home) GitHub topic and
 the [Kubernetes@Home search](https://nanne.dev/k8s-at-home-search/) .
 
