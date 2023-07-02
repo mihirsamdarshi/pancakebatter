@@ -26,7 +26,7 @@ spec:
     # -- The DNSPolicy to apply to the POD. Only when set to "None" will the
     # DNS value above apply. To avoid altering POD DNS (i.e., to allow
     # initContainers to use DNS before the VXLAN is up), set to "ClusterFirst"
-    # DNSPolicy: ClusterFirst
+    DNSPolicy: ClusterFirst
 
     routed_namespaces:
       - downloads
