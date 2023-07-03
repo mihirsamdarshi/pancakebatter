@@ -21,12 +21,13 @@ spec:
       # -- image repository of the gateway and inserted helper containers
       repository: ghcr.io/bjw-s/pod-gateway
       # -- image tag of the gateway and inserted helper containers
+      # renovate: datasource=docker imageName=ghcr.io/bjw-s/pod-gateway
       tag: dev@sha256:99073d1e8b7ab71bcc47e2cfc9e5c52abd20f90304ff15428399602d21de0d13
 
     # -- The DNSPolicy to apply to the POD. Only when set to "None" will the
     # DNS value above apply. To avoid altering POD DNS (i.e., to allow
     # initContainers to use DNS before the VXLAN is up), set to "ClusterFirst"
-    DNSPolicy: ClusterFirst
+    DNS: 172.16.1.1
 
     routed_namespaces:
       - downloads
@@ -43,7 +44,7 @@ spec:
       # -- Vxlan ID to use
       VXLAN_ID: 42
       # -- VXLAN needs an /24 IP range not conflicting with K8S and local IP ranges
-      VXLAN_IP_NETWORK: 172.16.0
+      VXLAN_IP_NETWORK: 172.16.1
       # -- Keep a range of IPs for static assignment in nat.conf
       VXLAN_GATEWAY_FIRST_DYNAMIC_IP: 20
 
