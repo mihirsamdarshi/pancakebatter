@@ -1,0 +1,174 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: loki
+spec:
+  interval: 30m
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: monitoring
+  chart:
+    spec:
+      chart: loki
+      version: 5.8.8
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+  # https://github.com/grafana/helm-charts/blob/main/charts/loki-stack/values.yaml
+  # https://github.com/grafana/loki/blob/main/production/helm/loki/values.yaml
+  values:
+    loki:
+      enabled: true
+      storage:
+        type: s3
+        s3:
+          endpoint: "https://s3.truenas.${SECRET_DOMAIN_LOCAL}"
+          region: us-east-1
+          s3ForcePathStyle: false
+          insecure: false
+        bucketNames:
+          chunks: loki-chunks
+          ruler: loki-ruler
+          admin: loki-admin
+
+      structuredConfig:
+        auth_enabled: false
+        server:
+          log_level: info
+          http_listen_port: 3100
+          grpc_listen_port: 9095
+        memberlist:
+          join_members: ["loki-memberlist"]
+        limits_config:
+          retention_period: 60d
+          enforce_metric_name: false
+          reject_old_samples: true
+          reject_old_samples_max_age: 168h
+          max_cache_freshness_per_query: 10m
+          split_queries_by_interval: 15m
+          ingestion_rate_mb: 50
+          ingestion_burst_size_mb: 1000
+          per_stream_rate_limit: 50MB
+          per_stream_rate_limit_burst: 100MB
+          shard_streams:
+            enabled: true
+        schema_config:
+          configs:
+            - from: "2022-01-11"
+              store: boltdb-shipper
+              object_store: s3
+              schema: v12
+              index:
+                prefix: loki_index_
+                period: 24h
+        common:
+          path_prefix: /var/loki
+          replication_factor: 3
+          ring:
+            kvstore:
+              store: memberlist
+
+        ruler:
+          enable_api: true
+          enable_alertmanager_v2: true
+          alertmanager_url: http://kube-prometheus-stack-alertmanager:9093
+          storage:
+            type: s3
+          rule_path: /tmp/scratch
+          ring:
+            kvstore:
+              store: memberlist
+        distributor:
+          ring:
+            kvstore:
+              store: memberlist
+        compactor:
+          working_directory: /var/loki/boltdb-shipper-compactor
+          shared_store: s3
+          compaction_interval: 10m
+          retention_enabled: true
+          retention_delete_delay: 2h
+          retention_delete_worker_count: 150
+        ingester:
+          max_chunk_age: 1h
+          lifecycler:
+            ring:
+              kvstore:
+                store: memberlist
+        analytics:
+          reporting_enabled: false
+
+    read:
+      replicas: 3
+      persistence:
+        storageClass: longhorn
+      extraVolumeMounts:
+        - name: rules
+          mountPath: /rules
+      extraVolumes:
+        - name: rules
+          emptyDir: { }
+
+    write:
+      replicas: 3
+      persistence:
+        storageClass: longhorn
+
+    backend:
+      replicas: 3
+      persistence:
+        storageClass: longhorn
+
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        app.kubernetes.io/part-of: kube-prometheus-stack
+
+    gateway:
+      enabled: true
+      replicas: 3
+      ingress:
+        enabled: true
+        ingressClassName: "nginx"
+        annotations:
+          hajimari.io/enable: "false"
+        hosts:
+          - host: &host "loki.${SECRET_DOMAIN_LOCAL}"
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - hosts:
+              - *host
+
+    monitoring:
+      dashboards:
+        enabled: true
+        annotations:
+          kustomize.toolkit.fluxcd.io/substitute: disabled
+          grafana_folder: Loki
+      rules:
+        enabled: true
+      serviceMonitor:
+        enabled: true
+      selfMonitoring:
+        enabled: true
+        lokiCanary:
+          enabled: true
+        grafanaAgent:
+          installOperator: false
+
+    test:
+      enabled: true
+
+  valuesFrom:
+    - kind: Secret
+      name: loki-s3-secret
+      valuesKey: AWS_ACCESS_KEY_ID
+      targetPath: loki.storage.s3.accessKeyId
+    - kind: Secret
+      name: loki-s3-secret
+      valuesKey: AWS_SECRET_ACCESS_KEY
+      targetPath: loki.storage.s3.secretAccessKey
