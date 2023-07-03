@@ -84,6 +84,7 @@ spec:
         env:
           VPN_SERVICE_PROVIDER: "mullvad"
           VPN_TYPE: "wireguard"
+          UPDATER_PERIOD: "24h"
         envFrom:
           - secretRef:
               name: pod-gateway-secret
@@ -95,7 +96,21 @@ spec:
               - SYS_MODULE
 
         networkPolicy:
-          enabled: false
+          enabled: true
+          egress:
+            # Allow only VPN traffic to Internet
+            - to:
+                - ipBlock:
+                    cidr: 0.0.0.0/0
+              ports:
+                # VPN traffic (default OpenVPN)
+                - port: 51820
+                  protocol: UDP
+            # Allow any traffic within k8s
+            - to:
+                - ipBlock:
+                    # Cluster IPs (default k3s)
+                    cidr: 10.0.0.0/8
 
         resources:
           requests:
