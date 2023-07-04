@@ -26,3 +26,15 @@ spec:
     requests:
       storage: 1Mi
   volumeName: truenas-media-tv
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-config
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
