@@ -163,6 +163,9 @@ spec:
     test:
       enabled: true
 
+    minio:
+      enabled: false
+
   valuesFrom:
     - kind: Secret
       name: loki-s3-secret

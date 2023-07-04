@@ -43,6 +43,17 @@ spec:
                 name: *app
                 port:
                   number: 443
+    - host: "*.s3.truenas.${SECRET_DOMAIN_LOCAL}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: *app
+                port:
+                  number: 443
+
   tls:
     - secretName: "minio-${SECRET_DOMAIN/./-}-production-tls"
 ---
@@ -80,7 +91,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: ui.s3.truenas.${SECRET_DOMAIN_LOCAL}
+    - host: minio.truenas.${SECRET_DOMAIN_LOCAL}
       http:
         paths:
           - path: /

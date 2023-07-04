@@ -12,6 +12,8 @@ spec:
   commonName: "s3.truenas.${SECRET_DOMAIN_LOCAL}"
   dnsNames:
     - "s3.truenas.${SECRET_DOMAIN_LOCAL}"
+    - "*.s3.truenas.${SECRET_DOMAIN_LOCAL}"
+
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -23,6 +25,6 @@ spec:
   issuerRef:
     name: zerossl-production
     kind: ClusterIssuer
-  commonName: "ui.s3.truenas.${SECRET_DOMAIN_LOCAL}"
+  commonName: "minio.truenas.${SECRET_DOMAIN_LOCAL}"
   dnsNames:
-    - "ui.s3.truenas.${SECRET_DOMAIN_LOCAL}"
+    - "minio.truenas.${SECRET_DOMAIN_LOCAL}"
