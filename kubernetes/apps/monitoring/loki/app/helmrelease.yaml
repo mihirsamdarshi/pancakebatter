@@ -26,7 +26,7 @@ spec:
         s3:
           endpoint: "https://s3.truenas.${SECRET_DOMAIN_LOCAL}"
           region: us-east-1
-          s3ForcePathStyle: false
+          s3ForcePathStyle: true
           insecure: false
         bucketNames:
           chunks: loki-chunks
