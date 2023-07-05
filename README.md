@@ -82,9 +82,9 @@ applies the changes to my cluster.
 
 | Times Rebuilt | Last Updated |
 |---------------|--------------|
-| **9**         | 7/2/2023     |
+| **10**        | 7/5/2023     |
 
-## 🤝 Gratitude and Thanks
+## 🤝 Acknowledgements
 
 A lot of inspiration for my cluster comes from the people that have shared their clusters using
 the [k8s-at-home](https://github.com/topics/k8s-at-home) GitHub topic and
