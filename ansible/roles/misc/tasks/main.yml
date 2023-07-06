@@ -1,0 +1,43 @@
+---
+- name: Add disk to fstab
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Create /data
+      ansible.builtin.file:
+        path: /data
+        state: directory
+        owner: root
+        group: root
+        mode: '0751'
+
+    - name: Create an ext4 filesystem on /dev/sdb
+      community.general.filesystem:
+        fstype: ext4
+        state: present
+        dev: /dev/sdb
+
+    - name: Fetch the UUID of /dev/sdb
+      command: blkid -s UUID -o value /dev/sdb
+      changed_when: false
+      register: disk_uuid
+
+    - name: Mount /dev/sdb by UUID
+      ansible.posix.mount:
+        path: /data
+        src: UUID={{ disk_uuid.stdout }}
+        fstype: ext4
+        opts: defaults
+        state: mounted
+
+    - name: Add disk to fstab
+      lineinfile:
+        path: /etc/fstab
+        line: "UUID={{ disk_uuid.stdout }} /data ext4 defaults 0 0"
+        state: present
+      notify: Reboot
+
+  handlers:
+    - name: Reboot
+      command: reboot

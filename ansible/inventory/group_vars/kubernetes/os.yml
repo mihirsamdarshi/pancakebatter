@@ -19,3 +19,4 @@ ubuntu:
     - multipath-tools
     - scsitools
     - lsscsi
+    - fish
