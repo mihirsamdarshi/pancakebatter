@@ -25,11 +25,6 @@ spec:
       retries: 3
   uninstall:
     keepHistory: false
-  dependsOn:
-    - name: longhorn
-      namespace: longhorn-system
-    - name: ingress-nginx
-      namespace: networking
   values:
     admin:
       existingSecret: grafana-admin-secret
@@ -102,6 +97,6 @@ spec:
             - *host
     persistence:
       enabled: true
-      storageClassName: longhorn
+      storageClassName: ceph-block
     testFramework:
       enabled: false

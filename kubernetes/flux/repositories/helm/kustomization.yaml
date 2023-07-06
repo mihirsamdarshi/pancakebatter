@@ -14,7 +14,7 @@ resources:
   - ./k8s-gateway.yaml
   - ./k8tz.yaml
   - ./kubernetes-dashboard.yaml
-  - ./longhorn-charts.yaml
+  - ./rook-ceph.yaml
   - ./metallb.yaml
   - ./metrics-server.yaml
   - ./nvidia.yaml
