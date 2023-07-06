@@ -76,6 +76,10 @@ spec:
         ingress-nginx-request-handling-performance:
           url: https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/grafana/dashboards/request-handling-performance.json
           datasource: Prometheus
+        rook-ceph:
+          # TODO: replace with official Ceph dashboard once merge
+          url: https://github.com/Javlopez/ceph/blob/b8ff26e309075c3fe8c0a5ae47adc145dcbbf6d6/monitoring/ceph-mixin/dashboards_out/ceph-cluster.json
+          datasource: Prometheus
     sidecar:
       dashboards:
         enabled: true
