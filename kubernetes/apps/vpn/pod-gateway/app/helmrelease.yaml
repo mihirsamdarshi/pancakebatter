@@ -51,23 +51,14 @@ spec:
       # -- If using a VPN, interface name created by it
       VPN_INTERFACE: wg0
       # -- Prevent non VPN traffic to leave the gateway
-      VPN_BLOCK_OTHER_TRAFFIC: false
+      VPN_BLOCK_OTHER_TRAFFIC: true
       # -- If VPN_BLOCK_OTHER_TRAFFIC is true, allow VPN traffic over this port
-      VPN_TRAFFIC_PORT: "2049"
+      VPN_TRAFFIC_PORT: "51820"
       # -- Traffic to these IPs will be sent through the K8S gateway
       VPN_LOCAL_CIDRS: "10.42.0.0/16 10.43.0.0/16 192.168.0.0/16"
       # -- DNS queries to these domains will be resolved by K8S DNS instead of
       # the default (typcally the VPN client changes it)
       DNS_LOCAL_CIDRS: "local"
-
-    publicPorts:
-      - IP: 10
-        hostname: qbittorrent
-        ports:
-          - port: 56202
-            type: udp
-          - port: 56202
-            type: tcp
 
     addons:
       vpn:
@@ -84,6 +75,8 @@ spec:
         env:
           VPN_SERVICE_PROVIDER: "mullvad"
           VPN_TYPE: "wireguard"
+          VPN_INTERFACE: "wg0"
+          VPN_ENDPOINT_PORT: "51820"
           UPDATER_PERIOD: "24h"
         envFrom:
           - secretRef:
@@ -96,21 +89,7 @@ spec:
               - SYS_MODULE
 
         networkPolicy:
-          enabled: true
-          egress:
-            # Allow only VPN traffic to Internet
-            - to:
-                - ipBlock:
-                    cidr: 0.0.0.0/0
-              ports:
-                # VPN traffic (default OpenVPN)
-                - port: 51820
-                  protocol: UDP
-            # Allow any traffic within k8s
-            - to:
-                - ipBlock:
-                    # Cluster IPs (default k3s)
-                    cidr: 10.0.0.0/8
+          enabled: false
 
         resources:
           requests:
