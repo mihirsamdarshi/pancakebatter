@@ -78,6 +78,8 @@ spec:
           VPN_INTERFACE: "wg0"
           VPN_ENDPOINT_PORT: "51820"
           UPDATER_PERIOD: "24h"
+          FIREWALL: "off"
+          DOT: "off"
         envFrom:
           - secretRef:
               name: pod-gateway-secret
