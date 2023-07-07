@@ -105,7 +105,7 @@ spec:
         type: pvc
         size: 2G
         accessMode: ReadWriteOnce
-        storageClass: longhorn
+        storageClass: ceph-block
         enabled: true
       data:
         enabled: true

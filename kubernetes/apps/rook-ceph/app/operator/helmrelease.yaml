@@ -128,6 +128,7 @@ spec:
     monitoring:
       enabled: true
 
+    enableDiscoveryDaemon: true
     pspEnable: false
 
     resources:
