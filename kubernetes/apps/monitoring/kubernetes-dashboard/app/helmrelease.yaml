@@ -52,6 +52,16 @@ spec:
       enabled: true
     serviceMonitor:
       enabled: false
+
+    ## Optional Metrics Server sub-chart configuration
+    ## Enable this if you don't already have metrics-server enabled on your cluster and
+    ## want to use it with dashboard metrics-scraper
+    ## refs:
+    ##  - https://github.com/kubernetes-sigs/metrics-server
+    ##  - https://github.com/kubernetes-sigs/metrics-server/tree/master/charts/metrics-server
+    metrics-server:
+      enabled: false
+
     ## Optional Cert Manager sub-chart configuration
     ## Enable this if you don't already have cert-manager enabled on your cluster.
     cert-manager:
