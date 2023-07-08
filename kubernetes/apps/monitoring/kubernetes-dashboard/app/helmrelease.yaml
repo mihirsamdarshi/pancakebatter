@@ -52,3 +52,13 @@ spec:
       enabled: true
     serviceMonitor:
       enabled: false
+    ## Optional Cert Manager sub-chart configuration
+    ## Enable this if you don't already have cert-manager enabled on your cluster.
+    cert-manager:
+      enabled: false
+      installCRDs: false
+
+    ## Optional Nginx Ingress sub-chart configuration
+    ## Enable this if you don't already have nginx-ingress enabled on your cluster.
+    nginx:
+      enabled: false
