@@ -28,12 +28,15 @@ spec:
   values:
     bpf:
       masquerade: true
+
     cluster:
       name: home-cluster
       id: 1
+
     containerRuntime:
       integration: containerd
       socketPath: /var/run/k3s/containerd/containerd.sock
+
     hubble:
       enabled: true
       metrics:
@@ -67,10 +70,15 @@ spec:
                 - *host
     ipam:
       mode: kubernetes
+
     k8sServiceHost: "${KUBE_VIP_ADDR}"
     k8sServicePort: 6443
     kubeProxyReplacement: strict
     kubeProxyReplacementHealthzBindAddr: 0.0.0.0:10256
+    autoDirectNodeRoutes: true
+    ipv4NativeRoutingCIDR: ${CLUSTER_CIDR}
+    tunnel: "disabled"
+
     operator:
       replicas: 1
       rollOutPods: true
@@ -82,4 +90,5 @@ spec:
       enabled: true
       serviceMonitor:
         enabled: true
+
     rollOutCiliumPods: true
