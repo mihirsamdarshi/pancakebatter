@@ -14,3 +14,7 @@ xanmanning.k3s*
 ansible/definitions/
 # Terraform
 .terraform/
+
+# IDE files
+.idea/
+.vscode/
