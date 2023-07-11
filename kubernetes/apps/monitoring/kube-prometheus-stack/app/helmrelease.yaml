@@ -83,6 +83,7 @@ spec:
         enabled: true
         ingressClassName: nginx
         annotations:
+          hajimari.io/enable: "true"
           hajimari.io/appName: Alert Manager
           hajimari.io/icon: simple-icons:prometheus
         pathType: Prefix
@@ -176,6 +177,7 @@ spec:
         enabled: true
         ingressClassName: nginx
         annotations:
+          hajimari.io/enable: "true"
           hajimari.io/appName: Prometheus
           hajimari.io/icon: simple-icons:prometheus
         pathType: Prefix

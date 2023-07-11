@@ -31,6 +31,9 @@ metadata:
     app.kubernetes.io/name: *app
     app.kubernetes.io/instance: *app
   annotations:
+    hajimari.io/enable: "true"
+    hajimari.io/appName: PiHole
+    hajimari.io/icon: simple-icons:pihole
     nginx.ingress.kubernetes.io/configuration-snippet: |
         if ($uri !~ "^/admin") {
           rewrite ^/(.*)$ /admin/$1 break;

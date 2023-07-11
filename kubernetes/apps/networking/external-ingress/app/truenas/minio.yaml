@@ -85,6 +85,10 @@ kind: Ingress
 metadata:
   name: &app minio-ui-truenas
   namespace: networking
+  annotations:
+    hajimari.io/enable: "true"
+    hajimari.io/appName: MinIO
+    hajimari.io/icon: mdi:bucket-plus-outline
   labels:
     app.kubernetes.io/name: *app
     app.kubernetes.io/instance: *app

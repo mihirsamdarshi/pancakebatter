@@ -54,9 +54,11 @@ spec:
       dashboard:
         ingressClassName: "nginx"
         annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/icon: simple-icons:ceph
           nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
         host:
-          name: &host rook.${SECRET_DOMAIN_LOCAL}
+          name: &host ceph.${SECRET_DOMAIN_LOCAL}
           path: "/"
         tls:
           - hosts:

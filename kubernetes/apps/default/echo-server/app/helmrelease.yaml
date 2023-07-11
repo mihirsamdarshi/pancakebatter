@@ -56,8 +56,9 @@ spec:
         enabled: true
         ingressClassName: nginx
         annotations:
-          external-dns.alpha.kubernetes.io/target: "ingress.${SECRET_DOMAIN}"
+          hajimari.io/enable: "true"
           hajimari.io/icon: video-input-antenna
+          external-dns.alpha.kubernetes.io/target: "ingress.${SECRET_DOMAIN}"
         hosts:
           - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN}"
             paths:
