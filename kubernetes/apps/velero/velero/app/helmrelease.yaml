@@ -51,20 +51,6 @@ spec:
           - mountPath: /target
             name: plugins
 
-    schedules:
-      prometheus-daily:
-        schedule: "0 7 * * *"
-        template:
-          ttl: "120h"
-          includedNamespaces:
-            - monitoring
-      apps-daily:
-        schedule: "0 8 * * *"
-        template:
-          ttl: "120h"
-          includedNamespaces:
-            - media
-            - downloads
     credentials:
       existingSecret: velero-truenas-secret
 

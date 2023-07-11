@@ -1,0 +1,31 @@
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  labels:
+    app.kubernetes.io/instance: &name velero
+    app.kubernetes.io/name: *name
+  name: velero-apps-daily
+  namespace: *name
+spec:
+  schedule: 0 8 * * *
+  template:
+    includedNamespaces:
+      - media
+      - downloads
+    ttl: 120h
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  labels:
+    app.kubernetes.io/instance: &name velero
+    app.kubernetes.io/name: *name
+  name: velero-prometheus-daily
+  namespace: *name
+spec:
+  schedule: 0 7 * * *
+  template:
+    includedNamespaces:
+      - monitoring
+    ttl: 120h
