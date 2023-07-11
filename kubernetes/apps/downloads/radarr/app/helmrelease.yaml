@@ -1,0 +1,93 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.devbu.io/helm.toolkit.fluxcd.io/helmrelease_v2beta1.json
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: &app radarr
+  namespace: downloads
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: app-template
+      version: 1.5.1
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s
+        namespace: flux-system
+  maxHistory: 3
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    image:
+      repository: ghcr.io/onedr0p/radarr-develop
+      tag: 4.6.4.7568@sha256:7dd197028efcc9e4e4bc52cd383efbaa1b6631c8932b3f831a3a1b1687fa8954
+    env:
+      RADARR__INSTANCE_NAME: &name Radarr
+      RADARR__PORT: &port 8080
+      RADARR__APPLICATION_URL: "https://radarr.${SECRET_DOMAIN_LOCAL}"
+      RADARR__LOG_LEVEL: info
+    envFrom:
+      - secretRef:
+          name: *app
+    service:
+      main:
+        ports:
+          http:
+            port: *port
+    ingress:
+      main:
+        enabled: true
+        ingressClassName: "nginx"
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: *name
+          hajimari.io/icon: mdi:filmstrip
+          nginx.ingress.kubernetes.io/configuration-snippet: |
+            proxy_set_header Accept-Encoding "";
+            sub_filter '</head>' '<link rel="stylesheet" type="text/css" href="https://theme-park.dev/css/base/radarr/nord.css"></head>';
+            sub_filter_once on;
+        hosts:
+          - host: &host radarr.${SECRET_DOMAIN_LOCAL}
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - hosts:
+              - *host
+    podSecurityContext:
+      runAsUser: 568
+      runAsGroup: 568
+      fsGroup: 568
+      fsGroupChangePolicy: "OnRootMismatch"
+      supplementalGroups:
+        - 100
+    persistence:
+      config:
+        enabled: true
+        existingClaim: radarr-config
+        mountPath: /config
+      data:
+        enabled: true
+        existingClaim: truenas-data-qbit
+        mountPath: /data
+      media:
+        enabled: true
+        existingClaim: truenas-media-all
+        mountPath: /media
+    podAnnotations:
+      secret.reloader.stakater.com/reload: *app
+    resources:
+      requests:
+        cpu: 500m
+        memory: 500Mi
+      limits:
+        memory: 2000Mi

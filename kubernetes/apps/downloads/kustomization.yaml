@@ -4,4 +4,5 @@ kind: Kustomization
 resources:
   - ./namespace.yaml
   - ./qbittorrent/ks.yaml
+  - ./radarr/ks.yaml
   - ./_pvc

@@ -44,3 +44,19 @@ spec:
   storageClassName: ceph-block
   volumeMode: Filesystem
   volumeName: pvc-88857014-6ff0-4af4-be3d-309fec25ad8b
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: radarr-config
+  namespace: downloads
+  labels:
+    app.kubernetes.io/name: &name radarr
+    app.kubernetes.io/instance: *name
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: ceph-block
