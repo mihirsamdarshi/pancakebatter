@@ -26,32 +26,3 @@ spec:
     requests:
       storage: 1Mi
   volumeName: truenas-media-tv
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: jellyfin-config
-  namespace: media
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: ceph-block
-  resources:
-    requests:
-      storage: 2Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: jellyseerr-config
-  namespace: media
-  labels:
-    app.kubernetes.io/name: &name jellyseerr
-    app.kubernetes.io/instance: *name
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
-  storageClassName: ceph-block
