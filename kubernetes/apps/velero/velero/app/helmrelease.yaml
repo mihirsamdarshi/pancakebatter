@@ -34,11 +34,18 @@ spec:
             s3ForcePathStyle: true
             s3Url: https://s3.truenas.${SECRET_DOMAIN_LOCAL}
       fsBackupTimeout: 6h
+      features: EnableCSI
       defaultVolumesToFsBackup: true
 
     initContainers:
       - name: velero-plugin-for-aws
         image: velero/velero-plugin-for-aws:v1.7.0
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+          - mountPath: /target
+            name: plugins
+      - name: velero-plugin-for-csi
+        image: velero/velero-plugin-for-csi:v0.5.0
         imagePullPolicy: IfNotPresent
         volumeMounts:
           - mountPath: /target
@@ -51,7 +58,13 @@ spec:
           ttl: "120h"
           includedNamespaces:
             - monitoring
-
+      apps-daily:
+        schedule: "0 8 * * *"
+        template:
+          ttl: "120h"
+          includedNamespaces:
+            - media
+            - downloads
     credentials:
       existingSecret: velero-truenas-secret
 
