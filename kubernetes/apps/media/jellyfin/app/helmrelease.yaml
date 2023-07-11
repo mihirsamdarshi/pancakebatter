@@ -36,7 +36,7 @@ spec:
       NVIDIA_DRIVER_CAPABILITIES: "all"
 
     controller:
-      strategy: Recreate
+      type: statefulset
 
     service:
       main:
@@ -59,6 +59,7 @@ spec:
       readiness: *probes
       startup:
         enabled: false
+
     serviceMonitor:
       main:
         enabled: true
@@ -119,3 +120,33 @@ spec:
 
     podAnnotations:
       backup.velero.io/backup-volumes: config
+
+    addons:
+      codeserver:
+        enabled: true
+        image:
+          repository: codercom/code-server
+          tag: 3.9.0
+        workingDir: "/config"
+        args:
+          - --auth
+          - "none"
+          - --user-data-dir
+          - "/config/.vscode"
+          - --extensions-dir
+          - "/config/.vscode"
+        ingress:
+          enabled: true
+          ingressClassName: nginx
+          hosts:
+            - host: &host jellyfin-config.${SECRET_DOMAIN_LOCAL}
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - hosts:
+                - *host
+
+        volumeMounts:
+          - name: config
+            mountPath: /config
