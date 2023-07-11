@@ -33,9 +33,6 @@ metadata:
     app.kubernetes.io/name: *app
     app.kubernetes.io/instance: *app
   annotations:
-    hajimari.io/enable: "true"
-    hajimari.io/appName: Susie
-    hajimari.io/icon: cib:proxmox
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
 spec:
   ingressClassName: nginx

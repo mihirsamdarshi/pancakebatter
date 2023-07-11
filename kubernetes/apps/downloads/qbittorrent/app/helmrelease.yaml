@@ -44,10 +44,6 @@ spec:
         enabled: true
         ingressClassName: "nginx"
         annotations:
-          hajimari.io/enable: "true"
-          hajimari.io/appName: qBittorrent
-          hajimari.io/icon: "download-network"
-          cert-manager.io/cluster-issuer: "zerossl-production"
           nginx.ingress.kubernetes.io/configuration-snippet: |
             proxy_hide_header "x-webkit-csp";
             proxy_hide_header "content-security-policy";
@@ -56,20 +52,18 @@ spec:
             sub_filter '</head>' '<link rel="stylesheet" type="text/css" href="https://theme-park.dev/css/base/qbittorrent/organizr.css"></head>';
             sub_filter_once on;
         hosts:
-          - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN_LOCAL}"
+          - host: &host "qbittorrent.${SECRET_DOMAIN_LOCAL}"
             paths:
               - path: /
                 pathType: Prefix
         tls:
           - hosts:
               - *host
-            secretName: "qbit-${SECRET_DOMAIN/./-}-production-tls"
 
       api:
         enabled: true
         ingressClassName: "nginx"
         annotations:
-          cert-manager.io/cluster-issuer: "zerossl-production"
           hajimari.io/enable: "false"
         hosts:
           - host: *host
@@ -79,7 +73,6 @@ spec:
         tls:
           - hosts:
               - *host
-            secretName: "qbit-api-${SECRET_DOMAIN/./-}-production-tls"
 
     metrics:
       enabled: true

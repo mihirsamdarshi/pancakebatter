@@ -27,10 +27,6 @@ kind: Ingress
 metadata:
   name: &app truenas
   namespace: networking
-  annotations:
-    hajimari.io/enable: "true"
-    hajimari.io/appName: TrueNAS SCALE
-    hajimari.io/icon: simple-icons:truenas
   labels:
     app.kubernetes.io/name: *app
     app.kubernetes.io/instance: *app

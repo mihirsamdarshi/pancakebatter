@@ -83,8 +83,7 @@ spec:
               - path: /
                 pathType: Prefix
         tls:
-          - secretName: "jellyfin-${SECRET_DOMAIN/./-}-production-tls"
-            hosts:
+          - hosts:
               - *host
 
     persistence:

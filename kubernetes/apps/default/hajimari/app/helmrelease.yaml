@@ -28,12 +28,12 @@ spec:
     keepHistory: false
   values:
     hajimari:
-      title: Apps
+      title: Hajimari - Application Dashboard
       darkTheme: espresso
       alwaysTargetBlank: true
       showGreeting: false
-      showAppGroups: false
-      showAppStatus: false
+      showAppGroups: true
+      showAppStatus: true
       showBookmarkGroups: false
       showGlobalBookmarks: false
       showAppUrls: false
@@ -47,6 +47,28 @@ spec:
           - networking
           - downloads
           - rook-ceph
+    customApps:
+      - group: External Services
+        apps:
+          - name: TrueNAS SCALE
+            url: truenas.${SECRET_DOMAIN_LOCAL}
+            icon: simple-icons:truenas
+          - name: MinIO
+            url: truenas.${SECRET_DOMAIN_LOCAL}
+            icon: mdi:bucket-plus-outline
+          - name: PiHole
+            url: pihole.${SECRET_DOMAIN_LOCAL}
+            icon: simple-icons:pihole
+          - name: Calvin
+            url: calvin.proxmox.${SECRET_DOMAIN_LOCAL}
+            icon: cib:proxmox
+          - name: Hobbes
+            url: calvin.proxmox.${SECRET_DOMAIN_LOCAL}
+            icon: cib:proxmox
+          - name: Susie
+            url: calvin.proxmox.${SECRET_DOMAIN_LOCAL}
+            icon: cib:proxmox
+
     ingress:
       main:
         enabled: true

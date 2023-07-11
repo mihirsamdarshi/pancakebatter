@@ -55,7 +55,7 @@ spec:
             sub_filter '</head>' '<link rel="stylesheet" type="text/css" href="https://theme-park.dev/css/base/prowlarr/nord.css"></head>';
             sub_filter_once on;
         hosts:
-          - host: &host "{{ .Release.Name }}.${SECRET_DOMAIN_LOCAL}"
+          - host: &host "prowlarr.${SECRET_DOMAIN_LOCAL}"
             paths:
               - path: /
                 pathType: Prefix
