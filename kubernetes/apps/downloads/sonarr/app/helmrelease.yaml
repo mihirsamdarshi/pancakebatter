@@ -1,0 +1,93 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.devbu.io/helm.toolkit.fluxcd.io/helmrelease_v2beta1.json
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: &app sonarr
+  namespace: downloads
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: app-template
+      version: 1.5.1
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s
+        namespace: flux-system
+  maxHistory: 3
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    image:
+      repository: ghcr.io/onedr0p/sonarr-develop
+      tag: 4.0.0.552@sha256:1ae6cfc2a7fcf7e5f8b35f0462e42a7639d3015b025554d0dae9838846ab5fc6
+    env:
+      SONARR__INSTANCE_NAME: Sonarr
+      SONARR__PORT: &port 8080
+      SONARR__APPLICATION_URL: "https://sonarr.${SECRET_DOMAIN_LOCAL}"
+      SONARR__LOG_LEVEL: info
+    envFrom:
+      - secretRef:
+          name: sonarr-secret
+    service:
+      main:
+        ports:
+          http:
+            port: *port
+    ingress:
+      main:
+        enabled: true
+        ingressClassName: "nginx"
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/appName: Sonarr
+          hajimari.io/icon: mdi:television-classic
+          nginx.ingress.kubernetes.io/configuration-snippet: |
+            proxy_set_header Accept-Encoding "";
+            sub_filter '</head>' '<link rel="stylesheet" type="text/css" href="https://theme-park.dev/css/base/sonarr/nord.css"></head>';
+            sub_filter_once on;
+        hosts:
+          - host: &host sonarr.${SECRET_DOMAIN_LOCAL}
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - hosts:
+              - *host
+    podSecurityContext:
+      runAsUser: 568
+      runAsGroup: 568
+      fsGroup: 568
+      fsGroupChangePolicy: "OnRootMismatch"
+      supplementalGroups:
+        - 100
+    persistence:
+      config:
+        enabled: true
+        existingClaim: sonarr-config
+        mountPath: /config
+      data:
+        enabled: true
+        existingClaim: truenas-data-qbit
+        mountPath: /data
+      media:
+        enabled: true
+        existingClaim: truenas-media-all
+        mountPath: /media
+    podAnnotations:
+      secret.reloader.stakater.com/reload: sonarr-secret
+    resources:
+      requests:
+        cpu: 500m
+        memory: 500Mi
+      limits:
+        memory: 2000Mi
