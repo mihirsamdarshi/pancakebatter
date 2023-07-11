@@ -14,3 +14,4 @@ spec:
     - "proxmox.${SECRET_DOMAIN_LOCAL}"
     - "calvin.proxmox.${SECRET_DOMAIN_LOCAL}"
     - "hobbes.proxmox.${SECRET_DOMAIN_LOCAL}"
+    - "susie.proxmox.${SECRET_DOMAIN_LOCAL}"

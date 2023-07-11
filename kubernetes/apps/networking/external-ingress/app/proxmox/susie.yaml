@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: &app hobbes-proxmox
+  name: &app susie-proxmox
   namespace: networking
   labels:
     app.kubernetes.io/name: *app
@@ -16,31 +16,31 @@ spec:
 apiVersion: v1
 kind: Endpoints
 metadata:
-  name: hobbes-proxmox
+  name: susie-proxmox
   namespace: networking
 subsets:
   - addresses:
-      - ip: "${HOBBES_IP_ADDRESS}"
+      - ip: "${SUSIE_IP_ADDRESS}"
     ports:
       - port: 8006
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: &app hobbes-proxmox
+  name: &app susie-proxmox
   namespace: networking
   labels:
     app.kubernetes.io/name: *app
     app.kubernetes.io/instance: *app
   annotations:
     hajimari.io/enable: "true"
-    hajimari.io/appName: Hobbes
+    hajimari.io/appName: Susie
     hajimari.io/icon: cib:proxmox
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
 spec:
   ingressClassName: nginx
   rules:
-    - host: hobbes.proxmox.${SECRET_DOMAIN_LOCAL}
+    - host: susie.proxmox.${SECRET_DOMAIN_LOCAL}
       http:
         paths:
           - path: /
