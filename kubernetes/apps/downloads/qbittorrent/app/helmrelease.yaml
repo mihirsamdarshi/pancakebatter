@@ -104,11 +104,9 @@ spec:
 
     persistence:
       config:
-        type: pvc
-        size: 2G
-        accessMode: ReadWriteOnce
-        storageClass: ceph-block
         enabled: true
+        existingClaim: qbittorrent-config
+        mountPath: /config
       data:
         enabled: true
         existingClaim: truenas-data-qbit
