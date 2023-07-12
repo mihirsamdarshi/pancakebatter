@@ -6,4 +6,5 @@ metadata:
   labels:
     kustomize.toolkit.fluxcd.io/prune: disabled
   annotations:
+    "goldilocks.fairwinds.com/enabled": "true"
     k8tz.io/strategy: "hostPath"
