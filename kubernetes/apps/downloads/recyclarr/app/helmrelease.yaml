@@ -33,6 +33,8 @@ spec:
         schedule: "@daily"
         ttlSecondsAfterFinished: 86400
     restartPolicy: OnFailure
+    podAnnotations:
+      setGateway: "false"
     image:
       repository: ghcr.io/recyclarr/recyclarr
       tag: edge@sha256:d6fc020b4910f8d8526c9b0224f1c6e07e30feca35aa70fbbba523104ad374bc
