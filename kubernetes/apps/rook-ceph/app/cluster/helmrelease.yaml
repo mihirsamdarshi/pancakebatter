@@ -77,7 +77,7 @@ spec:
           enabled: true
           name: ceph-block
           isDefault: true
-          reclaimPolicy: Delete
+          reclaimPolicy: Retain
           allowVolumeExpansion: true
           parameters:
             imageFormat: "2"
@@ -113,7 +113,7 @@ spec:
           enabled: true
           isDefault: false
           name: ceph-filesystem
-          reclaimPolicy: Delete
+          reclaimPolicy: Retain
           allowVolumeExpansion: true
           mountOptions: []
           parameters:
@@ -153,6 +153,6 @@ spec:
         storageClass:
           enabled: true
           name: ceph-bucket
-          reclaimPolicy: Delete
+          reclaimPolicy: Retain
           parameters:
             region: us-east-1
