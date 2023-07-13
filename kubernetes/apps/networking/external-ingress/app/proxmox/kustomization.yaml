@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - ./calvin.yaml
   - ./hobbes.yaml
+  - ./susie.yaml
