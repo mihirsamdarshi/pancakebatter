@@ -103,6 +103,7 @@ spec:
     grafana:
       enabled: false
       forceDeployDashboards: true
+      defaultDashboardsTimezone: America/Los_Angeles
       sidecar:
         dashboards:
           multicluster:

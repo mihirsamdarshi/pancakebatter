@@ -56,6 +56,11 @@ spec:
             access: proxy
             url: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
             isDefault: true
+          - name: Loki
+            type: loki
+            access: proxy
+            url: http://loki-gateway.monitoring.svc.cluster.local
+            isDefault: false
     dashboards:
       default:
         cert-manager:
