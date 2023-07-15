@@ -22,7 +22,7 @@ spec:
       repository: ghcr.io/bjw-s/pod-gateway
       # -- image tag of the gateway and inserted helper containers
       # renovate: datasource=docker imageName=ghcr.io/bjw-s/pod-gateway
-      tag: dev@sha256:60bff750c499a3f5424e5ce2627ce851585bc4b9c26966a11c1d3cb18f1c47cf
+      tag: dev@sha256:849e0a149eef9b48933026a5f1e7f675a9062e35ace60653d39a457202db6c54
 
     # -- The DNSPolicy to apply to the POD. Only when set to "None" will the
     # DNS value above apply. To avoid altering POD DNS (i.e., to allow
