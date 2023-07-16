@@ -17,3 +17,5 @@ spec:
       kind: HelmRelease
       name: tempo
       namespace: monitoring
+  dependsOn:
+    - name: cluster-apps-loki
