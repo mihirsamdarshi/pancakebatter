@@ -55,7 +55,8 @@ separate VM running TrueNAS Scale for data storage.
   DNS
 - [sops](https://toolkit.fluxcd.io/guides/mozilla-sops/): Managed secrets for Kubernetes, Ansible and Terraform which
   are commited to Git
-- [Democratic CSI](https://github.com/democratic-csi/democratic-csi): Provides block and NFS storage provisioning
+- [cilium](https://cilium.io/): Provides networking, security, and observability
+- [rook-ceph](https://rook.io/): Provides block, object, and file storage
 
 ### GitOps
 
@@ -82,7 +83,7 @@ applies the changes to my cluster.
 
 | Times Rebuilt | Last Updated |
 |---------------|--------------|
-| **10**        | 7/5/2023     |
+| **12**        | 7/15/2023    |
 
 ## 🤝 Acknowledgements
 
