@@ -24,7 +24,9 @@ spec:
       retries: 3
   uninstall:
     keepHistory: false
-
+  dependsOn:
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
   values:
     image:
       repository: ghcr.io/onedr0p/qbittorrent
