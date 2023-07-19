@@ -1,0 +1,31 @@
+---
+kubernetes:
+  children:
+    master:
+      hosts:
+        splinter:
+          ansible_user: ubuntu
+          ansible_host: 192.168.10.21
+        casey:
+          ansible_user: ubuntu
+          ansible_host: 192.168.10.22
+        april:
+          ansible_user: ubuntu
+          ansible_host: 192.168.10.23
+    worker:
+      hosts:
+        leonardo:
+          ansible_user: ubuntu
+          ansible_host: 192.168.10.31
+        donatello:
+          ansible_user: ubuntu
+          ansible_host: 192.168.10.32
+        raphael:
+          ansible_user: ubuntu
+          ansible_host: 192.168.10.33
+        michelangelo:
+          ansible_user: ubuntu
+          ansible_host: 192.168.10.34
+        leatherhead:
+          ansible_user: ubuntu
+          ansible_host: 192.168.10.35
