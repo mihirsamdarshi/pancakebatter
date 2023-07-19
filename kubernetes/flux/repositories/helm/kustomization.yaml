@@ -6,6 +6,7 @@ resources:
   - ./bitnami.yaml
   - ./bjw-s.yaml
   - ./cilium.yaml
+  - ./coredns.yaml
   - ./deliveryhero.yaml
   - ./external-dns.yaml
   - ./fairwinds.yaml
@@ -17,7 +18,6 @@ resources:
   - ./k8tz.yaml
   - ./kubernetes-dashboard.yaml
   - ./rook-ceph.yaml
-  - ./metallb.yaml
   - ./metrics-server.yaml
   - ./nvidia.yaml
   - ./prometheus-community.yaml

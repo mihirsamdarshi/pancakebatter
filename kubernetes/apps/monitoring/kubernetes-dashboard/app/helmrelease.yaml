@@ -5,7 +5,7 @@ metadata:
   name: kubernetes-dashboard
   namespace: monitoring
 spec:
-  interval: 15m
+  interval: 30m
   chart:
     spec:
       chart: kubernetes-dashboard
@@ -29,6 +29,8 @@ spec:
     - name: ingress-nginx
       namespace: networking
   values:
+    env:
+      TZ: "${TIMEZONE}"
     app:
       settings:
         ## Global dashboard settings
@@ -54,6 +56,7 @@ spec:
         #  #  Is this CRD namespaced?
         #  namespaced: true
       ingress:
+        enabled: true
         className: nginx
         annotations:
           cert-manager.io/cluster-issuer: zerossl-production
