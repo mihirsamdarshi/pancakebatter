@@ -14,3 +14,59 @@ spec:
   resources:
     requests:
       storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: truenas-media-movies
+spec:
+  capacity:
+    storage: 1Mi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: "${TRUENAS_IP_ADDRESS}"
+    path: /mnt/nasty/Media/media/movies
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: truenas-media-tv
+spec:
+  capacity:
+    storage: 1Mi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: "${TRUENAS_IP_ADDRESS}"
+    path: /mnt/nasty/Media/media/tv
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: truenas-media-movies
+  namespace: media
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 1Mi
+  volumeName: truenas-media-movies
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: truenas-media-tv
+  namespace: media
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 1Mi
+  volumeName: truenas-media-tv
