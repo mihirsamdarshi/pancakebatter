@@ -90,12 +90,8 @@ spec:
         mountPath: /config
       data:
         enabled: true
-        existingClaim: truenas-data-qbit
+        existingClaim: truenas-data-all
         mountPath: /data
-      media:
-        enabled: true
-        existingClaim: truenas-media-all
-        mountPath: /media
       shared: # for the container to talk to its sidecar OPENVPN
         enabled: true
         type: emptyDir

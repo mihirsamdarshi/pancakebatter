@@ -1,22 +1,22 @@
 ---
 apiVersion: v1
-kind: PersistentVolumeClaim
+kind: PersistentVolume
 metadata:
-  name: truenas-data-qbit
-  namespace: downloads
+  name: truenas-data-all
 spec:
+  capacity:
+    storage: 1Mi
   accessModes:
     - ReadWriteMany
-  storageClassName: ""
-  resources:
-    requests:
-      storage: 1Mi
-  volumeName: truenas-data-qbit
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: "${TRUENAS_IP_ADDRESS}"
+    path: /mnt/nasty/Media
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: truenas-media-all
+  name: truenas-data-all
   namespace: downloads
 spec:
   accessModes:
@@ -25,4 +25,4 @@ spec:
   resources:
     requests:
       storage: 1Mi
-  volumeName: truenas-media-all
+  volumeName: truenas-data-all

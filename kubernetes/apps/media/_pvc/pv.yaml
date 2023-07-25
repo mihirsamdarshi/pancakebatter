@@ -11,7 +11,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   nfs:
     server: "${TRUENAS_IP_ADDRESS}"
-    path: /mnt/nasty/Media/Movies
+    path: /mnt/nasty/Media/media/movies
 ---
 apiVersion: v1
 kind: PersistentVolume
@@ -25,4 +25,4 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   nfs:
     server: "${TRUENAS_IP_ADDRESS}"
-    path: /mnt/nasty/Media/TV
+    path: /mnt/nasty/Media/media/tv

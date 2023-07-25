@@ -78,14 +78,10 @@ spec:
         enabled: true
         existingClaim: radarr-config
         mountPath: /config
-      data:
-        enabled: true
-        existingClaim: truenas-data-qbit
-        mountPath: /data
       media:
         enabled: true
-        existingClaim: truenas-media-all
-        mountPath: /media
+        existingClaim: truenas-data-all
+        mountPath: /data
     podAnnotations:
       secret.reloader.stakater.com/reload: radarr-secret
     resources:
