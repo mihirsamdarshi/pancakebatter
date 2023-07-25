@@ -122,33 +122,3 @@ spec:
 
     podAnnotations:
       backup.velero.io/backup-volumes: config
-
-    addons:
-      codeserver:
-        enabled: true
-        image:
-          repository: codercom/code-server
-          tag: 4.15.0
-        workingDir: "/config"
-        args:
-          - --auth
-          - "none"
-          - --user-data-dir
-          - "/config/.vscode"
-          - --extensions-dir
-          - "/config/.vscode"
-        ingress:
-          enabled: true
-          ingressClassName: nginx
-          hosts:
-            - host: &host jellyfin-config.${SECRET_DOMAIN_LOCAL}
-              paths:
-                - path: /
-                  pathType: Prefix
-          tls:
-            - hosts:
-                - *host
-
-        volumeMounts:
-          - name: config
-            mountPath: /config
