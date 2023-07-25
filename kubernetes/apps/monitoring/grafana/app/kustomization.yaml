@@ -6,7 +6,12 @@ resources:
   - ./helmrelease.yaml
   - ./secret.sops.yaml
 configMapGenerator:
-  - name: grafana-dashboards
+  - name: custom-dashboards
     behavior: create
     files:
       - ./dashboards/loki-dashboard.json
+      - ./dashboards/truenas-dashboard.json
+generatorOptions:
+  disableNameSuffixHash: true
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled

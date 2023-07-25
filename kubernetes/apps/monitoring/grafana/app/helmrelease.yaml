@@ -38,10 +38,12 @@ spec:
     env:
       GF_EXPLORE_ENABLED: true
       GF_SERVER_ROOT_URL: "https://grafana.${SECRET_DOMAIN_LOCAL}"
+
     grafana.ini:
       analytics:
         check_for_updates: false
         check_for_plugin_updates: false
+
     dashboardProviders:
       dashboardproviders.yaml:
         apiVersion: 1
@@ -51,9 +53,18 @@ spec:
             folder: ""
             type: file
             disableDeletion: false
-            editable: true
+            allowUiUpdates: false
             options:
               path: /var/lib/grafana/dashboards/default
+          - name: 'custom'
+            orgId: 1
+            folder: ''
+            type: file
+            disableDeletion: false
+            allowUiUpdate: true
+            options:
+              path: /var/lib/grafana/dashboards/custom
+
     datasources:
       datasources.yaml:
         apiVersion: 1
@@ -73,6 +84,10 @@ spec:
             access: proxy
             url: "http://tempo.monitoring.svc.cluster.local:3100"
             version: 1
+
+    dashboardsConfigMap:
+      custom: "custom-dashboards"
+
     dashboards:
       default:
         cert-manager:
@@ -97,6 +112,7 @@ spec:
           # TODO: replace with official Ceph dashboard once merged
           url: https://raw.githubusercontent.com/Javlopez/ceph/b8ff26e309075c3fe8c0a5ae47adc145dcbbf6d6/monitoring/ceph-mixin/dashboards_out/ceph-cluster.json
           datasource: Prometheus
+
     sidecar:
       dashboards:
         enabled: true
