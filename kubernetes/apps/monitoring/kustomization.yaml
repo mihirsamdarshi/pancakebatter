@@ -4,7 +4,6 @@ kind: Kustomization
 resources:
   - ./namespace.yaml
   - ./arrs/ks.yaml
-  - ./goldilocks/ks.yaml
   - ./grafana/ks.yaml
   - ./graphite-exporter/ks.yaml
   - ./kube-prometheus-stack/ks.yaml
