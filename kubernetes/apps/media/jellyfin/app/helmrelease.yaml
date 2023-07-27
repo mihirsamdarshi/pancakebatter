@@ -122,3 +122,4 @@ spec:
 
     podAnnotations:
       backup.velero.io/backup-volumes: config
+      backup.velero.io/backup-volumes-excludes: truenas-media-movies,truenas-media-tv

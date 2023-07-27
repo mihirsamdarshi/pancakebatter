@@ -106,3 +106,4 @@ spec:
 
     podAnnotations:
       setGateway: "true"
+      backup.velero.io/backup-volumes-excludes: truenas-data-all
