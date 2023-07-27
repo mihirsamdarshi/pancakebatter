@@ -29,6 +29,15 @@ spec:
     # initContainers to use DNS before the VXLAN is up), set to "ClusterFirst"
     DNS: 172.16.1.1
 
+    publicPorts:
+      - IP: 10
+        hostname: qbittorrent-0
+        ports:
+          - port: 53170
+            type: udp
+          - port: 53170
+            type: tcp
+
     routed_namespaces:
       - downloads
 
