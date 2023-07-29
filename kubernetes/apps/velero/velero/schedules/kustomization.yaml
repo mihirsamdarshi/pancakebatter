@@ -4,3 +4,9 @@ kind: Kustomization
 namespace: velero
 resources:
   - ./schedules.yaml
+configMapGenerator:
+  - name: velero-resource-policy
+    namespace: velero
+    behavior: create
+    files:
+      - ./config/volumePolicies.yaml
