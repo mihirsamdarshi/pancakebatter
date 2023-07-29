@@ -1,0 +1,72 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.devbu.io/helm.toolkit.fluxcd.io/helmrelease_v2beta1.json
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: unpackerr
+  namespace: downloads
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: app-template
+      version: 1.5.1
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s
+        namespace: flux-system
+  maxHistory: 3
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  dependsOn:
+    - name: sonarr
+      namespace: downloads
+    - name: radarr
+      namespace: downloads
+  values:
+    image:
+      repository: ghcr.io/onedr0p/unpackerr
+      tag: 0.11.2@sha256:96386a365fe63a5d254a79ecc9781d72e1efac00ae6391794e0c2218de69ff62
+    env:
+      UN_SONARR_0_URL: http://sonarr:8080
+      UN_SONARR_0_PATHS_0: /data/downloads/completed/tv
+      UN_RADARR_0_URL: http://radarr:8080
+      UN_RADARR_0_PATHS_0: /data/downloads/completed/movies
+    envFrom:
+      - secretRef:
+          name: unpackerr-secret
+
+    service:
+      main:
+        enabled: false
+
+    podSecurityContext:
+      runAsUser: 568
+      runAsGroup: 568
+      fsGroup: 568
+      fsGroupChangePolicy: "OnRootMismatch"
+
+    persistence:
+      media:
+        enabled: true
+        existingClaim: truenas-data-all
+        mountPath: /data
+
+    podAnnotations:
+      secret.reloader.stakater.com/reload: unpackerr-secret
+
+    resources:
+      requests:
+        cpu: 10m
+        memory: 25Mi
+      limits:
+        memory: 1000Mi
+        cpu: 1000m
