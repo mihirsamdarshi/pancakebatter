@@ -38,7 +38,7 @@ spec:
             - name: PORT
               value: "9707"
             - name: URL
-              value: "https://ronarr.downloads.svc.cluster.local"
+              value: "http://sonarr.downloads.svc.cluster.local:8080"
             - name: APIKEY
               valueFrom:
                 secretKeyRef:
