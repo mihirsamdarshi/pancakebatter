@@ -14,9 +14,6 @@ spec:
       - media
       - downloads
     ttl: 120h
-    resourcePolicy:
-      kind: ConfigMap
-      name: velero-resource-policy
 ---
 apiVersion: velero.io/v1
 kind: Schedule

@@ -4,13 +4,3 @@ kind: Kustomization
 namespace: velero
 resources:
   - ./schedules.yaml
-configMapGenerator:
-  - name: velero-resource-policy
-    namespace: velero
-    behavior: create
-    files:
-      - ./config/volumePolicies.yaml
-generatorOptions:
-  disableNameSuffixHash: true
-  annotations:
-    kustomize.toolkit.fluxcd.io/substitute: disabled
