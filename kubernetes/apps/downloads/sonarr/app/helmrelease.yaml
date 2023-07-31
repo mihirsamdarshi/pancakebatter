@@ -84,6 +84,7 @@ spec:
         mountPath: /data
     podAnnotations:
       secret.reloader.stakater.com/reload: sonarr-secret
+      backup.velero.io/backup-volumes-excludes: media
     resources:
       requests:
         cpu: 500m

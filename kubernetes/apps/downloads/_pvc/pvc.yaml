@@ -20,8 +20,6 @@ kind: PersistentVolumeClaim
 metadata:
   name: truenas-data-all
   namespace: downloads
-  labels:
-    velero.io/exclude-from-backup: "true"
 spec:
   accessModes:
     - ReadWriteMany
