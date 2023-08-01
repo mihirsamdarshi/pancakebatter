@@ -30,8 +30,8 @@ spec:
       namespace: rook-ceph
   values:
     image:
-      repository: docker.io/jellyfin/jellyfin
-      tag: 10.8.10
+      repository: ghcr.io/mihirsamdarshi/homelab/jellyfin
+      tag: latest
 
     env:
       NVIDIA_VISIBLE_DEVICES: "all"
