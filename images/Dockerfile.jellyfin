@@ -1,0 +1,6 @@
+FROM lscr.io/linuxserver/jellyfin:latest
+
+RUN apt-get update \
+    && apt-get install -o DPkg::Options::="--force-confnew" -y  \
+      libnvidia-compute-525-server libnvidia-decode-525-server libnvidia-encode-525-server \
+    && rm -rf /var/lib/apt/lists/*
