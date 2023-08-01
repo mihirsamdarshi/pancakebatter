@@ -119,6 +119,9 @@ spec:
       runAsGroup: 568
       fsGroup: 568
       fsGroupChangePolicy: "OnRootMismatch"
+      supplementalGroups:
+        - 44
+        - 1000
 
     podAnnotations:
       backup.velero.io/backup-volumes: config
