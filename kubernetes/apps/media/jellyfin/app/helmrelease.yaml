@@ -28,6 +28,8 @@ spec:
   dependsOn:
     - name: rook-ceph-cluster
       namespace: rook-ceph
+    - name: nvidia-gpu-operator
+      namespace: kube-system
   values:
     image:
       repository: ghcr.io/mihirsamdarshi/homelab/jellyfin
