@@ -6,3 +6,6 @@ resources:
   - ./helmrelease.yaml
   - ./networkpolicy.yaml
   - ./secret.sops.yaml
+  - ./helmrelease_protonvpn.yaml
+  - ./secret_protonvpn.sops.yaml
+  - ./volume.yaml

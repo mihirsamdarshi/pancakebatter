@@ -2,7 +2,7 @@
 apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
-  name: downloads-gateway
+  name: downloads-gateway-protonvpn
   namespace: vpn
 spec:
   interval: 30m
@@ -15,6 +15,27 @@ spec:
         kind: HelmRepository
         name: angelnu
         namespace: flux-system
+  postRenderers:
+    - kustomize:
+        patches:
+          - patch: |-
+              $patch: merge
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: downloads-gateway-protonvpn-pod-gateway
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: gluetun
+                        volumeMounts:
+                          - name: shared-port
+                            mountPath: /var/run/shared_port
+                    volumes:
+                      - name: shared-port
+                        persistentVolumeClaim:
+                          claimName: pod-gateway-port-forward
 
   values:
     image:
@@ -22,21 +43,12 @@ spec:
       repository: ghcr.io/bjw-s/pod-gateway
       # -- image tag of the gateway and inserted helper containers
       # renovate: datasource=docker imageName=ghcr.io/bjw-s/pod-gateway
-      tag: dev@sha256:3a59e65e26e09cc9d0c21ed14fbf31cebe4b08752d7157b0934a4662e54a2639
+      tag: dev@sha256:cb3644a1e8a42b00537c8f9a265bb708a7d43b3382d82f40174bba5eea036449
 
     # -- The DNSPolicy to apply to the POD. Only when set to "None" will the
     # DNS value above apply. To avoid altering POD DNS (i.e., to allow
     # initContainers to use DNS before the VXLAN is up), set to "ClusterFirst"
-    DNS: 172.16.1.1
-
-    publicPorts:
-      - IP: 10
-        hostname: qbittorrent-0
-        ports:
-          - port: 53170
-            type: udp
-          - port: 53170
-            type: tcp
+    DNS: 172.16.10.1
 
     routed_namespaces:
       - downloads
@@ -49,20 +61,12 @@ spec:
       # This is needed, for example, in case your CNI does
       # not add a non-default rule for the K8S addresses (Flannel does).
       NOT_ROUTED_TO_GATEWAY_CIDRS: "10.42.0.0/16 10.43.0.0/16 192.168.0.0/16"
-
       # -- Vxlan ID to use
-      VXLAN_ID: 42
+      VXLAN_ID: 43
       # -- VXLAN needs an /24 IP range not conflicting with K8S and local IP ranges
-      VXLAN_IP_NETWORK: 172.16.1
+      VXLAN_IP_NETWORK: 172.16.10
       # -- Keep a range of IPs for static assignment in nat.conf
       VXLAN_GATEWAY_FIRST_DYNAMIC_IP: 20
-
-      # -- If using a VPN, interface name created by it
-      VPN_INTERFACE: wg0
-      # -- Prevent non VPN traffic to leave the gateway
-      VPN_BLOCK_OTHER_TRAFFIC: true
-      # -- If VPN_BLOCK_OTHER_TRAFFIC is true, allow VPN traffic over this port
-      VPN_TRAFFIC_PORT: "51820"
       # -- Traffic to these IPs will be sent through the K8S gateway
       VPN_LOCAL_CIDRS: "10.42.0.0/16 10.43.0.0/16 192.168.0.0/16"
       # -- DNS queries to these domains will be resolved by K8S DNS instead of
@@ -79,19 +83,19 @@ spec:
         gluetun:
           image:
             repository: ghcr.io/qdm12/gluetun
-            tag: v3.35.0@sha256:a98d1ec99e09a1b806aff7f0c3d8a133a8ede7d3d7a250b62029a39a61f01525
+            tag: latest@sha256:56af8a2476c2ff57c897fd11d59771d0fc4b9fcc3c2697efaceb66c5aad75662
 
         env:
-          VPN_SERVICE_PROVIDER: "mullvad"
-          VPN_TYPE: "wireguard"
-          VPN_INTERFACE: "wg0"
-          VPN_ENDPOINT_PORT: "51820"
+          VPN_SERVICE_PROVIDER: custom
+          VPN_TYPE: wireguard
+          VPN_PORT_FORWARDING_STATUS_FILE: /var/run/shared_port/port
+          VPN_INTERFACE: wg0
           UPDATER_PERIOD: "24h"
           FIREWALL: "off"
           DOT: "off"
         envFrom:
           - secretRef:
-              name: pod-gateway-secret
+              name: pod-gateway-secret-protonvpn
 
         securityContext:
           capabilities:
@@ -107,7 +111,7 @@ spec:
 
     podAnnotations:
       configmap.reloader.stakater.com/reload: downloads-gateway-pod-gateway
-      secret.reloader.stakater.com/reload: pod-gateway-secret
+      secret.reloader.stakater.com/reload: pod-gateway-secret-protonvpn
 
     webhook:
       image:
@@ -130,7 +134,7 @@ spec:
       # is deployed to, or you will get locking issues.
       namespaceSelector:
         type: label
-        label: "routed-gateway"
+        label: "routed-gateway-protonvpn"
 
       # -- default behviour for new PODs in the evaluated namespace
       gatewayDefault: true
