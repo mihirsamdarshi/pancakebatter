@@ -2,15 +2,15 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: pod-gateway-port-forward
+  name: &name pod-gateway-port-forward
   namespace: vpn
   labels:
-    app.kubernetes.io/name: &name pod-gateway-protonvpn
-    app.kubernetes.io/instance: *name
+    app.kubernetes.io/name: *name
+    app.kubernetes.io/instance: downloads-gateway
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
   resources:
     requests:
       storage: 50Mi
-  storageClassName: ceph-block
+  storageClassName: ceph-filesystem
