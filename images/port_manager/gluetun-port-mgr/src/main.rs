@@ -276,6 +276,10 @@ fn main() -> Result<()> {
             .add_root(port_forwarded.clone(), RecursiveMode::NonRecursive);
 
         info!("{port_forwarded:?} exists, watching for changes");
+
+        // update the port in the application on startup to ensure it's correct
+        update_port(&agent, &qbit, &port_forwarded)?;
+
         // loop to handle debounced events, handle error cases
         if receive_msg_loop(&agent, &port_forwarded, &qbit, rx).is_err() {
             // if we get an error, and the last failure was more than 24 hours ago, reset
