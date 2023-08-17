@@ -12,7 +12,7 @@ env_logger = "0.10.0"
 cookie_store = "0.19.1"
 crossbeam-channel = "0.5.8"
 ctrlc = { version = "3.4.0", features = ["termination"] }
-log = "0.4.19"
+log = "0.4.20"
 notify = "6.0.1"
 notify-debouncer-full = "0.2.0"
 serde_json = "1.0.104"
