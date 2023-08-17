@@ -29,7 +29,7 @@ spec:
                   spec:
                     containers:
                       - name: gluetun-port-manager
-                        image: ghcr.io/mihirsamdarshi/pancakebatter/gtpm:0.1.1
+                        image: ghcr.io/mihirsamdarshi/pancakebatter/gtpm:0.3.0
                         imagePullPolicy: Always
                         volumeMounts:
                           - name: shared-port
