@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.3-labs
 FROM rust:1.71.1-alpine3.18 as builder
 RUN apk add --no-cache musl-dev
 
@@ -6,10 +7,20 @@ RUN apk add --no-cache musl-dev
 # https://github.com/rust-lang/pkg-config-rs/blob/54325785816695df031cef3b26b6a9a203bbc01b/src/lib.rs#L613
 ENV SYSROOT=/dummy
 
+RUN cargo new --bin /app
+COPY gluetun-port-mgr/Cargo.toml gluetun-port-mgr/Cargo.lock /app/
 WORKDIR /app
-COPY gluetun-port-mgr .
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo build --release
+# This step compiles only our dependencies and saves them in a layer. This is the most impactful time savings
+# Note the use of --mount=type=cache. On subsequent runs, we'll have the crates already downloaded
+RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
+
+COPY gluetun-port-mgr/src/ src/
+RUN --mount=type=cache,target=/usr/local/cargo/registry <<EOF
+  set -e
+  # update timestamps to force a new build
+  touch /app/src/main.rs
+  cargo build --release
+EOF
 
 FROM alpine as runner
 COPY --from=builder /app/target/release/gluetun-port-mgr ./gluetun-port-mgr
