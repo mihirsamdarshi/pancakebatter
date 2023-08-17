@@ -1,22 +1,25 @@
 [package]
 name = "gluetun-port-mgr"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+# error handling
 anyhow = { version = "1.0.75" }
-env_logger = "0.10.0"
-cookie_store = "0.19.1"
+# used for termination handling
 crossbeam-channel = "0.5.8"
 ctrlc = { version = "3.4.0", features = ["termination"] }
+# logging
+simplelog = "0.12.1"
 log = "0.4.20"
+# file watching
 notify = "6.0.1"
 notify-debouncer-full = "0.2.0"
-serde_json = "1.0.105"
+# request handling
 ureq = { version = "2.7.1", features = ["cookies", "json", "tls"], default-features = false }
+cookie_store = "0.19.1" # used to store cookies from application login
+serde_json = "1.0.105"
 
 [profile.release]
 lto = true

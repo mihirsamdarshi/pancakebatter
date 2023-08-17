@@ -11,10 +11,10 @@ use std::{
 use anyhow::{anyhow, Result};
 use cookie_store::CookieStore;
 use crossbeam_channel::{bounded, select, Receiver};
-use env_logger::{Builder, Env};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, warn, LevelFilter};
 use notify::{RecursiveMode, Watcher};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult};
+use simplelog::{ColorChoice, ConfigBuilder, TermLogger, TerminalMode};
 use ureq::{self, AgentBuilder, Error};
 
 /// Create a channel to receive Ctrl-C events
@@ -38,24 +38,24 @@ struct AppDetails {
 impl AppDetails {
     /// Create a new QbitDetails struct from environment variables
     fn new() -> Self {
-        let user = std::env::var("APPLICATION_USER")
-            .expect("APPLICATION_USER environment variable must be set");
-        let password = std::env::var("APPLICATION_PASSWORD")
-            .expect("APPLICATION_PASSWORD environment variable must be set");
-        let host = std::env::var("APPLICATION_HOST")
-            .expect("APPLICATION_HOST environment variable must be set");
+        let user = std::env::var("GTPM_APPLICATION_USER")
+            .expect("GTPM_APPLICATION_USER environment variable must be set");
+        let password = std::env::var("GTPM_APPLICATION_PASSWORD")
+            .expect("GTPM_APPLICATION_PASSWORD environment variable must be set");
+        let host = std::env::var("GTPM_APPLICATION_HOST")
+            .expect("GTPM_APPLICATION_HOST environment variable must be set");
 
-        let secure = std::env::var("QBITTORRENT_SECURE")
+        let secure = std::env::var("GTPM_APPLICATION_SECURE")
             .unwrap_or("".to_string())
             .trim()
             .is_empty()
             .not();
 
         let default_port = if secure { "443" } else { "80" };
-        let port: u16 = std::env::var("APPLICATION_PORT")
+        let port: u16 = std::env::var("GTPM_APPLICATION_PORT")
             .unwrap_or(default_port.into())
             .parse()
-            .expect("APPLICATION_PORT environment variable must be a number");
+            .expect("GTPM_APPLICATION_PORT environment variable must be a number");
 
         let url = format!(
             "{}://{}:{}",
@@ -120,7 +120,11 @@ fn process_line<'a>(
             new_port_number,
             vxlan_ip_network,
             ip,
-        )?;
+        )
+        .map_err(|e| {
+            error!("Failed to append new iptables rules: {e:?}");
+            e
+        })?;
         // Delete the old iptables rules
         delete_iptables_rules(
             port_type,
@@ -128,66 +132,21 @@ fn process_line<'a>(
             old_port_number,
             vxlan_ip_network,
             ip,
-        )?;
+        )
+        .map_err(|e| {
+            error!("Failed to delete iptables rules: {e:?}");
+            e
+        })?;
     }
 
     Ok(())
 }
 
-/// This Rust code is a wrapper around a Linux system command named iptables.
-/// The iptables command is used for setting up, maintaining, and inspecting the
-/// tables of IP packet filter rules in the Linux kernel. Here's a breakdown of
-/// the command and arguments:
-///
-/// #### NAT Pre-routing Command
-///
-/// * `Command::new("iptables")` is where the iptables command is specified.
-/// * .args(&[ ... ]) is a list of arguments or flags passed to the iptables
-///   command.
-/// * `iptables -t nat` specifies that we're dealing with Network Address
-///   Translation (NAT) rules.
-/// * `-A PREROUTING` specifies that the rule must be appended (-A) from the
-///   PREROUTING chain. The PREROUTING chain is where the packets will go when
-///   they just arrive at the network interface.
-/// * `-p port_type` specifies the protocol of the rule or of the packet to
-///   check.
-/// * `-i vpn_interface` specifies the name of an interface via which a packet
-///   is going to be received (-i for input)
-/// * `--dport old_port_number` specifies the destination port or port range
-///   specification (--dport for destination port)/ This is the port to which
-///   packets are sent.
-/// * `-j DNAT` specifies the target of the rule; i.e., what to do if the packet
-///   matches it. In this case, DNAT stands for Destination NAT.
-/// * `--to-destination &format!("{}.{}:{}", vxlan_ip_network, ip,
-///   old_port_number)` provides the new destination for the DNAT target, i.e.,
-///   where the packet will be redirected if it matches the rule.\
-///
-/// #### FORWARD Command
-///
-/// * `Command::new("iptables")` specifies the iptables command.
-/// * `.args(&[ ... ])` provides a list of arguments or flags to pass to the
-///   iptables command.
-/// * `-A FORWARD` indicates that a rule must be appended (-A) from the FORWARD
-///   chain. The FORWARD chain handles packets that are being routed through the
-///   current device.
-/// * `-p port_type` specifies the protocol of the rule or the packet to check.
-///   The value for the port_type variable is set earlier in the program.
-/// * `-d &format!("{}.{}", vxlan_ip_network, ip)` is specifying the network
-///   destination address to use with content from the vxlan_ip_network and ip
-///   variables.
-/// * `--dport old_port_number` specifies the destination port or port range
-///   specification. This is the port to which packets are sent. old_port_number
-///   would be determined elsewhere in the code.
-/// * `-m state` matches a state. This means the rule only applies to packets
-///   that match this state.
-/// * `--state NEW,ESTABLISHED,RELATED` specifies that the packet's connection
-///   tracking state should be one of the three: NEW (a new, not yet
-///   acknowledged packet), ESTABLISHED (an acknowledged connection), or RELATED
-///   (a packet that starts a new connection, but is associated with an existing
-///   connection).
-/// * `-j ACCEPT` specifies the target of the rule, in this case, ACCEPT. This
-///   means if a packet matches the rule, it will be accepted and won't be
-///   processed by any other rules in the chain.
+enum IptablesAction {
+    Append,
+    Delete,
+}
+
 fn append_iptables_rules(
     port_type: &str,
     vpn_interface: &str,
@@ -195,43 +154,33 @@ fn append_iptables_rules(
     vxlan_ip_network: &str,
     ip: &str,
 ) -> Result<()> {
-    Command::new("iptables")
-        .args(&[
-            "-t",
-            "nat",
-            "-A",
-            "PREROUTING",
-            "-p",
-            port_type,
-            "-i",
-            vpn_interface,
-            "--dport",
-            new_port_number.to_string().as_ref(),
-            "-j",
-            "DNAT",
-            "--to-destination",
-            &format!("{}.{}:{}", vxlan_ip_network, ip, new_port_number),
-        ])
-        .status()?;
+    manage_ip_tables(
+        IptablesAction::Append,
+        port_type,
+        vpn_interface,
+        new_port_number,
+        vxlan_ip_network,
+        ip,
+    )?;
 
-    Command::new("iptables")
-        .args(&[
-            "-A",
-            "FORWARD",
-            "-p",
-            port_type,
-            "-d",
-            &format!("{}.{}", vxlan_ip_network, ip),
-            "--dport",
-            new_port_number.to_string().as_ref(),
-            "-m",
-            "state",
-            "--state",
-            "NEW,ESTABLISHED,RELATED",
-            "-j",
-            "ACCEPT",
-        ])
-        .status()?;
+    Ok(())
+}
+
+fn delete_iptables_rules(
+    port_type: &str,
+    vpn_interface: &str,
+    old_port_number: &str,
+    vxlan_ip_network: &str,
+    ip: &str,
+) -> Result<()> {
+    manage_ip_tables(
+        IptablesAction::Delete,
+        port_type,
+        vpn_interface,
+        old_port_number,
+        vxlan_ip_network,
+        ip,
+    )?;
 
     Ok(())
 }
@@ -248,9 +197,9 @@ fn append_iptables_rules(
 ///   command.
 /// * `iptables -t nat` specifies that we're dealing with Network Address
 ///   Translation (NAT) rules.
-/// * `-D PREROUTING` specifies that the rule must be deleted (-D) from the
-///   PREROUTING chain. The PREROUTING chain is where the packets will go when
-///   they just arrive at the network interface.
+/// * `-A/-D PREROUTING` specifies that the rule must be appended (`-A`) or
+///   deleted (`-D`) from the PREROUTING chain. The PREROUTING chain is where
+///   the packets will go when they just arrive at the network interface.
 /// * `-p port_type` specifies the protocol of the rule or of the packet to
 ///   check.
 /// * `-i vpn_interface` specifies the name of an interface via which a packet
@@ -269,17 +218,16 @@ fn append_iptables_rules(
 /// * `Command::new("iptables")` specifies the iptables command.
 /// * `.args(&[ ... ])` provides a list of arguments or flags to pass to the
 ///   iptables command.
-/// * `-D FORWARD` indicates that a rule must be deleted (-D) from the FORWARD
-///   chain. The FORWARD chain handles packets that are being routed through the
-///   current device.
+/// * `-A/-D FORWARD` indicates that a rule must be appended (`-A`) or deleted
+///   (`-D`) from the FORWARD chain. The FORWARD chain handles packets that are
+///   being routed through the current device.
 /// * `-p port_type` specifies the protocol of the rule or the packet to check.
 ///   The value for the port_type variable is set earlier in the program.
 /// * `-d &format!("{}.{}", vxlan_ip_network, ip)` is specifying the network
 ///   destination address to use with content from the vxlan_ip_network and ip
 ///   variables.
-/// * `--dport old_port_number` specifies the destination port or port range
-///   specification. This is the port to which packets are sent. old_port_number
-///   would be determined elsewhere in the code.
+/// * `--dport port_number` specifies the destination port or port range
+///   specification. This is the port to which packets are sent.
 /// * `-m state` matches a state. This means the rule only applies to packets
 ///   that match this state.
 /// * `--state NEW,ESTABLISHED,RELATED` specifies that the packet's connection
@@ -290,42 +238,48 @@ fn append_iptables_rules(
 /// * `-j ACCEPT` specifies the target of the rule, in this case, ACCEPT. This
 ///   means if a packet matches the rule, it will be accepted and won't be
 ///   processed by any other rules in the chain.
-fn delete_iptables_rules(
+fn manage_ip_tables(
+    action: IptablesAction,
     port_type: &str,
     vpn_interface: &str,
-    old_port_number: &str,
+    port_number: &str,
     vxlan_ip_network: &str,
     ip: &str,
 ) -> Result<()> {
+    let action_flag = match action {
+        IptablesAction::Append => "-A",
+        IptablesAction::Delete => "-D",
+    };
+
     Command::new("iptables")
         .args(&[
             "-t",
             "nat",
-            "-D",
+            action_flag,
             "PREROUTING",
             "-p",
             port_type,
             "-i",
             vpn_interface,
             "--dport",
-            old_port_number,
+            port_number.to_string().as_ref(),
             "-j",
             "DNAT",
             "--to-destination",
-            &format!("{}.{}:{}", vxlan_ip_network, ip, old_port_number),
+            &format!("{}.{}:{}", vxlan_ip_network, ip, port_number),
         ])
-        .status()?;
+        .output()?;
 
     Command::new("iptables")
         .args(&[
-            "-D",
+            action_flag,
             "FORWARD",
             "-p",
             port_type,
             "-d",
             &format!("{}.{}", vxlan_ip_network, ip),
             "--dport",
-            old_port_number,
+            port_number.to_string().as_ref(),
             "-m",
             "state",
             "--state",
@@ -333,14 +287,18 @@ fn delete_iptables_rules(
             "-j",
             "ACCEPT",
         ])
-        .status()?;
+        .output()?;
 
     Ok(())
 }
 
 /// Update the iptables rules to reflect the new forwarded port
 fn update_ip_tables(new_port_number: &str) -> Result<()> {
-    let settings = get_settings("/config/settings.conf")?;
+    info!("Updating iptables rules");
+    let settings = get_settings("/config/settings.sh").map_err(|e| {
+        error!("Failed to get settings file");
+        e
+    })?;
 
     // read the VXLAN IP network from the Pod Gateway settings file, or use the
     // default 172.16.0
@@ -356,14 +314,22 @@ fn update_ip_tables(new_port_number: &str) -> Result<()> {
         .map(String::as_str)
         .unwrap_or_else(|| "tun0");
 
+    debug!("VXLAN IP Network: {}", vxlan_ip_network);
+    debug!("VPN Interface: {}", vpn_interface);
+
     // open the port file we saved the last port number to so we can compare it to
     // the new port number
     let mut old_port_file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
-        .open("/tmp/last_port_forward")?;
+        .open("/tmp/last_port_forward")
+        .map_err(|e| {
+            error!("Failed to open last port forward file");
+            e
+        })?;
 
+    // read the old port number from the file
     let mut old_port_number = String::new();
     old_port_file.read_to_string(&mut old_port_number)?;
     let old_port_number = old_port_number.trim();
@@ -386,11 +352,19 @@ fn update_ip_tables(new_port_number: &str) -> Result<()> {
             new_port_number,
             vxlan_ip_network,
             vpn_interface,
-        )?;
+        )
+        .map_err(|e| {
+            error!(
+                "Failed to process line in nat.conf: {e:?}.\nLine: {line}, Old Port: \
+                 {old_port_number}, New Port: {new_port_number}, VXLAN IP Network: \
+                 {vxlan_ip_network}, VPN Interface: {vpn_interface}"
+            );
+            e
+        })?;
     }
 
     write!(old_port_file, "{}", new_port_number)?;
-
+    info!("Successfully updated iptables rules");
     Ok(())
 }
 
@@ -493,7 +467,7 @@ fn receive_msg_loop(
 trait AuthCookieJar {
     type Output;
     fn new_with_cookie_jar<P: AsRef<Path>>(
-        qbit: &AppDetails,
+        app: &AppDetails,
         cookie_file: P,
     ) -> Result<Self::Output>;
 }
@@ -573,8 +547,23 @@ impl AuthCookieJar for ureq::Agent {
 }
 
 fn main() -> Result<()> {
-    Builder::from_env(Env::default().default_filter_or("debug")).init();
-    eprintln!("Starting gluetun-port-mgr");
+    unsafe {
+        TermLogger::init(
+            LevelFilter::Debug,
+            ConfigBuilder::new()
+                .set_time_offset_to_local()
+                .map_err(|e| {
+                    eprintln!("Failed to set time offset to local");
+                    e
+                })
+                .unwrap_unchecked()
+                .build(),
+            TerminalMode::Stderr,
+            ColorChoice::Auto,
+        )
+        .unwrap();
+    }
+    info!("Starting gluetun-port-mgr");
 
     let port_forward_path =
         std::env::var("PORT_CHANGE_FILE").expect("PORT_CHANGE_FILE env var must be set");
@@ -618,12 +607,17 @@ fn main() -> Result<()> {
         // setup debouncer
         let (tx, rx) = bounded(100);
         // no specific tickrate, max debounce time 2 seconds
-        let mut debouncer = new_debouncer(Duration::from_secs(30), None, tx)
-            .expect("failed to create notify event debouncer");
+        let mut debouncer = new_debouncer(Duration::from_secs(30), None, tx).map_err(|e| {
+            error!("Failed to create notify event debouncer: {e:?}");
+            e
+        })?;
         debouncer
             .watcher()
             .watch(&*port_forwarded, RecursiveMode::NonRecursive)
-            .expect("Failed to create watcher for port forwarded file");
+            .map_err(|e| {
+                error!("Failed to create watcher for port forwarded file: {e:?}");
+                e
+            })?;
         debouncer
             .cache()
             .add_root(port_forwarded.clone(), RecursiveMode::NonRecursive);
@@ -631,7 +625,10 @@ fn main() -> Result<()> {
         info!("{port_forwarded:?} exists, watching for changes");
 
         // update the port in the application on startup to ensure it's correct
-        update_port(&agent, &qbit, &port_forwarded)?;
+        update_port(&agent, &qbit, &port_forwarded).map_err(|e| {
+            error!("Failed to update port on startup: {e:?}");
+            e
+        })?;
 
         // loop to handle debounced events, handle error cases
         if receive_msg_loop(&agent, &port_forwarded, &qbit, rx).is_err() {
