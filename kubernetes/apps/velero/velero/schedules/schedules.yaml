@@ -13,6 +13,7 @@ spec:
     includedNamespaces:
       - media
       - downloads
+      - home
     ttl: 120h
 ---
 apiVersion: velero.io/v1

@@ -1,0 +1,111 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.devbu.io/helm.toolkit.fluxcd.io/helmrelease_v2beta1.json
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: home-assistant
+  namespace: home
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: app-template
+      version: 1.5.1
+      sourceRef:
+        kind: HelmRepository
+        name: bjw-s-charts
+        namespace: flux-system
+  install:
+    createNamespace: true
+    remediation:
+      retries: 5
+  upgrade:
+    remediation:
+      retries: 5
+  values:
+    image:
+      repository: ghcr.io/onedr0p/home-assistant
+      tag: 2023.8.2@sha256:ee7da9c68d9bfdbc4da8c907e454275ebe79e99f4fc373a02be8c56eed76f4f5
+
+    controller:
+      type: statefulset
+
+    service:
+      main:
+        ports:
+          http:
+            port: 8123
+
+    persistence:
+      config:
+        enabled: true
+        existingClaim: home-assistant-config
+    ingress:
+      main:
+        annotations:
+          hajimari.io/enable: "true"
+          hajimari.io/icon: "home-assistant"
+        enabled: true
+        ingressClassName: nginx
+        hosts:
+          - host: &host "hass.${SECRET_DOMAIN_LOCAL}"
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - hosts:
+              - *host
+    probes:
+      liveness:
+        enabled: false
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
+
+    podSecurityContext:
+      runAsUser: 568
+      runAsGroup: 568
+      fsGroup: 568
+      fsGroupChangePolicy: "OnRootMismatch"
+      supplementalGroups:
+        - 100
+    addons:
+      codeserver:
+        enabled: true
+        image:
+          repository: codercom/code-server
+          tag: 4.16.1
+        workingDir: "/config"
+        args:
+          - --user-data-dir
+          - "/config/.vscode"
+          - --auth
+          - "none"
+        ingress:
+          enabled: true
+          ingressClassName: nginx
+          hosts:
+            - host: &codehost hass-config.${SECRET_DOMAIN_LOCAL}
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - hosts:
+                - *codehost
+        resources:
+          requests:
+            cpu: 10m
+            memory: 145M
+          limits:
+            cpu: 17m
+            memory: 262M
+        volumeMounts:
+          - name: config
+            mountPath: /config
+    resources:
+      requests:
+        cpu: 22m
+        memory: 512M
+      limits:
+        memory: 819M
