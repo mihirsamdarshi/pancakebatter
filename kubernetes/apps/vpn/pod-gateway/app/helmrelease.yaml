@@ -28,6 +28,20 @@ spec:
                 template:
                   spec:
                     containers:
+                      - name: gluetun-port-manager
+                        image: ghcr.io/mihirsamdarshi/pancakebatter/gtpm:0.1.1
+                        imagePullPolicy: Always
+                        volumeMounts:
+                          - name: shared-port
+                            mountPath: /var/run/shared_port
+                          - name: config
+                            mountPath: /config
+                        env:
+                          - name: PORT_CHANGE_FILE
+                            value: /var/run/shared_port/port
+                        envFrom:
+                          - secretRef:
+                              name: pod-gateway-secret
                       - name: gluetun
                         volumeMounts:
                           - name: shared-port
