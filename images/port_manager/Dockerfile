@@ -22,7 +22,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry <<EOF
   cargo build --release
 EOF
 
-FROM alpine as runner
+FROM alpine:3.18.3 as runner
+
+RUN apk add --no-cache iptables
+
 COPY --from=builder /app/target/release/gluetun-port-mgr ./gluetun-port-mgr
 CMD ["./gluetun-port-mgr"]
 

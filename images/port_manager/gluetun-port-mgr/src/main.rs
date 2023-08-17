@@ -251,7 +251,7 @@ fn manage_ip_tables(
         IptablesAction::Delete => "-D",
     };
 
-    Command::new("iptables")
+    Command::new("/sbin/iptables")
         .args(&[
             "-t",
             "nat",
@@ -295,8 +295,11 @@ fn manage_ip_tables(
 /// Update the iptables rules to reflect the new forwarded port
 fn update_ip_tables(new_port_number: &str) -> Result<()> {
     info!("Updating iptables rules");
-    let settings = get_settings("/config/settings.sh").map_err(|e| {
-        error!("Failed to get settings file");
+    let settings_file_path =
+        std::env::var("GTPM_SETTINGS_FILE").unwrap_or("/config/settings.sh".to_string());
+
+    let settings = get_settings(settings_file_path).map_err(|e| {
+        error!("Failed to get settings file: {e:?}");
         e
     })?;
 
@@ -325,7 +328,7 @@ fn update_ip_tables(new_port_number: &str) -> Result<()> {
         .create(true)
         .open("/tmp/last_port_forward")
         .map_err(|e| {
-            error!("Failed to open last port forward file");
+            error!("Failed to open last port forward file, {e:?}");
             e
         })?;
 
@@ -339,7 +342,10 @@ fn update_ip_tables(new_port_number: &str) -> Result<()> {
         return Ok(());
     }
 
-    let nat_conf_file = File::open(&"/config/nat.conf")?;
+    let nat_conf_file =
+        std::env::var("GTPM_NAT_CONF_FILE").unwrap_or("/config/nat.conf".to_string());
+
+    let nat_conf_file = File::open(nat_conf_file)?;
     let nat_conf_reader = BufReader::new(nat_conf_file);
     for line in nat_conf_reader.lines() {
         let line = line.expect("Failed to read line in nat.conf");
@@ -354,10 +360,10 @@ fn update_ip_tables(new_port_number: &str) -> Result<()> {
             vpn_interface,
         )
         .map_err(|e| {
+            error!("Failed to process line in nat.conf: {e:?}.");
             error!(
-                "Failed to process line in nat.conf: {e:?}.\nLine: {line}, Old Port: \
-                 {old_port_number}, New Port: {new_port_number}, VXLAN IP Network: \
-                 {vxlan_ip_network}, VPN Interface: {vpn_interface}"
+                "Line: {line}, Old Port: {old_port_number}, New Port: {new_port_number}, VXLAN IP \
+                 Network: {vxlan_ip_network}, VPN Interface: {vpn_interface}"
             );
             e
         })?;
