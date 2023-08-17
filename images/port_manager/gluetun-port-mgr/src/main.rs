@@ -1,8 +1,10 @@
 use std::{
-    fs::File,
-    io::{BufReader, ErrorKind, Read},
+    collections::HashMap,
+    fs::{File, OpenOptions},
+    io::{BufRead, BufReader, ErrorKind, Read, Write},
     ops::Not,
     path::{Path, PathBuf},
+    process::Command,
     time::Duration,
 };
 
@@ -70,6 +72,328 @@ impl AppDetails {
     }
 }
 
+fn get_settings<P: AsRef<Path>>(settings_path: P) -> Result<HashMap<String, String>> {
+    let settings_file = File::open(settings_path)?;
+    // parse this dotenv file into a HashMap
+    let settings_reader = BufReader::new(settings_file);
+    let mut settings: HashMap<String, String> = HashMap::new();
+    for line in settings_reader.lines() {
+        let line = line?;
+        if line.starts_with('#') {
+            continue;
+        }
+        let cols: Vec<&str> = line.split('=').collect();
+        let key = cols[0];
+        let value = cols[1];
+        settings.insert(key.to_string(), value.to_string());
+    }
+    Ok(settings)
+}
+
+// Process a single line in the conf file
+fn process_line<'a>(
+    line: &'a str,
+    mut old_port_number: &'a str,
+    new_port_number: &str,
+    vpn_interface: &str,
+    vxlan_ip_network: &str,
+) -> Result<()> {
+    let cols: Vec<&str> = line.split_whitespace().collect();
+    let (name, ip, ports) = (cols[0], cols[1], cols[2]);
+
+    let port_strings: Vec<&str> = ports.split(',').collect();
+    for port_string in port_strings {
+        let port_parts: Vec<&str> = port_string.split(':').collect();
+        let (port_type, port_number) = (port_parts[0], port_parts[1]);
+
+        // if we didn't read a port number, use the port number that was placed there by
+        // the Pod Gateway
+        if old_port_number.is_empty() {
+            old_port_number = port_number;
+        }
+        debug!("IP: {ip} , NAME: {name} , PORT: {port_number} , TYPE: {port_type}");
+
+        // Add the new iptables rules
+        append_iptables_rules(
+            port_type,
+            vpn_interface,
+            new_port_number,
+            vxlan_ip_network,
+            ip,
+        )?;
+        // Delete the old iptables rules
+        delete_iptables_rules(
+            port_type,
+            vpn_interface,
+            old_port_number,
+            vxlan_ip_network,
+            ip,
+        )?;
+    }
+
+    Ok(())
+}
+
+/// This Rust code is a wrapper around a Linux system command named iptables.
+/// The iptables command is used for setting up, maintaining, and inspecting the
+/// tables of IP packet filter rules in the Linux kernel. Here's a breakdown of
+/// the command and arguments:
+///
+/// #### NAT Pre-routing Command
+///
+/// * `Command::new("iptables")` is where the iptables command is specified.
+/// * .args(&[ ... ]) is a list of arguments or flags passed to the iptables
+///   command.
+/// * `iptables -t nat` specifies that we're dealing with Network Address
+///   Translation (NAT) rules.
+/// * `-A PREROUTING` specifies that the rule must be appended (-A) from the
+///   PREROUTING chain. The PREROUTING chain is where the packets will go when
+///   they just arrive at the network interface.
+/// * `-p port_type` specifies the protocol of the rule or of the packet to
+///   check.
+/// * `-i vpn_interface` specifies the name of an interface via which a packet
+///   is going to be received (-i for input)
+/// * `--dport old_port_number` specifies the destination port or port range
+///   specification (--dport for destination port)/ This is the port to which
+///   packets are sent.
+/// * `-j DNAT` specifies the target of the rule; i.e., what to do if the packet
+///   matches it. In this case, DNAT stands for Destination NAT.
+/// * `--to-destination &format!("{}.{}:{}", vxlan_ip_network, ip,
+///   old_port_number)` provides the new destination for the DNAT target, i.e.,
+///   where the packet will be redirected if it matches the rule.\
+///
+/// #### FORWARD Command
+///
+/// * `Command::new("iptables")` specifies the iptables command.
+/// * `.args(&[ ... ])` provides a list of arguments or flags to pass to the
+///   iptables command.
+/// * `-A FORWARD` indicates that a rule must be appended (-A) from the FORWARD
+///   chain. The FORWARD chain handles packets that are being routed through the
+///   current device.
+/// * `-p port_type` specifies the protocol of the rule or the packet to check.
+///   The value for the port_type variable is set earlier in the program.
+/// * `-d &format!("{}.{}", vxlan_ip_network, ip)` is specifying the network
+///   destination address to use with content from the vxlan_ip_network and ip
+///   variables.
+/// * `--dport old_port_number` specifies the destination port or port range
+///   specification. This is the port to which packets are sent. old_port_number
+///   would be determined elsewhere in the code.
+/// * `-m state` matches a state. This means the rule only applies to packets
+///   that match this state.
+/// * `--state NEW,ESTABLISHED,RELATED` specifies that the packet's connection
+///   tracking state should be one of the three: NEW (a new, not yet
+///   acknowledged packet), ESTABLISHED (an acknowledged connection), or RELATED
+///   (a packet that starts a new connection, but is associated with an existing
+///   connection).
+/// * `-j ACCEPT` specifies the target of the rule, in this case, ACCEPT. This
+///   means if a packet matches the rule, it will be accepted and won't be
+///   processed by any other rules in the chain.
+fn append_iptables_rules(
+    port_type: &str,
+    vpn_interface: &str,
+    new_port_number: &str,
+    vxlan_ip_network: &str,
+    ip: &str,
+) -> Result<()> {
+    Command::new("iptables")
+        .args(&[
+            "-t",
+            "nat",
+            "-A",
+            "PREROUTING",
+            "-p",
+            port_type,
+            "-i",
+            vpn_interface,
+            "--dport",
+            new_port_number.to_string().as_ref(),
+            "-j",
+            "DNAT",
+            "--to-destination",
+            &format!("{}.{}:{}", vxlan_ip_network, ip, new_port_number),
+        ])
+        .status()?;
+
+    Command::new("iptables")
+        .args(&[
+            "-A",
+            "FORWARD",
+            "-p",
+            port_type,
+            "-d",
+            &format!("{}.{}", vxlan_ip_network, ip),
+            "--dport",
+            new_port_number.to_string().as_ref(),
+            "-m",
+            "state",
+            "--state",
+            "NEW,ESTABLISHED,RELATED",
+            "-j",
+            "ACCEPT",
+        ])
+        .status()?;
+
+    Ok(())
+}
+
+/// This Rust code is a wrapper around a Linux system command named iptables.
+/// The iptables command is used for setting up, maintaining, and inspecting the
+/// tables of IP packet filter rules in the Linux kernel. Here's a breakdown of
+/// the command and arguments:
+///
+/// #### NAT Pre-routing Command
+///
+/// * `Command::new("iptables")` is where the iptables command is specified.
+/// * .args(&[ ... ]) is a list of arguments or flags passed to the iptables
+///   command.
+/// * `iptables -t nat` specifies that we're dealing with Network Address
+///   Translation (NAT) rules.
+/// * `-D PREROUTING` specifies that the rule must be deleted (-D) from the
+///   PREROUTING chain. The PREROUTING chain is where the packets will go when
+///   they just arrive at the network interface.
+/// * `-p port_type` specifies the protocol of the rule or of the packet to
+///   check.
+/// * `-i vpn_interface` specifies the name of an interface via which a packet
+///   is going to be received (-i for input)
+/// * `--dport old_port_number` specifies the destination port or port range
+///   specification (--dport for destination port)/ This is the port to which
+///   packets are sent.
+/// * `-j DNAT` specifies the target of the rule; i.e., what to do if the packet
+///   matches it. In this case, DNAT stands for Destination NAT.
+/// * `--to-destination &format!("{}.{}:{}", vxlan_ip_network, ip,
+///   old_port_number)` provides the new destination for the DNAT target, i.e.,
+///   where the packet will be redirected if it matches the rule.\
+///
+/// #### FORWARD Command
+///
+/// * `Command::new("iptables")` specifies the iptables command.
+/// * `.args(&[ ... ])` provides a list of arguments or flags to pass to the
+///   iptables command.
+/// * `-D FORWARD` indicates that a rule must be deleted (-D) from the FORWARD
+///   chain. The FORWARD chain handles packets that are being routed through the
+///   current device.
+/// * `-p port_type` specifies the protocol of the rule or the packet to check.
+///   The value for the port_type variable is set earlier in the program.
+/// * `-d &format!("{}.{}", vxlan_ip_network, ip)` is specifying the network
+///   destination address to use with content from the vxlan_ip_network and ip
+///   variables.
+/// * `--dport old_port_number` specifies the destination port or port range
+///   specification. This is the port to which packets are sent. old_port_number
+///   would be determined elsewhere in the code.
+/// * `-m state` matches a state. This means the rule only applies to packets
+///   that match this state.
+/// * `--state NEW,ESTABLISHED,RELATED` specifies that the packet's connection
+///   tracking state should be one of the three: NEW (a new, not yet
+///   acknowledged packet), ESTABLISHED (an acknowledged connection), or RELATED
+///   (a packet that starts a new connection, but is associated with an existing
+///   connection).
+/// * `-j ACCEPT` specifies the target of the rule, in this case, ACCEPT. This
+///   means if a packet matches the rule, it will be accepted and won't be
+///   processed by any other rules in the chain.
+fn delete_iptables_rules(
+    port_type: &str,
+    vpn_interface: &str,
+    old_port_number: &str,
+    vxlan_ip_network: &str,
+    ip: &str,
+) -> Result<()> {
+    Command::new("iptables")
+        .args(&[
+            "-t",
+            "nat",
+            "-D",
+            "PREROUTING",
+            "-p",
+            port_type,
+            "-i",
+            vpn_interface,
+            "--dport",
+            old_port_number,
+            "-j",
+            "DNAT",
+            "--to-destination",
+            &format!("{}.{}:{}", vxlan_ip_network, ip, old_port_number),
+        ])
+        .status()?;
+
+    Command::new("iptables")
+        .args(&[
+            "-D",
+            "FORWARD",
+            "-p",
+            port_type,
+            "-d",
+            &format!("{}.{}", vxlan_ip_network, ip),
+            "--dport",
+            old_port_number,
+            "-m",
+            "state",
+            "--state",
+            "NEW,ESTABLISHED,RELATED",
+            "-j",
+            "ACCEPT",
+        ])
+        .status()?;
+
+    Ok(())
+}
+
+/// Update the iptables rules to reflect the new forwarded port
+fn update_ip_tables(new_port_number: &str) -> Result<()> {
+    let settings = get_settings("/config/settings.conf")?;
+
+    // read the VXLAN IP network from the Pod Gateway settings file, or use the
+    // default 172.16.0
+    let vxlan_ip_network = settings
+        .get("VXLAN_IP_NETWORK")
+        .map(String::as_str)
+        .unwrap_or_else(|| "172.16.0");
+
+    // read the VPN interface from the Pod Gateway settings file, or use the default
+    // tun0
+    let vpn_interface = settings
+        .get("VPN_INTERFACE")
+        .map(String::as_str)
+        .unwrap_or_else(|| "tun0");
+
+    // open the port file we saved the last port number to so we can compare it to
+    // the new port number
+    let mut old_port_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open("/tmp/last_port_forward")?;
+
+    let mut old_port_number = String::new();
+    old_port_file.read_to_string(&mut old_port_number)?;
+    let old_port_number = old_port_number.trim();
+
+    // If the port hasn't changed, don't do anything
+    if old_port_number == new_port_number {
+        return Ok(());
+    }
+
+    let nat_conf_file = File::open(&"/config/nat.conf")?;
+    let nat_conf_reader = BufReader::new(nat_conf_file);
+    for line in nat_conf_reader.lines() {
+        let line = line.expect("Failed to read line in nat.conf");
+        if line.starts_with('#') {
+            continue;
+        }
+        process_line(
+            &line,
+            old_port_number,
+            new_port_number,
+            vxlan_ip_network,
+            vpn_interface,
+        )?;
+    }
+
+    write!(old_port_file, "{}", new_port_number)?;
+
+    Ok(())
+}
+
 /// Update the port in the application
 ///
 /// # Arguments
@@ -108,7 +432,7 @@ fn update_port<P: AsRef<Path>>(
             info!("Failed to update application to port {}", forwarded_port)
         }
     }
-
+    update_ip_tables(&forwarded_port)?;
     Ok(())
 }
 
