@@ -15,7 +15,7 @@ use env_logger::{Builder, Env};
 use log::{debug, error, info, warn};
 use notify::{RecursiveMode, Watcher};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult};
-use ureq::{self, AgentBuilder};
+use ureq::{self, AgentBuilder, Error};
 
 /// Create a channel to receive Ctrl-C events
 fn ctrl_channel() -> Result<Receiver<()>, ctrlc::Error> {
@@ -506,20 +506,47 @@ impl AuthCookieJar for ureq::Agent {
             Err(e) if matches!(e.kind(), ErrorKind::NotFound) => {
                 let agent = ureq::agent();
                 let auth_endpoint = format!("{}/api/v2/auth/login", app.url);
-                let res = agent
-                    .post(&auth_endpoint)
-                    .send_form(&[("username", &app.user), ("password", &app.password)])?;
-                if res.status() != 200 {
-                    return Err(anyhow!("Login request did not return 200."));
-                } else {
-                    info!("Login successful");
-                }
 
-                let mut file = File::create(cookie_file.as_ref())?;
+                let res = loop {
+                    match agent
+                        .post(&auth_endpoint)
+                        .send_form(&[("username", &app.user), ("password", &app.password)])
+                    {
+                        Ok(r) => break r,
+                        Err(e) => match e {
+                            Error::Status(u16, response) => {
+                                if u16 == 403 {
+                                    error!("Invalid username or password");
+                                    std::process::exit(1);
+                                } else {
+                                    error!(
+                                        "Unable to connect to application, sleeping for 10 \
+                                         seconds: {:?}",
+                                        response.into_string()?
+                                    );
+                                    std::thread::sleep(Duration::from_secs(10));
+                                }
+                            }
+                            Error::Transport(err) => {
+                                error!(
+                                    "Unable to connect to application, sleeping for 10 seconds: \
+                                     {:?}",
+                                    err
+                                );
+                                std::thread::sleep(Duration::from_secs(10));
+                            }
+                        },
+                    };
+                };
+
+                info!("Login successful, {}", res.into_string()?);
+
+                let mut file = File::create(cookie_file.as_ref())
+                    .map_err(|e| anyhow!("Unable to create cookie jar file {e}"))?;
                 agent
                     .cookie_store()
                     .save_json(&mut file)
-                    .map_err(|e| anyhow!(e))?;
+                    .map_err(|e| anyhow!("Unable to save cookie store file: {e}"))?;
                 debug!("Saved cookie jar to {:?}", cookie_file.as_ref());
 
                 Ok(agent)
@@ -537,7 +564,9 @@ impl AuthCookieJar for ureq::Agent {
             }
             // Something else went wrong, return the error
             Err(e) => {
-                return Err(anyhow!(e));
+                return Err(anyhow!(
+                    "Something else when wrong while opening the cookie jar file: {e}"
+                ));
             }
         }
     }
