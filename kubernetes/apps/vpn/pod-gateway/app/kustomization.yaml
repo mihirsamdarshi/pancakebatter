@@ -6,6 +6,4 @@ resources:
   - ./helmrelease.yaml
   - ./networkpolicy.yaml
   - ./secret.sops.yaml
-  - ./manager.yaml
-  - ./manager_secret.sops.yaml
   - ./volume.yaml
