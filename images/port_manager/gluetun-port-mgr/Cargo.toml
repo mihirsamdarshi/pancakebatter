@@ -18,7 +18,7 @@ notify = "6.0.1"
 notify-debouncer-full = "0.2.0"
 # request handling
 ureq = { version = "2.7.1", features = ["cookies", "json", "tls"], default-features = false }
-cookie_store = "0.19.1" # used to store cookies from application login
+cookie_store = "0.20.0" # used to store cookies from application login
 serde_json = "1.0.105"
 
 [profile.release]
