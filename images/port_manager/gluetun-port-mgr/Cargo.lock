@@ -119,11 +119,11 @@ checksum = "7684a49fb1af197853ef7b2ee694bc1f5b4179556f1e5710e1760c5db6f5e929"
 
 [[package]]
 name = "file-id"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13be71e6ca82e91bc0cb862bebaac0b2d1924a5a1d970c822b2f98b63fda8c3"
+checksum = "dd9f6fe3c7f47425f0f4aeb7c2fbf70b67650f87243246313d06b5cafeeaf5da"
 dependencies = [
- "winapi-util",
+ "windows-sys",
 ]
 
 [[package]]
@@ -330,12 +330,13 @@ dependencies = [
 
 [[package]]
 name = "notify-debouncer-full"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "416969970ec751a5d702a88c6cd19ac1332abe997fce43f96db0418550426241"
+checksum = "a6656278177d4e61005b6f250eb310fb25e6dc690749f5f18ed8a518333a0c1a"
 dependencies = [
  "crossbeam-channel",
  "file-id",
+ "log",
  "notify",
  "parking_lot",
  "walkdir",
