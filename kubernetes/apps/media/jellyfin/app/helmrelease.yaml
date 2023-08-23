@@ -32,7 +32,7 @@ spec:
       namespace: kube-system
   values:
     image:
-      repository: ghcr.io/mihirsamdarshi/homelab/jellyfin
+      repository: ghcr.io/mihirsamdarshi/pancakebatter/jellyfin
       tag: latest
 
     env:
