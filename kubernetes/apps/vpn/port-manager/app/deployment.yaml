@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gluetun-port-manager
+  namespace: vpn
+  labels:
+    app.kubernetes.io/name: port-manager
+    app.kubernetes.io/instance: downloads-gateway
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: port-manager
+      app.kubernetes.io/instance: downloads-gateway
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        configmap.reloader.stakater.com/reload: downloads-gateway-pod-gateway
+        secret.reloader.stakater.com/reload: port-manager-secret
+      labels:
+        app.kubernetes.io/name: port-manager
+        app.kubernetes.io/instance: downloads-gateway
+    spec:
+      containers:
+        - name: gtpm
+          image: ghcr.io/mihirsamdarshi/pancakebatter/gtpm:0.3.1
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: shared-port
+              mountPath: /var/run/shared_port
+            - mountPath: /config
+              name: config
+          env:
+            - name: PORT_CHANGE_FILE
+              value: /var/run/shared_port/port
+          envFrom:
+            - secretRef:
+                name: port-manager-secret
+      volumes:
+        - name: shared-port
+          persistentVolumeClaim:
+            claimName: pod-gateway-port-forward
+        - configMap:
+            defaultMode: 365
+            name: downloads-gateway-pod-gateway
+          name: config
