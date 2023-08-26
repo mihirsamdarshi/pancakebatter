@@ -46,14 +46,23 @@ impl AppDetails {
             .expect("GTPM_APPLICATION_HOST environment variable must be set");
 
         let secure = std::env::var("GTPM_APPLICATION_SECURE")
-            .unwrap_or("".to_string())
+            .unwrap_or_else(|_| {
+                warn!("GTPM_APPLICATION_SECURE environment variable not set, defaulting to false");
+                "".to_string()
+            })
             .trim()
             .is_empty()
             .not();
 
         let default_port = if secure { "443" } else { "80" };
         let port: u16 = std::env::var("GTPM_APPLICATION_PORT")
-            .unwrap_or(default_port.into())
+            .unwrap_or_else(|_| {
+                warn!(
+                    "GTPM_APPLICATION_PORT environment variable not set, defaulting to \
+                     {default_port}"
+                );
+                default_port.into()
+            })
             .parse()
             .expect("GTPM_APPLICATION_PORT environment variable must be a number");
 
@@ -111,7 +120,8 @@ fn process_line<'a>(
         if old_port_number.is_empty() {
             old_port_number = port_number;
         }
-        debug!("IP: {ip} , NAME: {name} , PORT: {port_number} , TYPE: {port_type}");
+        debug!("Old rule: IP: {ip} , NAME: {name} , PORT: {old_port_number} , TYPE: {port_type}");
+        debug!("New rule: IP: {ip} , NAME: {name} , PORT: {new_port_number} , TYPE: {port_type}");
 
         // Add the new iptables rules
         append_iptables_rules(
@@ -295,8 +305,10 @@ fn manage_ip_tables(
 /// Update the iptables rules to reflect the new forwarded port
 fn update_ip_tables(new_port_number: &str) -> Result<()> {
     info!("Updating iptables rules");
-    let settings_file_path =
-        std::env::var("GTPM_SETTINGS_FILE").unwrap_or("/config/settings.sh".to_string());
+    let settings_file_path = std::env::var("GTPM_SETTINGS_FILE").unwrap_or_else(|_| {
+        warn!("GTPM_SETTINGS_FILE environment variable not set, defaulting to /config/settings.sh");
+        "/config/settings.sh".to_string()
+    });
 
     let settings = get_settings(settings_file_path).map_err(|e| {
         error!("Failed to get settings file: {e:?}");
@@ -341,9 +353,11 @@ fn update_ip_tables(new_port_number: &str) -> Result<()> {
     if old_port_number == new_port_number {
         return Ok(());
     }
-
-    let nat_conf_file =
-        std::env::var("GTPM_NAT_CONF_FILE").unwrap_or("/config/nat.conf".to_string());
+    // open the nat.conf file used by the Pod Gateway
+    let nat_conf_file = std::env::var("GTPM_NAT_CONF_FILE").unwrap_or_else(|_| {
+        warn!("GTPM_NAT_CONF_FILE environment variable not set, defaulting to /config/nat.conf");
+        "/config/nat.conf".to_string()
+    });
 
     let nat_conf_file = File::open(nat_conf_file)?;
     let nat_conf_reader = BufReader::new(nat_conf_file);
@@ -369,6 +383,7 @@ fn update_ip_tables(new_port_number: &str) -> Result<()> {
         })?;
     }
 
+    // update the last port number file
     write!(old_port_file, "{}", new_port_number)?;
     info!("Successfully updated iptables rules");
     Ok(())
@@ -569,6 +584,7 @@ fn main() -> Result<()> {
         )
         .unwrap();
     }
+
     info!("Starting gluetun-port-mgr");
 
     let port_forward_path =
