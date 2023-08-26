@@ -14,7 +14,7 @@ ctrlc = { version = "3.4.0", features = ["termination"] }
 simplelog = "0.12.1"
 log = "0.4.20"
 # file watching
-notify = "6.1.0"
+notify = "6.1.1"
 notify-debouncer-full = "0.3.0"
 # request handling
 ureq = { version = "2.7.1", features = ["cookies", "json", "tls"], default-features = false }
