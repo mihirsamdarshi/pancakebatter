@@ -27,19 +27,72 @@ spec:
       repository: ghcr.io/onedr0p/home-assistant
       tag: 2023.8.3@sha256:c431306c7a24c8d197e907134a905bc1d756bd6e5940ff2af05c60c675bc3192
 
+    env:
+      HASS__PORT: &port 8123
+      HASS__APPLICATION_URL: &host "ha.${SECRET_DOMAIN_LOCAL}"
+
     controller:
       type: statefulset
+      annotations:
+        reloader.stakater.com/auto: "true"
 
     service:
       main:
+        type: LoadBalancer
+        externalTrafficPolicy: Local
+        annotations:
+          io.cilium/lb-ipam-ips: "${HOME_ASSISTANT_ADDR}"
         ports:
           http:
-            port: 8123
+            port: *port
+          rtmp:
+            enabled: true
+            port: 1935
+            targetPort: 1935
+            protocol: TCP
+          rtsp:
+            enabled: true
+            port: 8554
+            targetPort: 8554
+            protocol: TCP
+          hls:
+            enabled: true
+            port: 8888
+            targetPort: 8888
+            protocol: TCP
+          webrtc:
+            enabled: true
+            port: 8889
+            targetPort: 8889
+            protocol: TCP
+          mdns-tcp:
+            enabled: true
+            port: 5353
+            protocol: TCP
+            targetPort: 5353
+          mdns-udp:
+            enabled: true
+            port: 5353
+            protocol: UDP
+            targetPort: 5353
+          sonos:
+            enabled: true
+            port: 1400
+            targetPort: 1400
+          mqtt:
+            enabled: true
+            port: 1883
+            targetPort: 1883
+          mqtt-tls:
+            enabled: true
+            port: 8883
+            targetPort: 8883
 
     persistence:
       config:
         enabled: true
         existingClaim: home-assistant-config
+
     ingress:
       main:
         annotations:
@@ -48,7 +101,7 @@ spec:
         enabled: true
         ingressClassName: nginx
         hosts:
-          - host: &host "ha.${SECRET_DOMAIN_LOCAL}"
+          - host: *host
             paths:
               - path: /
                 pathType: Prefix
@@ -95,7 +148,7 @@ spec:
           enabled: true
           ingressClassName: nginx
           hosts:
-            - host: &host "config.ha.${SECRET_DOMAIN_LOCAL}"
+            - host: &host "haconfig.${SECRET_DOMAIN_LOCAL}"
               paths:
                 - path: /
                   pathType: Prefix
