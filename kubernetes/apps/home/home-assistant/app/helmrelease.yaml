@@ -48,7 +48,7 @@ spec:
         enabled: true
         ingressClassName: nginx
         hosts:
-          - host: &host "hass.${SECRET_DOMAIN_LOCAL}"
+          - host: &host "ha.${SECRET_DOMAIN_LOCAL}"
             paths:
               - path: /
                 pathType: Prefix
@@ -70,6 +70,13 @@ spec:
       fsGroupChangePolicy: "OnRootMismatch"
       supplementalGroups:
         - 100
+
+    resources:
+      requests:
+        cpu: 22m
+        memory: 512M
+      limits:
+        memory: 819M
     addons:
       codeserver:
         enabled: true
@@ -82,30 +89,19 @@ spec:
           - "/config/.vscode"
           - --auth
           - "none"
+          - --extensions-dir
+          - "/config/.vscode"
         ingress:
           enabled: true
           ingressClassName: nginx
           hosts:
-            - host: &codehost hass-config.${SECRET_DOMAIN_LOCAL}
+            - host: &host "config.ha.${SECRET_DOMAIN_LOCAL}"
               paths:
                 - path: /
                   pathType: Prefix
           tls:
             - hosts:
-                - *codehost
-        resources:
-          requests:
-            cpu: 10m
-            memory: 145M
-          limits:
-            cpu: 17m
-            memory: 262M
+                - *host
         volumeMounts:
           - name: config
             mountPath: /config
-    resources:
-      requests:
-        cpu: 22m
-        memory: 512M
-      limits:
-        memory: 819M
