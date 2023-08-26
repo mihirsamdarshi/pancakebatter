@@ -119,9 +119,9 @@ checksum = "7684a49fb1af197853ef7b2ee694bc1f5b4179556f1e5710e1760c5db6f5e929"
 
 [[package]]
 name = "file-id"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd9f6fe3c7f47425f0f4aeb7c2fbf70b67650f87243246313d06b5cafeeaf5da"
+checksum = "6584280525fb2059cba3db2c04abf947a1a29a45ddae89f3870f8281704fafc9"
 dependencies = [
  "windows-sys",
 ]
@@ -330,9 +330,9 @@ dependencies = [
 
 [[package]]
 name = "notify-debouncer-full"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6656278177d4e61005b6f250eb310fb25e6dc690749f5f18ed8a518333a0c1a"
+checksum = "49f5dab59c348b9b50cf7f261960a20e389feb2713636399cd9082cd4b536154"
 dependencies = [
  "crossbeam-channel",
  "file-id",
