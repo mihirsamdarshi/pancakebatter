@@ -10,5 +10,5 @@ resources:
   - ./kubernetes-dashboard/ks.yaml
   - ./loki/ks.yaml
   - ./node-problem-detector/ks.yaml
+  - ./promtail/ks.yaml
   - ./tempo/ks.yaml
-  - ./vector/ks.yaml
