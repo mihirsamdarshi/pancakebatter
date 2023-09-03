@@ -39,23 +39,12 @@ spec:
 
     env:
       QBITTORRENT__PORT: &port 8080
-      QBITTORRENT__BT_PORT: &port-bt 53170
 
     service:
       main:
         ports:
           http:
             port: *port
-
-      bittorrent:
-        enabled: true
-        type: LoadBalancer
-        ports:
-          bittorrent:
-            enabled: true
-            port: *port-bt
-            protocol: TCP
-            targetPort: *port-bt
 
     ingress:
       main:

@@ -64,7 +64,8 @@ spec:
         containerPort: 1514
         service:
           type: LoadBalancer
-          loadBalancerIP: ${PROMTAIL_ADDR}
+          annotations:
+            io.cilium/lb-ipam-ips: "${PROMTAIL_ADDR}"
 
     extraVolumes:
       - name: journal

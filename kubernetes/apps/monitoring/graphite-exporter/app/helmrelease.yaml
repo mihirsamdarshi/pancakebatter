@@ -50,7 +50,8 @@ spec:
     service:
       main:
         type: LoadBalancer
-        loadBalancerIP: "${SVC_TRUENAS_GRAPHITE}"
+        annotations:
+          io.cilium/lb-ipam-ips: "${GRAPHITE_ADDR}"
         externalTrafficPolicy: Local
         ports:
           http:

@@ -54,48 +54,6 @@ spec:
         ports:
           http:
             port: *port
-          rtmp:
-            enabled: true
-            port: 1935
-            targetPort: 1935
-            protocol: TCP
-          rtsp:
-            enabled: true
-            port: 8554
-            targetPort: 8554
-            protocol: TCP
-          hls:
-            enabled: true
-            port: 8888
-            targetPort: 8888
-            protocol: TCP
-          webrtc:
-            enabled: true
-            port: 8889
-            targetPort: 8889
-            protocol: TCP
-          mdns-tcp:
-            enabled: true
-            port: 5353
-            protocol: TCP
-            targetPort: 5353
-          mdns-udp:
-            enabled: true
-            port: 5353
-            protocol: UDP
-            targetPort: 5353
-          sonos:
-            enabled: true
-            port: 1400
-            targetPort: 1400
-          mqtt:
-            enabled: true
-            port: 1883
-            targetPort: 1883
-          mqtt-tls:
-            enabled: true
-            port: 8883
-            targetPort: 8883
 
     persistence:
       config:

@@ -44,12 +44,17 @@ spec:
 
     service:
       main:
+        type: LoadBalancer
+        externalTrafficPolicy: Local
+        annotations:
+          io.cilium/lb-ipam-ips: "${MOSQUITTO_ADDR}"
         ports:
           http:
             enabled: false
           mqtt:
             enabled: true
             port: 1883
+            protocol: TCP
 
     persistence:
       mosquitto-config:
