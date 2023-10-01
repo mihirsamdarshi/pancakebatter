@@ -11,4 +11,3 @@ resources:
   - ./loki/ks.yaml
   - ./node-problem-detector/ks.yaml
   - ./promtail/ks.yaml
-  - ./tempo/ks.yaml
