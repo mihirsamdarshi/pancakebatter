@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apple-stock-monitor
+  labels:
+    app: apple-stock-monitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: apple-stock-monitor
+  template:
+    metadata:
+      name: apple-stock-monitor
+      annotations:
+        reloader.stakater.com/auto: "true"
+      labels:
+        app: apple-stock-monitor
+    spec:
+      containers:
+        - name: apple-stock-monitor
+          image: ghcr.io/mihirsamdarshi/apple-stock-notifier/app:0.2.1
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+
+      restartPolicy: Always
+      imagePullSecrets:
+        - name: ghcr-registry-auth
+
