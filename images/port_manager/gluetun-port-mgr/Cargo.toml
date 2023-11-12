@@ -1,6 +1,6 @@
 [package]
 name = "gluetun-port-mgr"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 license = "MIT"
 
@@ -18,7 +18,7 @@ notify = "6.1.1"
 notify-debouncer-full = "0.3.1"
 # request handling
 ureq = { version = "2.8.0", features = ["cookies", "json", "tls"], default-features = false }
-cookie_store = "0.19.1" # used to store cookies from application login
+cookie_store = "0.20.0" # used to store cookies from application login
 serde_json = "1.0.107"
 
 [profile.release]
