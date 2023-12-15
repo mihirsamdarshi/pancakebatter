@@ -104,3 +104,33 @@ spec:
     podAnnotations:
       setGateway: "true"
       backup.velero.io/backup-volumes-excludes: data
+    
+    addons:
+      codeserver:
+        enabled: true
+        image:
+          repository: codercom/code-server
+          tag: 4.19.1
+        workingDir: "/config"
+        args:
+          - --user-data-dir
+          - "/config/.vscode"
+          - --auth
+          - "none"
+          - --extensions-dir
+          - "/config/.vscode"
+        ingress:
+          enabled: true
+          ingressClassName: nginx
+          hosts:
+            - host: &host "qbconfig.${SECRET_DOMAIN_LOCAL}"
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - hosts:
+                - *host
+        volumeMounts:
+          - name: config
+            mountPath: /config
+
