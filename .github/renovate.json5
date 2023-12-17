@@ -55,7 +55,19 @@
     {
       "description": "Auto merge Containers",
       "matchDatasources": [
-        "docker",
+        "docker"
+      ],
+      "automerge": true,
+      "automergeType": "branch",
+      "ignoreTests": true,
+      "matchUpdateTypes": [
+        "patch",
+        "digest"
+      ]
+    },
+    {
+      "description": "Auto merge Containers",
+      "matchDatasources": [
         "helm"
       ],
       "automerge": true,
