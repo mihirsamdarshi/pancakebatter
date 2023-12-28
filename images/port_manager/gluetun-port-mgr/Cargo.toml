@@ -8,7 +8,7 @@ license = "MIT"
 # error handling
 anyhow = { version = "1.0.77" }
 # used for termination handling
-crossbeam-channel = "0.5.9"
+crossbeam-channel = "0.5.10"
 ctrlc = { version = "3.4.2", features = ["termination"] }
 # logging
 simplelog = "0.12.1"
