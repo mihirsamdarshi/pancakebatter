@@ -33,11 +33,10 @@ spec:
       repository: quay.io/prometheus/graphite-exporter
       tag: latest
     command:
-      [
-        /bin/graphite_exporter,
-        "--graphite.listen-address=:2003",
-        --graphite.mapping-config=/config/graphite_mapping.yaml,
-      ]
+      - /bin/graphite_exporter
+      - "--graphite.listen-address=:2003"
+      - "--graphite.mapping-config=/config/graphite_mapping.yaml"
+
     persistence:
       config:
         enabled: true
