@@ -117,6 +117,10 @@ spec:
       dashboards:
         enabled: true
         searchNamespace: ALL
+        # label that the configmaps with dashboards are marked with
+        label: grafana_dashboard
+        # value of label that the configmaps with dashboards are set to
+        labelValue: "true"
       datasources:
         enabled: true
         searchNamespace: ALL
