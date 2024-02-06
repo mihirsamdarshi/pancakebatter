@@ -28,7 +28,7 @@ spec:
 
     initContainers:
       user-import:
-        image: public.ecr.aws/docker/library/eclipse-mosquitto:2.0.18@sha256:fa9822d3e9bdb12c80f6cb7ddd22922b26c1cd4ffa071815242ac156f9559d7d
+        image: public.ecr.aws/docker/library/eclipse-mosquitto:2.0.18@sha256:da38d58ee0037af94f746dc3d884c57f50140ef5f592bf6fcbb80d66d131a77b
         command:
           - "/bin/sh"
           - -c
