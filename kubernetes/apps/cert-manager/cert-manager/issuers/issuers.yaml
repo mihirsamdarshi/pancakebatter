@@ -46,7 +46,7 @@ metadata:
 spec:
   acme:
     server: https://acme.zerossl.com/v2/DV90
-    email: "${SECRET_CLOUDFLARE_EMAIL}"
+    email: "${SECRET_ACME_EMAIL}"
     privateKeySecretRef:
       name: zerossl-production
 
