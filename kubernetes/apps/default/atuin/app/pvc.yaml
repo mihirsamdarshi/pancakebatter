@@ -1,41 +1,28 @@
 ---
-kind: PersistentVolume
-apiVersion: v1
-metadata:
-  name: database-pv
-  labels:
-    app: database
-    type: local
-spec:
-  storageClassName: manual
-  capacity:
-    storage: 300Mi
-  accessModes:
-    - ReadWriteOnce
-  hostPath:
-    path: "/Users/firstname.lastname/.kube/database"
----
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
+  name: atuin-database-pvc
   labels:
-    io.kompose.service: database
-  name: database
+    app.kubernetes.io/name: atuin-database-pvc
+    app.kubernetes.io/part-of: atuin
 spec:
-  storageClassName: manual
+  storageClassName: ceph-block
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 300Mi
+      storage: 5Gi
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
+  name: atuin-config-pvc
   labels:
-    io.kompose.service: atuin-claim0
-  name: atuin-claim0
+    app.kubernetes.io/name: atuin-config-pvc
+    app.kubernetes.io/part-of: atuin
 spec:
+  storageClassName: ceph-block
   accessModes:
     - ReadWriteOnce
   resources:

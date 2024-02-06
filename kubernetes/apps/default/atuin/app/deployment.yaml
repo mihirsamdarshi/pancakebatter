@@ -3,6 +3,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: atuin-server
+  labels:
+    app.kubernetes.io/name: atuin-server
+    app.kubernetes.io/instance: atuin-server
+    app.kubernetes.io/part-of: atuin
 spec:
   replicas: 1
   selector:
@@ -12,6 +16,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/instance: atuin-server
+        app.kubernetes.io/part-of: atuin
     spec:
       containers:
         - args:
@@ -80,7 +85,7 @@ spec:
       volumes:
         - name: atuin-database
           persistentVolumeClaim:
-            claimName: atuin-database
+            claimName: atuin-database-pvc
         - name: atuin-config
           persistentVolumeClaim:
-            claimName: atuin-config
+            claimName: atuin-config-pvc

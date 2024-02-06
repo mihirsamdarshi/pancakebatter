@@ -4,12 +4,13 @@ kind: Service
 metadata:
   name: atuin-svc
   labels:
-    app.kubernetes.io/name: atuin-svc
-    app.kubernetes.io/instance: atuin
+    app.kubernetes.io/name: atuin-service
+    app.kubernetes.io/instance: atuin-service
+    app.kubernetes.io/part-of: atuin
 spec:
   type: LoadBalancer
   ports:
-    - name: ""
+    - name: web
       port: 8888
   selector:
     app.kubernetes.io/instance: atuin-server
@@ -17,10 +18,13 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: atuin
+  name: atuin-ingress
   annotations:
     external-dns.alpha.kubernetes.io/target: "ingress.${SECRET_DOMAIN}"
     hajimari.io/enable: "false"
+  labels:
+    app.kubernetes.io/name: atuin
+    app.kubernetes.io/part-of: atuin
 spec:
   ingressClassName: nginx
   rules:
@@ -31,9 +35,9 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: atuin
+                name: atuin-service
                 port:
-                  number: 80
+                  name: web
   tls:
     - hosts:
         - *host
