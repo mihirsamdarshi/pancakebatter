@@ -1,0 +1,86 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: atuin-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: atuin-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: atuin-server
+    spec:
+      containers:
+        - args:
+            - server
+            - start
+          env:
+            - name: ATUIN_DB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: atuin-secrets
+                  key: ATUIN_DB_URI
+                  optional: false
+            - name: ATUIN_HOST
+              value: 0.0.0.0
+            - name: ATUIN_PORT
+              value: "8888"
+            - name: ATUIN_OPEN_REGISTRATION
+              valueFrom:
+                secretKeyRef:
+                  name: atuin-secrets
+                  key: ATUIN_OPEN_REGISTRATION
+                  optional: true
+          image: ghcr.io/atuinsh/atuin:latest
+          name: atuin
+          ports:
+            - containerPort: 8888
+          resources:
+            limits:
+              cpu: 250m
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 1Gi
+          volumeMounts:
+            - mountPath: /config
+              name: atuin-config
+        - name: postgresql
+          image: postgres:14
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: atuin
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: atuin-secrets
+                  key: ATUIN_DB_PASSWORD
+                  optional: false
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: atuin-secrets
+                  key: ATUIN_DB_USERNAME
+                  optional: false
+          resources:
+            limits:
+              cpu: 250m
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 1Gi
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data/
+              name: atuin-database
+      volumes:
+        - name: atuin-database
+          persistentVolumeClaim:
+            claimName: atuin-database
+        - name: atuin-config
+          persistentVolumeClaim:
+            claimName: atuin-config

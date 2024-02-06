@@ -1,0 +1,43 @@
+---
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: database-pv
+  labels:
+    app: database
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 300Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/Users/firstname.lastname/.kube/database"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    io.kompose.service: database
+  name: database
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 300Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    io.kompose.service: atuin-claim0
+  name: atuin-claim0
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Mi
