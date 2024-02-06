@@ -18,6 +18,13 @@ spec:
         app.kubernetes.io/instance: atuin-server
         app.kubernetes.io/part-of: atuin
     spec:
+      initContainers:
+        - name: volume-permissions
+          image: busybox
+          command: [ "sh", "-c", "chown -R 1000:1000 /config" ]
+          volumeMounts:
+            - mountPath: /config
+              name: atuin-config
       containers:
         - args:
             - server
@@ -80,7 +87,7 @@ spec:
               cpu: 250m
               memory: 1Gi
           volumeMounts:
-            - mountPath: /var/lib/postgresql/data/
+            - mountPath: /var/lib/postgresql/
               name: atuin-database
       volumes:
         - name: atuin-database
