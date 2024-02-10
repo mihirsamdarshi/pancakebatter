@@ -61,7 +61,7 @@ spec:
             - mountPath: /config
               name: atuin-config
         - name: postgresql
-          image: postgres:14
+          image: postgres:16
           ports:
             - containerPort: 5432
           env:
