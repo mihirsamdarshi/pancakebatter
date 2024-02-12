@@ -49,17 +49,6 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "cookie"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7efb37c3e1ccb1ff97164ad95ac1606e8ccd35b3fa0a7d99a304c7f4a428cc24"
-dependencies = [
- "percent-encoding",
- "time",
- "version_check",
-]
-
-[[package]]
-name = "cookie"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cd91cf61412820176e137621345ee43b3f4423e589e7ae4e50d601d93e35ef8"
@@ -71,31 +60,15 @@ dependencies = [
 
 [[package]]
 name = "cookie_store"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "387461abbc748185c3a6e1673d826918b450b87ff22639429c694619a83b6cf6"
-dependencies = [
- "cookie 0.17.0",
- "idna 0.3.0",
- "log",
- "publicsuffix",
- "serde",
- "serde_derive",
- "serde_json",
- "time",
- "url",
-]
-
-[[package]]
-name = "cookie_store"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4934e6b7e8419148b6ef56950d277af8561060b56afd59e2aadf98b59fce6baa"
 dependencies = [
- "cookie 0.18.0",
+ "cookie",
  "idna 0.5.0",
  "indexmap",
  "log",
+ "publicsuffix",
  "serde",
  "serde_derive",
  "serde_json",
@@ -204,7 +177,7 @@ name = "gluetun-port-mgr"
 version = "0.4.1"
 dependencies = [
  "anyhow",
- "cookie_store 0.20.0",
+ "cookie_store",
  "crossbeam-channel",
  "ctrlc",
  "log",
@@ -736,8 +709,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b52731d03d6bb2fd18289d4028aee361d6c28d44977846793b994b13cdcc64d"
 dependencies = [
  "base64",
- "cookie 0.18.0",
- "cookie_store 0.21.0",
+ "cookie",
+ "cookie_store",
  "hootbin",
  "log",
  "once_cell",
