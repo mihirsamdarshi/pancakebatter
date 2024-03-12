@@ -11,7 +11,7 @@ anyhow = { version = "1.0.81" }
 crossbeam-channel = "0.5.12"
 ctrlc = { version = "3.4.2", features = ["termination"] }
 # logging
-simplelog = "0.12.1"
+simplelog = "0.12.2"
 log = "0.4.21"
 # file watching
 notify = "6.1.1"
