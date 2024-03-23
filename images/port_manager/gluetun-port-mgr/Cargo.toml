@@ -9,7 +9,7 @@ license = "MIT"
 anyhow = { version = "1.0.81" }
 # used for termination handling
 crossbeam-channel = "0.5.12"
-ctrlc = { version = "3.4.2", features = ["termination"] }
+ctrlc = { version = "3.4.4", features = ["termination"] }
 # logging
 simplelog = "0.12.2"
 log = "0.4.21"
