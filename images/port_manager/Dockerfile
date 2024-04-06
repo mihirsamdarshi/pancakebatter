@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7-labs
-FROM rust:1.77.0-alpine3.18 as builder
+FROM rust:1.77.1-alpine3.18 as builder
 RUN apk add --no-cache musl-dev
 
 # Set `SYSROOT` to a dummy path (default is /usr) because pkg-config-rs *always*
