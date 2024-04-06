@@ -25,7 +25,7 @@ spec:
     spec:
       containers:
         - name: radarr-exporter
-          image: ghcr.io/onedr0p/exportarr:v2.0.0
+          image: ghcr.io/onedr0p/exportarr:v2.0.1
           imagePullPolicy: IfNotPresent
           args:
             - r
