@@ -6,7 +6,7 @@ license = "MIT"
 
 [dependencies]
 # error handling
-anyhow = { version = "1.0.81" }
+anyhow = { version = "1.0.82" }
 # used for termination handling
 crossbeam-channel = "0.5.12"
 ctrlc = { version = "3.4.4", features = ["termination"] }
