@@ -37,7 +37,7 @@ spec:
       setGateway: "false"
     image:
       repository: ghcr.io/recyclarr/recyclarr
-      tag: edge@sha256:b8e9049589664f875d11dfd98c650167599c9ff279d9ec315e0b0d3640ec6b82
+      tag: edge@sha256:5208e12b780303bdb4ded5f897e54b2831e07b00006beae743f9fc9af2e0c73c
     command: ["/app/recyclarr/recyclarr"]
     args: ["sync"]
     envFrom:
