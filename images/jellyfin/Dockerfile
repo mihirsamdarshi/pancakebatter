@@ -1,4 +1,4 @@
-FROM ghcr.io/onedr0p/ubuntu:jammy-20240227
+FROM ubuntu:jammy
 
 ARG VERSION
 
