@@ -53,7 +53,7 @@
   "packageRules": [
     // automerge
     {
-      "description": "Auto merge Containers",
+      "description": "Auto-merge containers",
       "matchDatasources": [
         "docker"
       ],
@@ -61,12 +61,13 @@
       "automergeType": "branch",
       "ignoreTests": true,
       "matchUpdateTypes": [
+        "minor",
         "patch",
         "digest"
       ]
     },
     {
-      "description": "Auto merge Containers",
+      "description": "Auto-merge Helm charts",
       "matchDatasources": [
         "helm"
       ],
@@ -74,6 +75,7 @@
       "automergeType": "branch",
       "ignoreTests": true,
       "matchUpdateTypes": [
+        "minor",
         "patch",
         "digest"
       ]
