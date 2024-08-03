@@ -46,7 +46,7 @@ spec:
       CLIENT_ID_FILE: "/oauth/client_id"
       CLIENT_SECRET_FILE: "/oauth/client_secret"
       OPERATOR_LOGGING: "debug"
-      PROXY_IMAGE: "tailscale/tailscale:v1.68.1"
+      PROXY_IMAGE: "tailscale/tailscale:v1.70.0"
       PROXY_TAGS: "tag:k8s"
       AUTH_PROXY: "true"
 
