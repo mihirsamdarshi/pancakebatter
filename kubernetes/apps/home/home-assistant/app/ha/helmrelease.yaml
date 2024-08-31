@@ -25,7 +25,7 @@ spec:
   values:
     image:
       repository: ghcr.io/onedr0p/home-assistant
-      tag: 2024.8.2@sha256:ff0f42d9d01470e12e7954694c3833bcbb3917e40276d9ad1bd30870dd0cf81b
+      tag: 2024.8.3@sha256:aa85aaba896a5c55cdda643c6f1849bbcaccaa2b2bc20b56cad5dde922377e50
 
     hostNetwork: true
     podAnnotations:
