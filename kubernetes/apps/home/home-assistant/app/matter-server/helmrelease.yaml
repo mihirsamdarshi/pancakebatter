@@ -27,7 +27,7 @@ spec:
   values:
     image:
       repository: ghcr.io/home-assistant-libs/python-matter-server
-      tag: 6.4.0@sha256:111c2005163dbb27f077dd4fb578c13ad046c44a440fb2f028dfb383db5c33b9
+      tag: 6.5.1@sha256:dfb5dcbbee4bfe074f4fc8bd56123665dc4002f32adfa44ca055b374e8e432a6
     controller:
       type: statefulset
     service:
