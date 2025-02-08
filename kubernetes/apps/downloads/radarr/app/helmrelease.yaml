@@ -32,7 +32,7 @@ spec:
   values:
     image:
       repository: ghcr.io/onedr0p/radarr-develop
-      tag: 5.17.2.9580@sha256:67f345c91d1e0eab27f73044702892b01228b2425562de6110777a7ea4712e34
+      tag: 5.18.4.9674@sha256:9b9275f002f2e99b086d70b3fd131b330cde0ec9e2dabce47ac2bc91a29c1ba0
     env:
       RADARR__INSTANCE_NAME: &name Radarr
       RADARR__PORT: &port 8080
