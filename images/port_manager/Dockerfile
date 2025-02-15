@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry <<EOF
   cargo build --release
 EOF
 
-FROM alpine:3.21.2 as runner
+FROM alpine:3.21.3 as runner
 
 RUN apk add --no-cache iptables
 
