@@ -32,7 +32,7 @@ spec:
   values:
     image:
       repository: docker.io/fallenbagel/jellyseerr
-      tag: 2.7.0
+      tag: 2.7.1
 
     controller:
       type: statefulset
