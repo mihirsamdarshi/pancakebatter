@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.17-labs
+# syntax=docker/dockerfile:1.18-labs
 FROM rust:1.78.0-alpine3.18 as builder
 RUN apk add --no-cache musl-dev
 
