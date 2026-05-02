@@ -97,7 +97,7 @@ spec:
         gluetun:
           image:
             repository: ghcr.io/qdm12/gluetun
-            tag: latest@sha256:a0bccb6ccec25d8fca59b9b427dbcae27eb86f05f0647a04da4831590dc890a2
+            tag: latest@sha256:9f6d07e2add673c1c95a45423439a348b1e524e3ddfebd472ab94056936e62cd
 
         env:
           VPN_SERVICE_PROVIDER: custom
