@@ -15,7 +15,7 @@ simplelog = "0.12.2"
 log = "0.4.21"
 # file watching
 notify = "6.1.1"
-notify-debouncer-full = "0.3.1"
+notify-debouncer-full = "0.7.0"
 # request handling
 ureq = { version = "2.9.6", features = ["cookies", "json", "tls"], default-features = false }
 cookie_store = "0.21.0" # used to store cookies from application login
