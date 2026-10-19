@@ -8,6 +8,7 @@ terraform {
     }
   }
 
-  # State is local for now (gitignored). Choose a durable, backed-up location before
-  # the cluster holds anything important.
+  # State is intentionally local (terraform.tfstate, gitignored); single operator.
+  # It holds no secrets. If it is lost, re-import the VMs:
+  #   terraform import 'proxmox_virtual_environment_vm.talos["talos-01"]' hobbes/301
 }
