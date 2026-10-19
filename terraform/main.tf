@@ -8,15 +8,13 @@ resource "proxmox_virtual_environment_vm" "talos" {
   description = "Talos Kubernetes node (control plane + workloads). Managed by Terraform in homelab/terraform."
   tags        = ["kubernetes", "talos", "terraform"]
 
-  on_boot         = true
+  on_boot         = var.start_on_boot
   started         = var.start_vms
   stop_on_destroy = true
 
-  # Start after TrueNAS (VM 999, order 1) so NFS/iSCSI storage is up first.
-  startup {
-    order    = 2
-    up_delay = 30
-  }
+  # No `startup` block: setting it needs Sys.Modify on / (host-wide), which this
+  # token deliberately lacks. Unordered VMs start after ordered ones, so TrueNAS
+  # (VM 999, order 1) still boots first.
 
   machine       = "q35"
   bios          = "seabios"

@@ -19,13 +19,34 @@ variable "vm_datastore" {
 variable "talos_iso_file_id" {
   description = "Talos install ISO already uploaded to Proxmox, e.g. \"local:iso/talos-v1.x.y-metal-amd64.iso\" (factory image with the qemu-guest-agent extension). Null leaves the VMs without install media."
   type        = string
-  default     = null
+  default     = "local:iso/talos-v1.14.4-qemu-ga-metal-amd64.iso"
 }
 
 variable "start_vms" {
   description = "Start the VMs after creation."
   type        = bool
   default     = false
+}
+
+variable "start_on_boot" {
+  description = "Start the VMs when Hobbes boots. Keep false until the cluster is configured; talos-01 takes the GPU (Hobbes's only display) when it starts."
+  type        = bool
+  default     = false
+}
+
+variable "talos_version" {
+  description = "Talos version for installer images."
+  type        = string
+  default     = "v1.14.4"
+}
+
+variable "talos_schematics" {
+  description = "Image Factory schematic IDs. base = qemu-guest-agent; gpu = base + NVIDIA open kernel modules + container toolkit (LTS branch)."
+  type        = map(string)
+  default = {
+    base = "ce4c980550dd2ab1b17bbf2b08801c7eb59418eafe8f279833297925d67c7515"
+    gpu  = "2e186944edfff6a15572ad75ec2b6f26b35e2542566d640dfcd2ad7c52a2df55"
+  }
 }
 
 # --- Networking: not settled yet (see docs/agents/unifi-network-plan.md). Keep configurable. ---
