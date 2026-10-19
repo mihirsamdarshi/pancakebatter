@@ -6,7 +6,7 @@ output "nodes" {
       mac_address = try(vm.network_device[0].mac_address, null)
       planned_ip  = var.nodes[name].ip
       # Use as machine.install.image in this node's Talos config.
-      installer_image = format("factory.talos.dev/installer/%s:%s",
+      installer_image = format("factory.talos.dev/metal-installer/%s:%s",
         var.nodes[name].gpu_mapping == null ? var.talos_schematics.base : var.talos_schematics.gpu,
       var.talos_version)
     }

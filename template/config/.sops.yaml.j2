@@ -1,0 +1,18 @@
+---
+creation_rules:
+  - path_regex: talos/.*\.sops\.ya?ml
+    mac_only_encrypted: true
+    age: "#{ age_key('public') }#"
+  - path_regex: (bootstrap|kubernetes)/.*\.sops\.ya?ml
+    encrypted_regex: "^(data|stringData)$"
+    mac_only_encrypted: true
+    age: "#{ age_key('public') }#"
+  # Not rendered by the template: Terraform credentials and the archived k3s tree.
+  - path_regex: terraform/.*\.sops\.(ya?ml|json|env)
+    age: "#{ age_key('public') }#"
+  - path_regex: archive/k3s/.*\.sops\.ya?ml
+    encrypted_regex: "^(data|stringData)$"
+    age: "#{ age_key('public') }#"
+stores:
+  yaml:
+    indent: 2
