@@ -1,4 +1,4 @@
-# Server network selected October 19, 2026. Private DNS: samdarshi.net.
+# Server network selected October 19, 2026.
 # These settings prepare the stopped VMs; Talos machine config is separate.
 bridge        = "vmbr0"
 vlan_id       = 10

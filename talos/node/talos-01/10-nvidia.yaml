@@ -1,7 +1,0 @@
-# GTX 1650 passthrough (Proxmox mapping `gtx1650`). Kernel modules come from
-# kernel_modules in cluster.toml; the NVIDIA open modules also need BPF JIT
-# hardening. REF: https://docs.siderolabs.com/talos/latest/configure-your-talos-cluster/hardware-and-drivers/nvidia-gpu
-apiVersion: v1alpha1
-kind: SysctlConfig
-params:
-  net.core.bpf_jit_harden: "1"

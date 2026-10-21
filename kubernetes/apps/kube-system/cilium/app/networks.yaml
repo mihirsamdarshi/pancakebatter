@@ -6,7 +6,12 @@ metadata:
 spec:
   allowFirstLastIPs: "No"
   blocks:
-    - cidr: "192.168.10.0/24"
+    # Reserved for LoadBalancers: gateways .10-.19, k8s-gateway .53. The rest
+    # of the /24 holds the UCG (.1), nodes (.21-.23) and the API VIP (.100).
+    - start: "192.168.10.10"
+      stop: "192.168.10.19"
+    - start: "192.168.10.53"
+      stop: "192.168.10.53"
 ---
 apiVersion: cilium.io/v2alpha1
 kind: CiliumL2AnnouncementPolicy
