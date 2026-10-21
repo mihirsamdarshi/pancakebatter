@@ -1,17 +1,19 @@
 ---
 creation_rules:
-  - path_regex: talos/.*\.sops\.ya?ml
+  # sops uses the first matching rule; keep the archive rule ahead of the
+  # unanchored-looking bootstrap/kubernetes one.
+  - path_regex: ^archive/k3s/.*\.sops\.ya?ml$
+    encrypted_regex: "^(data|stringData)$"
+    age: "age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf"
+  - path_regex: ^talos/.*\.sops\.ya?ml$
     mac_only_encrypted: true
     age: "age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf"
-  - path_regex: (bootstrap|kubernetes)/.*\.sops\.ya?ml
+  - path_regex: ^(bootstrap|kubernetes)/.*\.sops\.ya?ml$
     encrypted_regex: "^(data|stringData)$"
     mac_only_encrypted: true
     age: "age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf"
-  # Not rendered by the template: Terraform credentials and the archived k3s tree.
-  - path_regex: terraform/.*\.sops\.(ya?ml|json|env)
-    age: "age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf"
-  - path_regex: archive/k3s/.*\.sops\.ya?ml
-    encrypted_regex: "^(data|stringData)$"
+  # Not rendered by the template: Terraform credentials.
+  - path_regex: ^terraform/.*\.sops\.(ya?ml|json|env)$
     age: "age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf"
 stores:
   yaml:

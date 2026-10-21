@@ -1,9 +1,13 @@
 ---
 # Area
-- name: area/ansible
+- name: area/archive
   color: "72ccf3"
   description: >-
-    Changes made in the ansible directory
+    Changes made in the archive directory
+- name: area/bootstrap
+  color: "72ccf3"
+  description: >-
+    Changes made in the bootstrap directory
 - name: area/github
   color: "72ccf3"
   description: >-
@@ -12,14 +16,18 @@
   color: "72ccf3"
   description: >-
     Changes made in the kubernetes directory
-- name: area/addons
+- name: area/talos
   color: "72ccf3"
   description: >-
-    Changes made in the addons directory
-- name: area/bootstrap
+    Changes made in the talos directory
+- name: area/template
   color: "72ccf3"
   description: >-
-    Changes made in the bootstrap directory
+    Changes made in the template directory
+- name: area/terraform
+  color: "72ccf3"
+  description: >-
+    Changes made in the terraform directory
 # Renovate
 - name: renovate/ansible
   color: "ffc300"
