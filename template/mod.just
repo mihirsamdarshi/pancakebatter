@@ -73,11 +73,15 @@ schema:
     uv run --quiet --locked --no-dev "{{ validate_script }}" --schema > "{{ schema_file }}"
     oxfmt "{{ schema_file }}" > /dev/null
 
-[confirm("Remove all templated files and directories — continue? [y/N]")]
-[doc('Remove rendered files (bootstrap/, kubernetes/, talos/, .sops.yaml)')]
+# talos/secrets.sops.yaml is the cluster PKI (generated once by topf, not by
+# the template), so reset keeps it; delete it by hand only to start a new
+# cluster.
+[confirm("Remove all rendered files and directories (keeps talos/secrets.sops.yaml) — continue? [y/N]")]
+[doc('Remove rendered files (bootstrap/, kubernetes/, talos/ except secrets.sops.yaml, .sops.yaml)')]
 [group('template')]
 reset:
-    rm -rf "{{ bootstrap_dir }}" "{{ kubernetes_dir }}" "{{ talos_dir }}" "{{ justfile_dir() }}/.sops.yaml"
+    rm -rf "{{ bootstrap_dir }}" "{{ kubernetes_dir }}" "{{ justfile_dir() }}/.sops.yaml"
+    [ ! -d "{{ talos_dir }}" ] || find "{{ talos_dir }}" -mindepth 1 ! -path "{{ talos_dir }}/secrets.sops.yaml" -delete
 
 # tidy-archive moves template/ (this module's source) away, so it runs as a
 # subsequent dependency: the tidy script itself must spawn while the module

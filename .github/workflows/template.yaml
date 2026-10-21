@@ -1,0 +1,62 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: "Template"
+
+# Upstream's template-e2e workflow only runs in onedr0p/cluster-template, and
+# rendering here needs the age key, so this covers the validator only.
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - template/**
+      - .github/template-tests/**
+      - .github/workflows/template.yaml
+      - cluster.sample.toml
+      - cluster.schema.json
+      - pyproject.toml
+      - uv.lock
+  push:
+    branches:
+      - main
+    paths:
+      - template/**
+      - .github/template-tests/**
+      - .github/workflows/template.yaml
+      - cluster.sample.toml
+      - cluster.schema.json
+      - pyproject.toml
+      - uv.lock
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  validator-tests:
+    name: validator-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup mise
+        uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        with:
+          install_args: --locked uv
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Run validator tests
+        run: uv run --quiet --locked pytest ./template/scripts/test_validate.py
+
+      - name: Assert cluster.schema.json matches the validator
+        run: |
+          uv run --quiet --locked --no-dev ./template/scripts/validate.py --schema > /tmp/schema.json
+          python3 -c 'import json,sys; a,b=(json.load(open(p)) for p in sys.argv[1:]); sys.exit(a!=b)' /tmp/schema.json cluster.schema.json
