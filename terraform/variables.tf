@@ -35,9 +35,10 @@ variable "start_on_boot" {
 }
 
 variable "talos_version" {
-  description = "Talos version for installer images."
+  description = "Talos version for installer images. Renovate bumps this with the topf/talosctl group."
   type        = string
-  default     = "v1.14.4"
+  # renovate: datasource=github-releases depName=siderolabs/talos
+  default = "v1.14.4"
 }
 
 variable "talos_schematics" {
