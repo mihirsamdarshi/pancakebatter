@@ -1,7 +1,7 @@
 ---
 creation_rules:
   # sops uses the first matching rule; keep the archive rule ahead of the
-  # unanchored-looking bootstrap/kubernetes one.
+  # bootstrap/kubernetes one, which would otherwise match archive/k3s/kubernetes/.
   - path_regex: ^archive/k3s/.*\.sops\.ya?ml$
     encrypted_regex: "^(data|stringData)$"
     age: "age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf"
