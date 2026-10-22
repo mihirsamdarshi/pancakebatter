@@ -75,7 +75,7 @@ applies the changes to my cluster.
 
 | Times Rebuilt | Last Updated |
 | ------------- | ------------ |
-| **12**        | 7/15/2023    |
+| **13**        | 10/21/2026   |
 
 ## 🤝 Acknowledgements
 
