@@ -1,0 +1,56 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: "Kubernetes"
+
+# Runs scripts/validate-kubernetes.sh, the same validator as the lefthook
+# pre-push gate. The main session pushes straight to main and Flux reconciles
+# it right away, so on push this is an after-the-fact signal; the pre-push
+# hook is the gate.
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - kubernetes/**
+      - scripts/validate-kubernetes.sh
+      - .github/workflows/kubernetes.yaml
+      - .mise/config.toml
+      - .mise/mise.lock
+  push:
+    branches:
+      - main
+    paths:
+      - kubernetes/**
+      - scripts/validate-kubernetes.sh
+      - .github/workflows/kubernetes.yaml
+      - .mise/config.toml
+      - .mise/mise.lock
+
+# Every push to main gets its own run; only superseded PR runs are cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup mise
+        uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        with:
+          install_args: --locked kubeconform kustomize flux2 yq
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Validate manifests
+        run: bash scripts/validate-kubernetes.sh

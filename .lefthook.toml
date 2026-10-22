@@ -49,3 +49,23 @@ stage_fixed = true
 [pre-commit.commands.zizmor]
 glob = [".github/workflows/*.yaml", ".github/actions/**/action.yaml"]
 run = "zizmor --offline {staged_files}"
+
+# Gates kubernetes/ before Flux can see it: the main session commits straight
+# to main and Flux reconciles origin/main right away, so CI on push can only
+# report breakage after it is live.
+#
+# pre-push, not pre-commit: it validates exactly what reaches origin (the
+# committed tree of each pushed ref, from git's pre-push stdin, not the working
+# tree or a partially staged index), runs once per push instead of once per
+# commit, and leaves local WIP commits alone. The script itself skips refs
+# whose pushed range does not touch kubernetes/ (or the script), so no glob.
+#
+# Fails closed: `mise exec --` supplies the pinned tools whatever the caller's
+# PATH, and the script exits non-zero if a tool, a schema download, or a build
+# fails. Bypass only on purpose (LEFTHOOK=0 or `git push --no-verify`).
+# Known gap: lefthook skips every pre-push job when `git diff HEAD @{push}` is
+# empty, so pushing a ref other than HEAD while HEAD matches its upstream is
+# not gated; the Kubernetes workflow still checks the push to main.
+[pre-push.commands.validate-kubernetes]
+run = "mise exec -- bash scripts/validate-kubernetes.sh --pre-push"
+use_stdin = true

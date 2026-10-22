@@ -11,7 +11,6 @@ talos_dir := justfile_dir() + '/talos'
 private_dir := justfile_dir() + '/.private'
 
 template_dir := justfile_dir() + '/template'
-template_resources := template_dir + '/resources'
 makejinja_config := justfile_dir() + '/makejinja.toml'
 mise_fragment := justfile_dir() + '/.mise/conf.d/template.toml'
 
@@ -171,9 +170,11 @@ test-helmfile:
     helmfile --file "{{ bootstrap_dir }}/helmfile/apps.yaml" template --quiet > /dev/null
     just log info "bootstrap charts rendered cleanly"
 
+# The validator lives in scripts/ so the pre-push hook and CI keep it after
+# `just template tidy` archives template/.
 [private]
 validate-kubernetes:
-    bash "{{ template_resources }}/kubeconform.sh" "{{ kubernetes_dir }}"
+    bash "{{ justfile_dir() }}/scripts/validate-kubernetes.sh" "{{ justfile_dir() }}"
 
 # Rendering needs the secrets bundle; topf generates and sops-encrypts one
 # on first run (--confirm=false so it never prompts mid-pipeline).
