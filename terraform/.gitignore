@@ -8,3 +8,13 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+
+# Decrypted credentials: only the sops-encrypted copy is committed.
+*.env
+!*.sops.env
+*.sops.env.tmp.*
+
+# Saved plans hold resolved variables (including the zone name).
+*.plan
+plan.out
+tfplan
