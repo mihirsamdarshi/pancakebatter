@@ -32,6 +32,12 @@ data "cloudflare_zone" "this" {
 # Private Relay), without router DNS changes. It points at a private address,
 # so nothing becomes reachable from the internet, and per-app names never
 # leave the cluster.
+#
+# This holds only while cluster.toml keeps ingress.mode = "none". Any other
+# mode renders the template's cloudflare-dns external-dns (domainFilters on
+# local.<zone>, --cloudflare-proxied) and the Cloudflare tunnel, which would
+# publish or claim proxied names under local. and break the "never exposed"
+# requirement. Change that template first if ingress is ever turned on.
 resource "cloudflare_dns_record" "local_wildcard" {
   zone_id = data.cloudflare_zone.this.zone_id
   name    = "*.local.${var.zone}"
