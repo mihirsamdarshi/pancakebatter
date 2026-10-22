@@ -4,9 +4,9 @@ set script-interpreter := ['bash', '-euo', 'pipefail']
 set default-list
 set default-script
 
-# Recipes run in this directory. Every Terraform call goes through
-# `sops exec-env`, so the token lives only in the environment of that one
-# process and never touches disk in plaintext. The zone name rides along in
+# Recipes run in this directory. Every Terraform call except init goes
+# through `sops exec-env`, so the token lives only in the environment of that
+# one process and never touches disk in plaintext. The zone name rides along in
 # the same file for convenience; the domain is public, not a secret.
 
 [doc('Regenerate cloudflare.sops.env from 1Password (needs a signed-in op)')]
@@ -20,6 +20,8 @@ secrets:
     op inject --in-file cloudflare.env.tpl \
         | sops encrypt --filename-override terraform/dns/cloudflare.sops.env \
             --input-type dotenv --output-type dotenv /dev/stdin > "$tmp"
+    # Round trip: catches a wrong recipient or a bad MAC. Prints nothing.
+    sops decrypt --input-type dotenv --output-type dotenv "$tmp" >/dev/null
     for key in CLOUDFLARE_API_TOKEN TF_VAR_zone; do
         if ! grep -q "^${key}=ENC\[" "$tmp"; then
             just log error "Refusing to replace cloudflare.sops.env: missing encrypted value" key "$key"
@@ -41,23 +43,31 @@ init:
 plan:
     sops exec-env cloudflare.sops.env 'terraform plan -input=false -detailed-exitcode'
 
-# The plan is saved and shown first; the confirm prompt on the private
-# recipe runs after it, and apply uses exactly that saved plan.
+# The plan is saved and shown first, then the prompt, and apply uses exactly
+# that saved plan. -detailed-exitcode: 0 = no changes (stop here), 2 = changes
+# pending, anything else is an error. sops exec-env passes the code through.
 [doc('Plan, confirm, then apply exactly that plan to Cloudflare')]
 [group('dns')]
-apply: && _apply-plan
-    rm -f plan.out
-    sops exec-env cloudflare.sops.env 'terraform plan -input=false -out=plan.out'
-
-[confirm('Apply plan.out to Cloudflare? [y/N]')]
-[private]
-_apply-plan:
+apply:
     trap 'rm -f plan.out' EXIT
+    rc=0
+    sops exec-env cloudflare.sops.env \
+        'terraform plan -input=false -detailed-exitcode -out=plan.out' || rc=$?
+    case "$rc" in
+        0)
+            just log info "No changes"
+            exit 0
+            ;;
+        2) ;;
+        *) exit "$rc" ;;
+    esac
+    gum confirm 'Apply plan.out to Cloudflare?'
     sops exec-env cloudflare.sops.env 'terraform apply -input=false plan.out'
 
 # Read-only lookup for `terraform import` after state loss. The token reaches
-# curl on stdin (-H @-), never on the command line, and only IDs are printed.
-[doc('Print the zone and wildcard record IDs for terraform import')]
+# curl on stdin (-H @-) from the printf builtin, never on any command line,
+# and only IDs are printed.
+[doc('Print the zone and record IDs and the full terraform import command')]
 [group('dns')]
 ids:
     sops exec-env cloudflare.sops.env '"{{ just_executable() }}" --justfile "{{ source_file() }}" _ids'
@@ -65,9 +75,9 @@ ids:
 [private]
 _ids:
     cf() {
-        curl --silent --show-error --fail-with-body --get \
-            --header @- "https://api.cloudflare.com/client/v4/$1" "${@:2}" \
-            <<<"Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+        printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN" \
+            | curl --silent --show-error --fail-with-body --get \
+                --header @- "https://api.cloudflare.com/client/v4/$1" "${@:2}"
     }
     zone_id="$(cf zones --data-urlencode "name=${TF_VAR_zone}" | jq -er '.result[0].id')"
     record_id="$(cf "zones/${zone_id}/dns_records" \
@@ -76,4 +86,4 @@ _ids:
         | jq -er '.result[0].id')"
     echo "zone_id=${zone_id}"
     echo "record_id=${record_id}"
-    echo "terraform import cloudflare_dns_record.local_wildcard '${zone_id}/${record_id}'"
+    echo "sops exec-env cloudflare.sops.env 'terraform import cloudflare_dns_record.local_wildcard ${zone_id}/${record_id}'"

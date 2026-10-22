@@ -3,9 +3,9 @@
 #   just dns plan      plan; exit code 2 means drift
 #   just dns apply     save a plan, confirm, apply exactly that plan
 #   just dns secrets   regenerate cloudflare.sops.env from 1Password
-#   just dns ids       zone and record IDs for `terraform import`
-# Each one decrypts cloudflare.sops.env into the environment of a single
-# `sops exec-env` process. It sets CLOUDFLARE_API_TOKEN (Zone:Read +
+#   just dns ids       IDs and the full `terraform import` command
+# Each one except init decrypts cloudflare.sops.env into the environment of a
+# single `sops exec-env` process. It sets CLOUDFLARE_API_TOKEN (Zone:Read +
 # Zone:DNS:Edit on the one zone) and TF_VAR_zone. The zone comes from the
 # encrypted env file only for convenience: the domain itself is public (DNS,
 # Certificate Transparency logs) and is not a secret.
