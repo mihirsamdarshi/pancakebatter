@@ -61,7 +61,9 @@ apply:
         2) ;;
         *) exit "$rc" ;;
     esac
-    gum confirm --default=false 'Apply plan.out to Cloudflare?' || { just log warn "Apply cancelled"; exit 0; }
+    [[ -t 0 && -t 1 ]] || { just log error "apply needs an interactive terminal"; exit 1; }
+    rc=0; gum confirm --default=false 'Apply plan.out to Cloudflare?' || rc=$?
+    case "$rc" in 0) ;; 1|130) just log warn "Apply cancelled"; exit 0 ;; *) exit "$rc" ;; esac
     sops exec-env cloudflare.sops.env 'terraform apply -input=false plan.out'
 
 # Read-only lookup for `terraform import` after state loss. The token reaches
