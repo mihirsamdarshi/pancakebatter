@@ -1,0 +1,10 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: storage
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # Helper pods mount hostPath to create and delete volume directories.
+    pod-security.kubernetes.io/enforce: privileged

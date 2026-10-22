@@ -78,12 +78,14 @@ variable "network" {
 variable "nodes" {
   description = "Talos nodes. Each runs control-plane services and workloads."
   type = map(object({
-    vm_id       = number
-    cores       = optional(number, 4)
-    memory_mib  = optional(number, 12288)
-    disk_gib    = optional(number, 128)
-    ip          = optional(string)
-    mac_address = optional(string)
+    vm_id      = number
+    cores      = optional(number, 4)
+    memory_mib = optional(number, 12288)
+    disk_gib   = optional(number, 128)
+    # Second disk for local-path PVCs (Prometheus, Loki, Grafana).
+    local_disk_gib = optional(number, 32)
+    ip             = optional(string)
+    mac_address    = optional(string)
     # Proxmox PCI resource mapping to pass through (all functions, PCIe). The token
     # only has Mapping.Use on /mapping/pci/gtx1650. That node needs the NVIDIA Talos
     # extensions in its schematic (see docs/agents/kubernetes-rebuild.md).

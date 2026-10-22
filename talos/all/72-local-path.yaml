@@ -1,0 +1,12 @@
+# Second virtual disk (Terraform scsi1) for node-local PVCs via
+# local-path-provisioner. Talos mounts it at /var/mnt/local-path. Selected by
+# the PVE by-id symlink: virtio-scsi exposes no serial Talos can read.
+# Interim until Rook returns with calvin and susie.
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: local-path
+provisioning:
+  diskSelector:
+    match: '"/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1" in disk.symlinks && !system_disk'
+  minSize: 16GiB
+  grow: true

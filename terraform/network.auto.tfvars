@@ -1,8 +1,9 @@
 # Server network selected October 19, 2026.
-# These settings prepare the stopped VMs; Talos machine config is separate.
+# Talos machine config is separate. The VMs run since October 21: start_vms
+# must stay true, or an apply shuts them down.
 bridge        = "vmbr0"
 vlan_id       = 10
-start_vms     = false
+start_vms     = true
 start_on_boot = false
 
 network = {

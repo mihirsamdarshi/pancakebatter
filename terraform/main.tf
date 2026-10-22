@@ -11,6 +11,9 @@ resource "proxmox_virtual_environment_vm" "talos" {
   on_boot         = var.start_on_boot
   started         = var.start_vms
   stop_on_destroy = true
+  # Never reboot a running node to apply a change; restarts are a separate,
+  # user-approved step. Disk and NIC additions hot-plug without one.
+  reboot_after_update = false
 
   # No `startup` block: setting it needs Sys.Modify on / (host-wide), which this
   # token deliberately lacks. Unordered VMs start after ordered ones, so TrueNAS
@@ -49,6 +52,21 @@ resource "proxmox_virtual_environment_vm" "talos" {
     iothread     = true
     discard      = "on"
     ssd          = true
+  }
+
+  # Node-local PVCs (local-path-provisioner) until Rook returns with calvin and
+  # susie. Talos selects it by its by-id symlink (drive-scsi1, see
+  # talos/all/72-local-path.yaml), never the system disk.
+  disk {
+    datastore_id = var.vm_datastore
+    interface    = "scsi1"
+    size         = each.value.local_disk_gib
+    file_format  = "raw"
+    iothread     = true
+    discard      = "on"
+    ssd          = true
+    serial       = "local-path"
+    backup       = false
   }
 
   dynamic "cdrom" {
