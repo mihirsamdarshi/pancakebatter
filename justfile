@@ -14,6 +14,9 @@ mod? kube 'kubernetes'
 [group('talos')]
 mod? talos 'talos'
 
+[group('dns')]
+mod? dns 'terraform/dns'
+
 [private]
 log lvl msg *args:
     gum log -t rfc3339 -s -l "{{ lvl }}" "{{ msg }}" {{ args }}

@@ -9,6 +9,7 @@ terraform {
   }
 
   # Separate root and local state (gitignored) from ../ (Proxmox), so a DNS
-  # apply can never touch VMs. It holds no secrets. If it is lost, re-import:
-  #   terraform import cloudflare_dns_record.local_wildcard '<zone_id>/<record_id>'
+  # apply can never touch VMs. It holds no secrets. If it is lost, `just dns
+  # ids` prints the IDs and the import command; run that command inside
+  #   sops exec-env cloudflare.sops.env '<import command>'
 }

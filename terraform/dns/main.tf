@@ -1,10 +1,13 @@
-# Credentials and the zone name come from the environment, decrypted on the fly:
-#   sops exec-env cloudflare.sops.env 'terraform plan'
-# cloudflare.sops.env sets CLOUDFLARE_API_TOKEN (Zone:Read + Zone:DNS:Edit on the
-# one zone) and TF_VAR_zone, which keeps the domain out of this public repo.
-# Regenerate it from 1Password (in a terminal signed in to op):
-#   op inject -i cloudflare.env.tpl | sops encrypt --filename-override terraform/dns/cloudflare.sops.env \
-#     --input-type dotenv --output-type dotenv /dev/stdin > cloudflare.sops.env
+# Run this root through its just recipes (terraform/dns/mod.just):
+#   just dns init      once per clone
+#   just dns plan      plan; exit code 2 means drift
+#   just dns apply     save a plan, confirm, apply exactly that plan
+#   just dns secrets   regenerate cloudflare.sops.env from 1Password
+#   just dns ids       zone and record IDs for `terraform import`
+# Each one decrypts cloudflare.sops.env into the environment of a single
+# `sops exec-env` process. It sets CLOUDFLARE_API_TOKEN (Zone:Read +
+# Zone:DNS:Edit on the one zone) and TF_VAR_zone, which keeps the domain out
+# of this public repo.
 provider "cloudflare" {}
 
 variable "zone" {
