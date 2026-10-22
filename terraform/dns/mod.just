@@ -20,7 +20,7 @@ secrets:
     op inject --in-file cloudflare.env.tpl \
         | sops encrypt --filename-override terraform/dns/cloudflare.sops.env \
             --input-type dotenv --output-type dotenv /dev/stdin > "$tmp"
-    # Round trip: catches a wrong recipient or a bad MAC. Prints nothing.
+    # Round trip: catches a bad MAC or a file our key cannot decrypt. Prints nothing.
     sops decrypt --input-type dotenv --output-type dotenv "$tmp" >/dev/null
     for key in CLOUDFLARE_API_TOKEN TF_VAR_zone; do
         if ! grep -q "^${key}=ENC\[" "$tmp"; then
@@ -61,7 +61,7 @@ apply:
         2) ;;
         *) exit "$rc" ;;
     esac
-    gum confirm 'Apply plan.out to Cloudflare?'
+    gum confirm --default=false 'Apply plan.out to Cloudflare?' || { just log warn "Apply cancelled"; exit 0; }
     sops exec-env cloudflare.sops.env 'terraform apply -input=false plan.out'
 
 # Read-only lookup for `terraform import` after state loss. The token reaches
@@ -79,11 +79,11 @@ _ids:
             | curl --silent --show-error --fail-with-body --get \
                 --header @- "https://api.cloudflare.com/client/v4/$1" "${@:2}"
     }
-    zone_id="$(cf zones --data-urlencode "name=${TF_VAR_zone}" | jq -er '.result[0].id')"
+    zone_id="$(cf zones --data-urlencode "name=${TF_VAR_zone}" | jq -er '.result[0].id // error("zone not found")')"
     record_id="$(cf "zones/${zone_id}/dns_records" \
         --data-urlencode 'type=A' \
         --data-urlencode "name.exact=*.local.${TF_VAR_zone}" \
-        | jq -er '.result[0].id')"
+        | jq -er '.result[0].id // error("wildcard record not found")')"
     echo "zone_id=${zone_id}"
     echo "record_id=${record_id}"
     echo "sops exec-env cloudflare.sops.env 'terraform import cloudflare_dns_record.local_wildcard ${zone_id}/${record_id}'"
