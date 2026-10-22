@@ -25,7 +25,7 @@ variable "talos_iso_file_id" {
 variable "start_vms" {
   description = "Start the VMs after creation."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "start_on_boot" {
