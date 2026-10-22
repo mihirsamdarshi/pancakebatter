@@ -2,6 +2,9 @@
 #   sops exec-env cloudflare.sops.env 'terraform plan'
 # cloudflare.sops.env sets CLOUDFLARE_API_TOKEN (Zone:Read + Zone:DNS:Edit on the
 # one zone) and TF_VAR_zone, which keeps the domain out of this public repo.
+# Regenerate it from 1Password (in a terminal signed in to op):
+#   op inject -i cloudflare.env.tpl | sops encrypt --filename-override terraform/dns/cloudflare.sops.env \
+#     --input-type dotenv --output-type dotenv /dev/stdin > cloudflare.sops.env
 provider "cloudflare" {}
 
 variable "zone" {
