@@ -8,7 +8,9 @@ spec:
   acme:
     privateKeySecretRef:
       name: letsencrypt-production
-    profile: shortlived
+    # 90-day certificates (user decision): six-day ones leave ~2 days to fix a
+    # broken renewal.
+    profile: classic
     server: https://acme-v02.api.letsencrypt.org/directory
     solvers:
       - dns01:
