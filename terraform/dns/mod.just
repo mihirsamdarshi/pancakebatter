@@ -5,8 +5,9 @@ set default-list
 set default-script
 
 # Recipes run in this directory. Every Terraform call goes through
-# `sops exec-env`, so the token and the zone name live only in the
-# environment of that one process and never touch disk in plaintext.
+# `sops exec-env`, so the token lives only in the environment of that one
+# process and never touches disk in plaintext. The zone name rides along in
+# the same file for convenience; the domain is public, not a secret.
 
 [doc('Regenerate cloudflare.sops.env from 1Password (needs a signed-in op)')]
 [group('dns')]

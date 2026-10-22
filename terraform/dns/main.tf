@@ -6,8 +6,9 @@
 #   just dns ids       zone and record IDs for `terraform import`
 # Each one decrypts cloudflare.sops.env into the environment of a single
 # `sops exec-env` process. It sets CLOUDFLARE_API_TOKEN (Zone:Read +
-# Zone:DNS:Edit on the one zone) and TF_VAR_zone, which keeps the domain out
-# of this public repo.
+# Zone:DNS:Edit on the one zone) and TF_VAR_zone. The zone comes from the
+# encrypted env file only for convenience: the domain itself is public (DNS,
+# Certificate Transparency logs) and is not a secret.
 provider "cloudflare" {}
 
 variable "zone" {
@@ -28,8 +29,9 @@ data "cloudflare_zone" "this" {
 }
 
 # Internal apps live under local.<zone>. One unproxied wildcard resolves every
-# app to the internal gateway from any resolver (LAN, Tailscale, phones with
-# Private Relay), without router DNS changes. It points at a private address,
+# app to the internal gateway from ordinary resolvers (LAN, Tailscale),
+# without router DNS changes. Resolvers with DNS-rebind filtering drop it, and
+# iCloud Private Relay is untested. It points at a private address,
 # so nothing becomes reachable from the internet, and per-app names never
 # leave the cluster.
 #
