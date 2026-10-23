@@ -26,7 +26,12 @@ spec:
   path: ./
   prune: true
   deletionPolicy: Orphan
-  wait: true
+  wait: false
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: quilt-planner
+      namespace: quilt-planner
   serviceAccountName: quilt-reconciler
   targetNamespace: quilt-planner
   sourceRef:
