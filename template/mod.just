@@ -128,7 +128,7 @@ render:
 tidy-archive:
     TIDY_FOLDER="{{ private_dir }}/$(date +%s)"
     mkdir -p "$TIDY_FOLDER"
-    rm -rf "{{ justfile_dir() }}/.github/template-tests" "{{ justfile_dir() }}/.github/workflows"/template-*.yaml
+    rm -rf "{{ justfile_dir() }}/.github/template-tests" "{{ justfile_dir() }}/.github/workflows"/template*.yaml
     mv \
         "{{ template_dir }}" \
         "{{ makejinja_config }}" \
@@ -155,7 +155,7 @@ tidy-preconditions:
     test -f "{{ mise_fragment }}"
     test -f "{{ schema_file }}"
     test -f "{{ justfile_dir() }}/.renovaterc.json5"
-    compgen -G "{{ justfile_dir() }}/.github/workflows/template-*.yaml" > /dev/null
+    compgen -G "{{ justfile_dir() }}/.github/workflows/template*.yaml" > /dev/null
 
 [private]
 tidy-strip:

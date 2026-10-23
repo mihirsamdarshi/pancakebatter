@@ -16,9 +16,23 @@
 #      kubernetes/flux/cluster directly; it has no kustomization.yaml);
 #   2. `kustomize build | kubeconform` for every kustomization.yaml under
 #      kubernetes/flux and kubernetes/apps;
-#   3. `flux build ks --dry-run | kubeconform` for every Flux Kustomization,
-#      which also catches a wrong spec.path and broken spec.patches.
+#   3. kubeconform on every Flux Kustomization object, and
+#      `flux build ks --dry-run | kubeconform` for each one whose sourceRef is
+#      GitRepository flux-system/flux-system (this repo), which also catches a
+#      wrong spec.path and broken spec.patches. A Kustomization that reads any
+#      other source (e.g. a private OCIRepository) cannot be built from this
+#      repo and is logged as "skipped (external source)";
+#   4. no unclosed `${VAR` (a Flux postBuild substitution missing its `}`).
 # archive/ and other trees outside kubernetes/ are never read.
+#
+# Schemas fail closed: there is no -ignore-missing-schemas, so a typo in
+# apiVersion or kind, or a CRD without a published schema, fails the run. Add a
+# kind to the -skip list below only when no configured schema location has it.
+#
+# Known limit: each Flux Kustomization is built from its own file, so patches
+# that a parent applies to it at reconcile time (cluster-apps injects sops
+# decryption and HelmRelease install/upgrade defaults into every child) are not
+# part of the child's build here.
 
 set -euo pipefail
 
@@ -28,11 +42,21 @@ kustomize_args=("--load-restrictor=LoadRestrictionsNone")
 kubeconform_args=(
     "-strict"
     "-summary"
-    "-ignore-missing-schemas"
-    "-skip" "Gateway,HTTPRoute,Secret"
+    # Secret: sops-encrypted Secrets carry a top-level `sops` key that -strict
+    # rejects; the decrypted Secret only exists in-cluster.
+    "-skip" "Secret"
     "-schema-location" "default"
     "-schema-location" "https://k8s-schemas.home-operations.com/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 )
+
+# kubeconform on stdin. Flux postBuild variables (${VAR}, ${VAR:=default},
+# ${VAR/./-}) are filled in only at reconcile time, from cluster Secrets this
+# script cannot read, so each one becomes a DNS-label-safe stand-in first.
+# Otherwise every pattern-checked field holding one (an HTTPRoute or Gateway
+# hostname, a Certificate dnsName) fails.
+conform() {
+    sed -E 's/\$\{[A-Za-z_][^}]*\}/placeholder/g' | kubeconform "${kubeconform_args[@]}"
+}
 
 die() {
     echo "validate-kubernetes: $*" >&2
@@ -62,7 +86,7 @@ validate_tree() {
 
     (
         cd "$root"
-        local file dir name path index tmp
+        local file dir name namespace path index src_kind src_name src_ns rc tmp
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
 
@@ -79,31 +103,57 @@ validate_tree() {
         echo "=== kubeconform: standalone manifests in kubernetes/flux ==="
         while IFS= read -r -d '' file; do
             echo "--- $file"
-            kubeconform "${kubeconform_args[@]}" "$file"
+            conform <"$file"
         done <"$tmp/standalone"
 
         echo "=== kustomize build | kubeconform ==="
         while IFS= read -r -d '' file; do
             dir="$(dirname "$file")"
             echo "--- $dir"
-            kustomize build "$dir" "${kustomize_args[@]}" | kubeconform "${kubeconform_args[@]}"
+            kustomize build "$dir" "${kustomize_args[@]}" | conform
         done <"$tmp/kustomizations"
 
         echo "=== flux build ks --dry-run | kubeconform ==="
         while IFS= read -r -d '' file; do
+            # An omitted metadata.namespace is flux build's default
+            # (flux-system); an omitted sourceRef.namespace is the
+            # Kustomization's own namespace.
             yq -N 'select(.apiVersion == "kustomize.toolkit.fluxcd.io/*" and .kind == "Kustomization")
-                | [documentIndex, .metadata.name // "", .spec.path // ""] | join("|")' "$file" >"$tmp/ks.list"
+                | (.metadata.namespace // "flux-system") as $ns
+                | [documentIndex, .metadata.name // "", $ns, .spec.path // "",
+                   .spec.sourceRef.kind // "", .spec.sourceRef.name // "",
+                   .spec.sourceRef.namespace // $ns] | join("|")' "$file" >"$tmp/ks.list"
             # yq prints an empty line when nothing matches. "|" rather than a
             # tab, because read collapses consecutive whitespace separators.
-            while IFS='|' read -r index name path; do
+            while IFS='|' read -r index name namespace path src_kind src_name src_ns; do
                 [[ -n "$index" ]] || continue
                 [[ -n "$name" && -n "$path" ]] || die "$file: Flux Kustomization without metadata.name or spec.path"
-                echo "--- $file ($name -> $path)"
                 yq "select(documentIndex == $index)" "$file" >"$tmp/ks.yaml"
-                flux build ks "$name" --dry-run --path "$path" --kustomization-file "$tmp/ks.yaml" \
-                    | kubeconform "${kubeconform_args[@]}"
+                if [[ "$src_kind/$src_ns/$src_name" != "GitRepository/flux-system/flux-system" ]]; then
+                    # Not this repo: validate the object, but its spec.path
+                    # lives in another source.
+                    echo "--- $file ($namespace/$name: skipped (external source) $src_kind $src_ns/$src_name)"
+                    conform <"$tmp/ks.yaml"
+                    continue
+                fi
+                echo "--- $file ($namespace/$name -> $path)"
+                conform <"$tmp/ks.yaml"
+                flux build ks "$name" --namespace "$namespace" --dry-run --path "$path" \
+                    --kustomization-file "$tmp/ks.yaml" | conform
             done <"$tmp/ks.list"
         done <"$tmp/manifests"
+
+        echo '=== unclosed ${VAR substitutions ==='
+        # Flux postBuild leaves an unterminated `${VAR` untouched, so the typo
+        # would only surface as a broken value at runtime. grep exits 1 when
+        # nothing matches; anything above 1 is a real error.
+        rc=0
+        grep -rnE --include='*.yaml' '\$\{[^}]*$' kubernetes >"$tmp/unclosed" || rc=$?
+        ((rc <= 1)) || die "grep failed while checking for unclosed \${"
+        if ((rc == 0)); then
+            cat "$tmp/unclosed" >&2
+            die 'unclosed ${ substitution (missing "}") in the lines above'
+        fi
     )
     echo "=== kubernetes manifests are valid ==="
 }
