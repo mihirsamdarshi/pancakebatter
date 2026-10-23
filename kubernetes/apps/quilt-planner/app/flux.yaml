@@ -1,0 +1,34 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: quilt-planner
+  namespace: quilt-planner
+spec:
+  interval: 1m
+  url: oci://ghcr.io/mihirsamdarshi/quilt-planner-deploy
+  ref:
+    tag: main
+  secretRef:
+    name: quilt-registry
+  layerSelector:
+    mediaType: application/vnd.cncf.flux.content.v1.tar+gzip
+    operation: extract
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: quilt-planner
+  namespace: quilt-planner
+spec:
+  interval: 5m
+  retryInterval: 1m
+  timeout: 3m
+  path: ./
+  prune: true
+  deletionPolicy: Orphan
+  wait: true
+  serviceAccountName: quilt-reconciler
+  targetNamespace: quilt-planner
+  sourceRef:
+    kind: OCIRepository
+    name: quilt-planner

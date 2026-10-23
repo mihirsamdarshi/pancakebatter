@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: quilt-registry
+  namespace: quilt-planner
+type: kubernetes.io/dockerconfigjson
+stringData:
+  .dockerconfigjson: ENC[AES256_GCM,data:BkZZBur7VvAyMXKCtX8wwfY33xNGkQHfwyRSs+Y0AOwx1ro1Vn1xhKWm66l6+rZvhnGw4pq4Da1xlzNWtUcs3nkhxO587QeTlOIFqwMYGSgcHldDJtd9SiH1bNF4nWqZKKV9HuMEcPakhqd+Rx242g==,iv:zKTOcNjCx1cZ4tV21sSBx2W2Zy42Lld5ueYEI2smSlg=,tag:ukmGP92+eyG2stATki416w==,type:str]
+sops:
+  age:
+    - enc: |
+        -----BEGIN AGE ENCRYPTED FILE-----
+        YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB1ZU9LY0s3S3NvUzM0US9K
+        MXNYbWFXeDM4VDJjaXJjSnQyS0tYWFJ1K3hNCi93dFJQU0MzQmRubE1xMHZTQWNF
+        Wi8rVHpyNUplRzFPZnVDUk91RlZldlEKLS0tIHRMNlk0KzNtSnlKM1VvV3lLL0RY
+        WXhWeFphazhJOGt2bW9zNEppL1FReTgKjUpDQGZJiOCWY+Li2Js8Zbc2t2zVR8tk
+        EhULSfgs0vDb9QN/WGzuaiahEjDdJrXoj2+0joULTNWQwC0CGIm5ZQ==
+        -----END AGE ENCRYPTED FILE-----
+      recipient: age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf
+  encrypted_regex: ^(data|stringData)$
+  lastmodified: "2026-10-23T08:01:11Z"
+  mac: ENC[AES256_GCM,data:p6H4kKJTRXRfCXiFbsHTySa+VPVQz2rRRQMPg9ms3YCqkx6YCyWuVd34fSS1McemMa6WpCyePQ26isoxuHUeKSKcR9PvCchMlRHx9xJ7L7H1VgDnry8CdNRhffv/5gHUvEG57xAAanvsBMPdYBdrLlpcubAw8gO3J6T/zs8M49Y=,iv:ElzXCXo8VeFW9f/bHWfkt1ETFaCAJxTGG2YlqD8Zj3g=,tag:KCUUVJPtVWkf4fXZyyxRdg==,type:str]
+  mac_only_encrypted: true
+  version: 3.13.3
