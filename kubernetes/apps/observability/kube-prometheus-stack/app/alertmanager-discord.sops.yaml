@@ -1,0 +1,26 @@
+# Discord webhook for Alertmanager, read via webhook_url_file. Set the real
+# value with: sops kubernetes/apps/observability/kube-prometheus-stack/app/alertmanager-discord.sops.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-discord
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+stringData:
+  webhook-url: ENC[AES256_GCM,data:EROGsaJfRMDB2g==,iv:3iJFEhmOn3Iqw/Rs6ml08k/jYS8SaZB1PuFAEMLRxZM=,tag:9YhlPNFB6UTV/m7pSZSuFA==,type:str]
+sops:
+  age:
+    - enc: |
+        -----BEGIN AGE ENCRYPTED FILE-----
+        YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBMUVlhWnk4QWVtN0N3aHJP
+        NDlLTzJlM1h3dWFTUGVkTGJWTEpyNW9GUFQ0CkkvdnQ4NnRES1BpNUJCa0t0Z1JL
+        b0dVTHRISC91N0RsYWQzczJ3QzNxRjAKLS0tIHo0YVliSmE1NS8wZWhHaTBzOVBU
+        cVZYK29mSkxTQzU4ZS95Y0lTS3VmYTAKCVvgL31w+ZO7UTM5ZNHSOaT6jVl8E+XU
+        WseN10Az7xUfvMfrFHjz63+K6tg0yAL+Pdune5vq0IEVW2tj1WPl2w==
+        -----END AGE ENCRYPTED FILE-----
+      recipient: age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf
+  encrypted_regex: ^(data|stringData)$
+  lastmodified: "2026-10-23T17:13:37Z"
+  mac: ENC[AES256_GCM,data:fTGx676kN5urVkP2LXX4etTW21f34kegN2FVC1vgONH7c99dqCAKuzW4XQR4+rzQu9ma8WiojRun5a0Ixwu7HNb3rHO2ImQbDh0EdLwtSqMKspksR8P3vmHRpg+dAq/qIeByV6aA8nlQBNy8U5yyO6F6yvmhi8KXUUT/ZsX9lWg=,iv:onP60LAioKrhEFDzygBbH71ChRMl87ojFO0H5GLYTkg=,tag:mGLCTXb9uYpz4k6VqK9G6Q==,type:str]
+  mac_only_encrypted: true
+  version: 3.13.3
