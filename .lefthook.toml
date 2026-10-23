@@ -60,12 +60,20 @@ run = "zizmor --offline {staged_files}"
 # commit, and leaves local WIP commits alone. The script itself skips refs
 # whose pushed range does not touch kubernetes/ (or the script), so no glob.
 #
+# A script (.lefthook/pre-push/validate.sh), not a command: lefthook skips
+# pre-push *commands* when HEAD equals its upstream, so `git push origin
+# bad:main` (or a multi-ref push whose HEAD is already pushed) went through
+# ungated, and a `files` override does not change that. Scripts always run.
+#
 # Fails closed: `mise exec --` supplies the pinned tools whatever the caller's
 # PATH, and the script exits non-zero if a tool, a schema download, or a build
-# fails. Bypass only on purpose (LEFTHOOK=0 or `git push --no-verify`).
-# Known gap: lefthook skips every pre-push job when `git diff HEAD @{push}` is
-# empty, so pushing a ref other than HEAD while HEAD matches its upstream is
-# not gated; the Kubernetes workflow still checks the push to main.
-[pre-push.commands.validate-kubernetes]
-run = "mise exec -- bash scripts/validate-kubernetes.sh --pre-push"
+# fails.
+#
+# Bypasses, so this is not the only line of defence:
+#   - `git push --no-verify` and `LEFTHOOK=0 git push` skip it on purpose;
+#   - GitButler (`but push` and its app) may push without running git hooks.
+# The Kubernetes workflow runs the same script on every PR and push to main, so
+# a bypassed push still turns CI red.
+[pre-push.scripts."validate.sh"]
+runner = "bash"
 use_stdin = true
