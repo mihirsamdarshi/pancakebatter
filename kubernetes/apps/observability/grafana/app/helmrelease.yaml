@@ -1,0 +1,105 @@
+---
+# Stateless: datasources and dashboards are provisioned from Git and the admin
+# login comes from SOPS, so there is nothing to back up. Edits made in the UI
+# are lost on restart by design; change dashboards in Git.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: grafana
+  interval: 1h
+  values:
+    deploymentStrategy:
+      type: RollingUpdate
+    admin:
+      existingSecret: grafana-admin
+      userKey: admin-user
+      passwordKey: admin-password
+    grafana.ini:
+      server:
+        root_url: https://grafana.${SECRET_DOMAIN}
+      analytics:
+        reporting_enabled: false
+        check_for_updates: false
+        check_for_plugin_updates: false
+      news:
+        news_feed_enabled: false
+      auth.anonymous:
+        enabled: false
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: Prometheus
+            uid: prometheus
+            type: prometheus
+            isDefault: true
+            access: proxy
+            url: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090
+            jsonData:
+              timeInterval: 30s
+          - name: Alertmanager
+            uid: alertmanager
+            type: alertmanager
+            access: proxy
+            url: http://kube-prometheus-stack-alertmanager.observability.svc.cluster.local:9093
+            jsonData:
+              implementation: prometheus
+              handleGrafanaManagedAlerts: false
+    sidecar:
+      dashboards:
+        enabled: true
+        searchNamespace: ALL
+        label: grafana_dashboard
+        folderAnnotation: grafana_folder
+        provider:
+          foldersFromFilesStructure: true
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 128Mi
+    persistence:
+      enabled: false
+    # Keep Grafana off talos-01 (memory limits ~96 % there with the planned
+    # apps) and prefer talos-02, next to Prometheus.
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: NotIn
+                  values: [talos-01]
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [talos-02]
+    # The only published UI. Prometheus and Alertmanager have no auth and stay
+    # internal; reach them through Grafana or kubectl port-forward.
+    route:
+      main:
+        enabled: true
+        hostnames:
+          - grafana.${SECRET_DOMAIN}
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+            sectionName: https
+    serviceMonitor:
+      enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        memory: 768Mi
+    testFramework:
+      enabled: false
