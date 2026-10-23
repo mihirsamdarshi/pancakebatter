@@ -1,0 +1,113 @@
+---
+# Cardinality, capacity and node-memory guardrails. Loki and Alloy rules ship
+# with those components.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: guardrails
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  groups:
+    - name: guardrails.prometheus
+      rules:
+        - alert: PrometheusHeadSeriesHigh
+          expr: prometheus_tsdb_head_series > 60000
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus {{ $labels.pod }} holds {{ $value | humanize }} head series (target below 40k)"
+            description: 'Find the source: topk(20, count by (__name__)({__name__=~".+"})) or the /tsdb-status page.'
+        - alert: PrometheusHeadSeriesHigh
+          expr: prometheus_tsdb_head_series > 100000
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Prometheus {{ $labels.pod }} holds {{ $value | humanize }} head series (target below 40k)"
+            description: "Memory use follows head series; the 2.5 GiB limit is at risk."
+        - alert: PrometheusSeriesChurnHigh
+          expr: increase(prometheus_tsdb_head_series_created_total[1h]) > 20000
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus {{ $labels.pod }} created {{ $value | humanize }} series in 1 h"
+            description: "A label with changing values (pod UID, container ID, request path) is the usual cause."
+        - alert: ScrapeSampleLimitHit
+          expr: increase(prometheus_target_scrapes_exceeded_sample_limit_total[15m]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "A scrape exceeded its sample limit and was dropped"
+            description: "The whole scrape fails, so the target also shows as down. Check scrape_samples_post_metric_relabeling by job."
+        - alert: ScrapeLabelLimitHit
+          expr: increase(prometheus_target_scrape_pool_exceeded_label_limits_total[15m]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "Scrape pool {{ $labels.scrape_pool }} exceeded the label limit"
+            description: "enforcedLabelLimit is 30 labels and enforcedLabelValueLengthLimit 1024 characters per sample."
+        - alert: ScrapeDuplicateTimestamps
+          expr: increase(prometheus_target_scrapes_sample_duplicate_timestamp_total[15m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus is rejecting samples with duplicate timestamps"
+            description: "Likely the cAdvisor labeldrop of id/name/uid collapsing two cgroups. Fallback: keep `id` in the kubelet cAdvisorMetricRelabelings."
+        - alert: PrometheusSizeRetentionActive
+          expr: increase(prometheus_tsdb_size_retentions_total[1d]) > 0
+          labels:
+            severity: info
+          annotations:
+            summary: "Prometheus deleted blocks because of retentionSize (8 GB), not time"
+            description: "Effective retention is now shorter than 30 d."
+    - name: guardrails.storage
+      rules:
+        - alert: LocalPathFilling
+          expr: |
+            node_filesystem_avail_bytes{mountpoint="/var/mnt/local-path"}
+              / node_filesystem_size_bytes{mountpoint="/var/mnt/local-path"} < 0.30
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "local-path on {{ $labels.instance }} has {{ $value | humanizePercentage }} free"
+            description: "Node-local volumes (Prometheus, Alertmanager, apps) share this disk; PVC sizes are not enforced."
+        - alert: LocalPathFilling
+          expr: |
+            node_filesystem_avail_bytes{mountpoint="/var/mnt/local-path"}
+              / node_filesystem_size_bytes{mountpoint="/var/mnt/local-path"} < 0.15
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "local-path on {{ $labels.instance }} has {{ $value | humanizePercentage }} free"
+            description: "Node-local volumes (Prometheus, Alertmanager, apps) share this disk; PVC sizes are not enforced."
+    - name: guardrails.node
+      rules:
+        # Replaces kps NodeMemoryHighUtilization (fixed 90 %), which is
+        # disabled in the HelmRelease. MemAvailable is the node-level
+        # equivalent of the kubelet's eviction signal.
+        - alert: NodeMemoryHigh
+          expr: |
+            1 - node_memory_MemAvailable_bytes{job="node-exporter"}
+              / node_memory_MemTotal_bytes{job="node-exporter"} > 0.85
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }} memory is {{ $value | humanizePercentage }} used"
+            description: "Memory limits overcommit the nodes; pressure here leads to evictions. Consider moving a workload or growing the VM."
+        - alert: NodeMemoryHigh
+          expr: |
+            1 - node_memory_MemAvailable_bytes{job="node-exporter"}
+              / node_memory_MemTotal_bytes{job="node-exporter"} > 0.95
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.instance }} memory is {{ $value | humanizePercentage }} used"
+            description: "Evictions or OOM kills are imminent."

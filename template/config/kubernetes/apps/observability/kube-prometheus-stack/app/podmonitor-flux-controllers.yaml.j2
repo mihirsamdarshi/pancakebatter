@@ -1,0 +1,29 @@
+---
+# The Flux controllers (from the FluxInstance) expose metrics on `http-prom`;
+# flux-operator has its own ServiceMonitor.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: flux-controllers
+spec:
+  namespaceSelector:
+    matchNames:
+      - flux-system
+  selector:
+    matchExpressions:
+      - key: app.kubernetes.io/part-of
+        operator: In
+        values: [flux]
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - helm-controller
+          - kustomize-controller
+          - notification-controller
+          - source-controller
+  podMetricsEndpoints:
+    - port: http-prom
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          action: keep
+          regex: controller_runtime_(reconcile_time_seconds_bucket|reconcile_total|reconcile_errors_total|active_workers|max_concurrent_reconciles)|workqueue_(depth|adds_total|longest_running_processor_seconds)|rest_client_requests_total|process_(cpu_seconds_total|resident_memory_bytes)|go_goroutines

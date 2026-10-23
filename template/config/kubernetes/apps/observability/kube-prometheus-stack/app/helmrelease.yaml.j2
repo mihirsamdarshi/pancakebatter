@@ -1,0 +1,353 @@
+---
+# Single document on purpose: bootstrap/helmfile/templates/values.yaml.gotmpl
+# loads spec.values from this file with fromYaml, and crds.yaml renders the
+# chart's CRDs from it.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  annotations:
+    # The values hold relabel regexes ending in `$` and Alertmanager
+    # templates; nothing here needs cluster-secrets.
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: kube-prometheus-stack
+  interval: 1h
+  values:
+    cleanPrometheusOperatorObjectNames: true
+    # The chart's CRDs replace the 0.91 ones that bootstrap installed with
+    # kubectl; the cluster-wide CreateReplace patch keeps them upgraded.
+    crds:
+      enabled: true
+
+    # ------------------------------------------------------------------
+    # Default rules. Groups that need histogram buckets dropped by the
+    # guardrails scrape class are off.
+    # ------------------------------------------------------------------
+    defaultRules:
+      rules:
+        kubeApiserverAvailability: false
+        kubeApiserverBurnrate: false
+        kubeApiserverHistogram: false
+        kubeApiserverSlos: false
+        kubeProxy: false
+        kubeSchedulerRecording: false
+        windows: false
+      disabled:
+        # Needs grpc_server_handling_seconds_bucket (~1k series), dropped.
+        etcdGRPCRequestsSlow: true
+        # Replaced by NodeMemoryHigh (prometheusrule-guardrails.yaml).
+        NodeMemoryHighUtilization: true
+    windowsMonitoring:
+      enabled: false
+
+    # ------------------------------------------------------------------
+    # Grafana runs as its own release (observability/grafana); only the
+    # dashboards ship from here.
+    # ------------------------------------------------------------------
+    grafana:
+      enabled: false
+      forceDeployDashboards: true
+      sidecar:
+        dashboards:
+          annotations:
+            grafana_folder: Kubernetes
+
+    # ------------------------------------------------------------------
+    # Control-plane and node scrapes (layer 2 allowlists).
+    # ------------------------------------------------------------------
+    kubeApiServer:
+      serviceMonitor:
+        sampleLimit: 10000
+        metricRelabelings:
+          - sourceLabels: [__name__]
+            action: keep
+            regex: apiserver_(request_total|request_terminations_total|current_inflight_requests|storage_objects|longrunning_requests|client_certificate_expiration_seconds_.*)|aggregator_unavailable_apiservice(_total)?|process_.*|go_memory_classes_total_bytes|kubernetes_build_info
+
+    kubelet:
+      serviceMonitor:
+        cAdvisorInterval: 30s
+        sampleLimit: 10000
+        resource: false
+        metricRelabelings:
+          - sourceLabels: [__name__]
+            action: keep
+            regex: kubelet_(node_name|running_pods|running_containers|evictions|pleg_relist_duration_seconds_.*|pod_worker_duration_seconds_.*|pod_start_duration_seconds_count|runtime_operations_errors_total|certificate_manager_.*|server_expiration_renew_errors|volume_stats_.*)|storage_operation_errors_total|process_(cpu_seconds_total|resident_memory_bytes)|rest_client_requests_total
+        probesMetricRelabelings:
+          - sourceLabels: [__name__]
+            action: keep
+            regex: prober_probe_total
+        # Setting this list replaces the chart defaults, so they are copied
+        # verbatim (kps 92.13.1) ahead of the additions. container_memory_swap is
+        # still dropped on purpose (92.13.1 keeps it by default).
+        cAdvisorMetricRelabelings:
+          - sourceLabels: [__name__]
+            action: drop
+            regex: container_cpu_(cfs_throttled_seconds_total|load_average_10s|system_seconds_total|user_seconds_total)
+          - sourceLabels: [__name__]
+            action: drop
+            regex: container_fs_(io_current|io_time_seconds_total|io_time_weighted_seconds_total|reads_merged_total|sector_reads_total|sector_writes_total|writes_merged_total)
+          - sourceLabels: [__name__]
+            action: drop
+            regex: container_memory_(mapped_file|swap)
+          - sourceLabels: [__name__]
+            action: drop
+            regex: container_(file_descriptors|tasks_state|threads_max)
+          - sourceLabels: [__name__, scope]
+            action: drop
+            regex: container_memory_failures_total;hierarchy
+          - sourceLabels: [__name__, interface]
+            action: drop
+            regex: container_network_.*;(cali|cilium|cni|lxc|nodelocaldns|tunl).*
+          - sourceLabels: [__name__]
+            action: drop
+            regex: container_spec.*
+          - sourceLabels: [id, pod]
+            action: drop
+            regex: .+;
+          # ---- additions ----
+          - sourceLabels: [__name__]
+            action: keep
+            regex: container_(cpu_usage_seconds_total|cpu_cfs_(throttled_)?periods_total|memory_(working_set_bytes|rss|cache)|oom_events_total|network_(receive|transmit)_(bytes|packets|packets_dropped)_total|fs_(reads|writes)(_bytes)?_total)|machine_(cpu_cores|memory_bytes)
+          # Network series: eth0 only (mark, drop unmarked, drop the marker).
+          - sourceLabels: [__name__, interface]
+            regex: container_network_.+;eth0
+            targetLabel: __tmp_if
+            replacement: "1"
+          - sourceLabels: [__name__, __tmp_if]
+            regex: container_network_.+;
+            action: drop
+          - action: labeldrop
+            regex: __tmp_if
+          # Churny identity labels; after the [id, pod] rule above. If
+          # ScrapeDuplicateTimestamps fires, keep `id` (drop name|uid only).
+          - action: labeldrop
+            regex: (id|name|uid)
+
+    kubeControllerManager:
+      serviceMonitor:
+        metricRelabelings:
+          - sourceLabels: [__name__]
+            action: keep
+            regex: leader_election_master_status|workqueue_(depth|adds_total)|process_(cpu_seconds_total|resident_memory_bytes)
+
+    kubeScheduler:
+      serviceMonitor:
+        metricRelabelings:
+          - sourceLabels: [__name__]
+            action: keep
+            regex: leader_election_master_status|scheduler_(pending_pods|schedule_attempts_total)|workqueue_(depth|adds_total)|process_(cpu_seconds_total|resident_memory_bytes)
+
+    # Talos etcd listens for metrics on http://0.0.0.0:2381. etcd is not a
+    # pod, but the hostNetwork kube-apiserver static pods sit on the same
+    # node IPs, so their label selects the three node addresses.
+    kubeEtcd:
+      service:
+        selector:
+          component: kube-apiserver
+        port: 2381
+        targetPort: 2381
+      serviceMonitor:
+        scheme: http
+        # Plain HTTP: do not send the Prometheus token.
+        authorization: null
+        metricRelabelings:
+          - sourceLabels: [__name__]
+            action: keep
+            regex: etcd_(server_has_leader|server_leader_changes_seen_total|server_proposals_(failed|pending|committed|applied)_total|mvcc_db_total_size(_in_use)?_in_bytes|server_quota_backend_bytes|disk_wal_fsync_duration_seconds_.*|disk_backend_commit_duration_seconds_.*|network_peer_round_trip_time_seconds_.*|network_peer_(sent|received)_failures_total|network_peer_(sent|received)_bytes_total|network_client_grpc_(sent|received)_bytes_total)|grpc_server_(handled|started)_total|process_.*
+
+    # CoreDNS is scraped through its own HelmRelease (kube-system/coredns).
+    coreDns:
+      enabled: false
+    kubeDns:
+      enabled: false
+    kubeProxy:
+      enabled: false
+
+    kube-state-metrics:
+      collectors:
+        - cronjobs
+        - daemonsets
+        - deployments
+        - jobs
+        - namespaces
+        - nodes
+        - persistentvolumeclaims
+        - persistentvolumes
+        - pods
+        - replicasets
+        - statefulsets
+      metricAllowlist:
+        - kube_pod_(info|owner|status_(phase|ready|reason)|container_(info|status_(restarts_total|waiting_reason|terminated_reason|last_terminated_reason|ready))|container_resource_(requests|limits))
+        - kube_node_(info|role|status_(condition|allocatable|capacity)|spec_(unschedulable|taint))
+        - kube_(deployment|statefulset|daemonset)_.*
+        - kube_replicaset_owner
+        - kube_job_(status_.*|failed|owner)
+        - kube_cronjob_(next_schedule_time|status_last_schedule_time|spec_suspend)
+        - kube_persistentvolume(claim)?_(info|status_phase|resource_requests_storage_bytes|capacity_bytes)
+        - kube_namespace_status_phase
+      prometheus:
+        monitor:
+          # One target for the whole cluster; a limit hit fails the scrape.
+          sampleLimit: 10000
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          memory: 192Mi
+
+    nodeExporter:
+      operatingSystems:
+        aix:
+          enabled: false
+        darwin:
+          enabled: false
+    prometheus-node-exporter:
+      extraArgs:
+        - --collector.disable-defaults
+        - --collector.bonding
+        - --collector.cpu
+        - --collector.diskstats
+        - --collector.filefd
+        - --collector.filesystem
+        - --collector.loadavg
+        - --collector.meminfo
+        - --collector.netdev
+        - --collector.os
+        - --collector.pressure
+        - --collector.stat
+        - --collector.timex
+        - --collector.uname
+        - --collector.vmstat
+        - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/containerd/.+|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
+        - --collector.filesystem.fs-types-exclude=^(tmpfs|overlay|squashfs|nsfs|proc|sysfs|cgroup2?|bpf|tracefs|devtmpfs)$
+        - --collector.diskstats.device-include=^(sd[a-z]+|nvme\d+n\d+)$
+        - --collector.netdev.device-include=^(bond0|en.+|eth.+)$
+        - --collector.vmstat.fields=^(oom_kill|pgmajfault)$
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 96Mi
+
+    # ------------------------------------------------------------------
+    # Operator
+    # ------------------------------------------------------------------
+    prometheusOperator:
+      resources:
+        requests:
+          cpu: 20m
+          memory: 96Mi
+        limits:
+          memory: 256Mi
+
+    # ------------------------------------------------------------------
+    # Prometheus: talos-02, local-path, 30 d / 8 GB.
+    # ------------------------------------------------------------------
+    prometheus:
+      # No auth, so not published: use Grafana Explore or kubectl port-forward.
+      route:
+        main:
+          enabled: false
+      prometheusSpec:
+        scrapeInterval: 30s
+        evaluationInterval: 30s
+        retention: 30d
+        retentionSize: 8GB # includes the WAL
+        walCompression: true
+        ruleSelectorNilUsesHelmValues: false
+        serviceMonitorSelectorNilUsesHelmValues: false
+        podMonitorSelectorNilUsesHelmValues: false
+        probeSelectorNilUsesHelmValues: false
+        scrapeConfigSelectorNilUsesHelmValues: false
+        # Per-scrape default; monitors may set their own up to the ceiling.
+        sampleLimit: 5000
+        # Hard ceiling: a breach fails the scrape (TargetDown, ScrapeSampleLimitHit).
+        enforcedSampleLimit: 20000
+        enforcedLabelLimit: 30
+        enforcedLabelValueLengthLimit: 1024
+        enforcedKeepDroppedTargets: 100
+        # Layer 1: applies to every ServiceMonitor and PodMonitor, including
+        # those of other HelmReleases. RE2 has no negation, so each filter
+        # marks what to keep, drops the unmarked series, then drops the marker.
+        scrapeClasses:
+          - name: guardrails
+            default: true
+            metricRelabelings:
+              # A. Histogram buckets: own marker, independent of the family
+              #    allowlists below.
+              - sourceLabels: [__name__]
+                regex: (apiserver_client_certificate_expiration_seconds|etcd_disk_wal_fsync_duration_seconds|etcd_disk_backend_commit_duration_seconds|etcd_network_peer_round_trip_time_seconds|kubelet_pleg_relist_duration_seconds|kubelet_pod_worker_duration_seconds|coredns_dns_request_duration_seconds|loki_request_duration_seconds|controller_runtime_reconcile_time_seconds|envoy_cluster_upstream_rq_time|envoy_http_downstream_rq_time)_bucket
+                targetLabel: __tmp_bkeep
+                replacement: "1"
+              - sourceLabels: [__name__, __tmp_bkeep]
+                regex: .+_bucket;
+                action: drop
+              - action: labeldrop
+                regex: __tmp_bkeep
+              # B. Family allowlists (one shared marker).
+              - sourceLabels: [__name__]
+                regex: go_(goroutines|info|memstats_heap_inuse_bytes|memory_classes_total_bytes)
+                targetLabel: __tmp_keep
+                replacement: "1"
+              - sourceLabels: [__name__]
+                regex: workqueue_(depth|adds_total|longest_running_processor_seconds)
+                targetLabel: __tmp_keep
+                replacement: "1"
+              - sourceLabels: [__name__]
+                # Cilium agent; the operator is kept whole (small, no buckets left).
+                regex: cilium_(endpoint_state|unreachable_nodes|unreachable_health_endpoints|bpf_map_pressure|drop_count_total|forward_count_total|errors_warnings_total|ip_addresses|controllers_failing|node_connectivity_status|node_connectivity_latency_seconds|datapath_conntrack_gc_entries|version|operator_.+)
+                targetLabel: __tmp_keep
+                replacement: "1"
+              - sourceLabels: [__name__]
+                regex: envoy_(cluster_upstream_rq|cluster_upstream_rq_time_bucket|http_downstream_rq_time_bucket|cluster_upstream_rq_xx|cluster_upstream_rq_total|cluster_upstream_cx_(active|total|rx_bytes_total|tx_bytes_total)|cluster_upstream_rq_timeout|cluster_outlier_detection_ejections_active|cluster_membership_(healthy|total|degraded|excluded)|http_downstream_rq_(total|xx)|http_downstream_cx_(active|total|rx_bytes_total|tx_bytes_total)|tcp_downstream_cx_(total|rx_bytes_total|tx_bytes_total)|listener_downstream_cx_active|listener_ssl_certificate_expiration_unix_time_seconds|server_(live|uptime|memory_allocated|memory_heap_size|total_connections))
+                targetLabel: __tmp_keep
+                replacement: "1"
+              - sourceLabels: [__name__]
+                regex: certmanager_(certificate_expiration_timestamp_seconds|certificate_ready_status|certificate_renewal_timestamp_seconds|certificate_not_after_timestamp_seconds|http_acme_client_request_count|controller_sync_call_count|controller_sync_error_count|clock_time_seconds|clock_time_seconds_gauge)
+                targetLabel: __tmp_keep
+                replacement: "1"
+              - sourceLabels: [__name__, __tmp_keep]
+                regex: (go_.+|workqueue_.+|cilium_.+|envoy_.+|certmanager_.+);
+                action: drop
+              - action: labeldrop
+                regex: __tmp_keep
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: kubernetes.io/hostname
+                      operator: In
+                      values: [talos-02]
+        resources:
+          requests:
+            cpu: 200m
+            memory: 1Gi
+          limits:
+            memory: 2560Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          fsGroup: 65534
+          seccompProfile:
+            type: RuntimeDefault
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: local-path
+              accessModes: [ReadWriteOnce]
+              resources:
+                requests:
+                  storage: 10Gi
+
+    # ------------------------------------------------------------------
+    # Alertmanager: enabled in the next phase with its Discord secret.
+    # ------------------------------------------------------------------
+    alertmanager:
+      enabled: false

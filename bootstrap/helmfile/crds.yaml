@@ -24,7 +24,9 @@ releases:
     inherit:
       - template: default
 
-  - name: prometheus-operator-crds
+  # The prometheus-operator CRDs ship in kube-prometheus-stack (crds.enabled);
+  # chart and version come from its Flux OCIRepository, which Renovate tracks.
+  - name: kube-prometheus-stack
     namespace: observability
-    chart: oci://ghcr.io/prometheus-community/charts/prometheus-operator-crds
-    version: 29.0.0
+    inherit:
+      - template: default
