@@ -1,0 +1,81 @@
+---
+# Egress isolation for the `quilts` Ingress proxy pod. Once a policy selects
+# the pod, Cilium denies all egress not allowed below:
+#   - the Quilt Planner pod on 3000 (policy sees the backend after socket-LB
+#     translation of the Service ClusterIP:80, so pod port 3000);
+#   - CoreDNS;
+#   - the kube-apiserver (the proxy keeps its state and certificate in a
+#     Secret in this namespace);
+#   - the public internet, for Tailscale control, DERP, STUN, logs and
+#     WireGuard to peers' public endpoints. Private, CGNAT (tailnet),
+#     link-local, multicast and reserved ranges are excluded, so the proxy
+#     cannot reach the LAN, the cluster or tailnet addresses directly.
+#     LAN-direct WireGuard paths fall back to DERP or a public path.
+# Ingress is not restricted: there is no listener on the pod IP (no metrics or
+# debug in the ProxyClass), and an ingress default-deny could interfere with
+# WireGuard NAT traversal.
+#
+# The selector uses the labels the operator copies from the parent Ingress
+# onto the proxy pod (childResourceLabels in the operator source, v1.104.2).
+# Merge only after live verification of the proxy pod labels and of NAT
+# traversal with this policy in place (plan steps A6 and A7b).
+# Rollback: remove this file from ./kustomization.yaml; traffic is then
+# allow-all again.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: quilts-proxy-egress
+spec:
+  endpointSelector:
+    matchLabels:
+      tailscale.com/managed: "true"
+      tailscale.com/parent-resource: quilt-planner-tailnet
+      tailscale.com/parent-resource-ns: quilt-planner
+      tailscale.com/parent-resource-type: ingress
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: quilt-planner
+            app.kubernetes.io/name: quilt-planner
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
+    # Note: the home WAN (public) IP is not excluded and stays reachable on
+    # these ports like any other public address, so anything the router
+    # exposes or port-forwards on it is reachable from the proxy.
+    - toCIDRSet:
+        - cidr: 0.0.0.0/0
+          except:
+            - 0.0.0.0/8 # "this network"
+            - 10.0.0.0/8 # RFC1918, includes pod and Service CIDRs
+            - 100.64.0.0/10 # CGNAT, tailnet addresses
+            - 169.254.0.0/16 # link-local
+            - 172.16.0.0/12 # RFC1918
+            - 192.168.0.0/16 # RFC1918, LAN
+            - 224.0.0.0/4 # multicast
+            - 240.0.0.0/4 # reserved, includes broadcast
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP
+            # STUN (3478) and WireGuard to peers' public endpoints.
+            - port: "1"
+              endPort: 65535
+              protocol: UDP
