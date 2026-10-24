@@ -1,0 +1,13 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: tailscale
+
+# No ../../components/sops here on purpose. The operator and every proxy pod
+# can read all Secrets in this namespace (chart Roles `operator` and
+# `proxies`), so cluster-secrets must not be copied into it. Nothing in this
+# app uses postBuild substitution.
+
+resources:
+  - ./namespace.yaml
+  - ./tailscale-operator/ks.yaml

@@ -1,0 +1,17 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tailscale
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # PodSecurity admission is enforced per namespace on this cluster; without
+    # these labels the namespace would be privileged. Userspace L7 Ingress
+    # proxies need no privileges, so `restricted` is also a fail-closed guard:
+    # a privileged proxy (L3 expose, egress, Connector, or an Ingress with
+    # tailscale.com/experimental-forward-cluster-traffic-via-ingress) and any
+    # proxy without a hardened ProxyClass is rejected instead of created.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
