@@ -1,0 +1,43 @@
+---
+# ProxyClass for the `quilts` tailnet Ingress proxy (cluster-scoped). The
+# Ingress selects it with the label tailscale.com/proxy-class: quilts.
+#
+# Left out on purpose:
+#   - spec.tailscale.acceptRoutes: the proxy never uses subnet routes.
+#   - spec.metrics and tailscaleContainer.debug: no listener on the pod IP.
+#   - useLetsEncryptStagingEnvironment: production certificate only.
+# The proxy runs userspace tailscaled (TS_USERSPACE=true, no init container,
+# no NET_ADMIN) and keeps its state in a Secret, with --statedir=/tmp.
+#
+# Expected noise: every TS_* entry in tailscaleContainer.env (here
+# TS_DISABLE_PORTMAPPER) makes the operator emit a Warning event with reason
+# CustomTSEnvVar on each reconcile. It is harmless; audits should ignore it.
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyClass
+metadata:
+  name: quilts
+spec:
+  statefulSet:
+    pod:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      tailscaleContainer:
+        env:
+          - name: TS_DISABLE_PORTMAPPER
+            value: "true"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 256Mi
