@@ -33,4 +33,5 @@ zizmor = "1.31.0"
 lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64", "macos-x64"]
 
 [hooks]
-postinstall = "lefthook install"
+# Skipped while GitButler's pre-commit wrapper is installed: see .lefthook.toml.
+postinstall = "grep -qs GITBUTLER_MANAGED_HOOK_V1 \"$(git rev-parse --git-path hooks)/pre-commit\" || lefthook install"

@@ -17,11 +17,14 @@
 #   2. `kustomize build | kubeconform` for every kustomization.yaml under
 #      kubernetes/flux and kubernetes/apps;
 #   3. kubeconform on every Flux Kustomization object, and
-#      `flux build ks --dry-run | kubeconform` for each one whose sourceRef is
-#      GitRepository flux-system/flux-system (this repo), which also catches a
-#      wrong spec.path and broken spec.patches. A Kustomization that reads any
-#      other source (e.g. a private OCIRepository) cannot be built from this
-#      repo and is logged as "skipped (external source)";
+#      `flux build ks --dry-run | kubeconform` for each one sourced from this
+#      repo, which also catches a wrong spec.path and broken spec.patches.
+#      A GitRepository sourceRef must be exactly flux-system/flux-system with
+#      an explicit namespace. An OCIRepository sourceRef cannot be built from
+#      this repo, so it is logged as "skipped (external source)", but the
+#      OCIRepository it names (namespace defaulting to the Kustomization's
+#      metadata.namespace) must be declared in the tree. Any other source
+#      kind fails;
 #   4. no unclosed `${VAR` (a Flux postBuild substitution missing its `}`).
 # archive/ and other trees outside kubernetes/ are never read.
 #
@@ -49,13 +52,23 @@ kubeconform_args=(
     "-schema-location" "https://k8s-schemas.home-operations.com/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 )
 
-# kubeconform on stdin. Flux postBuild variables (${VAR}, ${VAR:=default},
-# ${VAR/./-}) are filled in only at reconcile time, from cluster Secrets this
-# script cannot read, so each one becomes a DNS-label-safe stand-in first.
-# Otherwise every pattern-checked field holding one (an HTTPRoute or Gateway
-# hostname, a Certificate dnsName) fails.
+# kubeconform on stdin. Flux postBuild variables are filled in only at
+# reconcile time, from cluster Secrets this script cannot read. So
+# ${VAR:=default} and ${VAR:-default} become their default, and any other
+# ${VAR...} (e.g. ${VAR/./-}) a DNS-label-safe stand-in. Otherwise every
+# pattern-checked field holding one (an HTTPRoute or Gateway hostname, a
+# Certificate dnsName) fails.
 conform() {
-    sed -E 's/\$\{[A-Za-z_][^}]*\}/placeholder/g' | kubeconform "${kubeconform_args[@]}"
+    sed -E \
+        -e 's/\$\{[A-Za-z_][A-Za-z0-9_]*:[-=]([^}]*)\}/\1/g' \
+        -e 's/\$\{[A-Za-z_][^}]*\}/placeholder/g' \
+        | kubeconform "${kubeconform_args[@]}"
+}
+
+# "namespace/name" of every Flux OCIRepository in a rendered manifest stream.
+list_oci_repositories() {
+    yq -N 'select(.apiVersion == "source.toolkit.fluxcd.io/*" and .kind == "OCIRepository")
+        | (.metadata.namespace // "") + "/" + (.metadata.name // "")' "$1"
 }
 
 die() {
@@ -86,7 +99,7 @@ validate_tree() {
 
     (
         cd "$root"
-        local file dir name namespace path index src_kind src_name src_ns rc tmp
+        local file dir name namespace path index src_kind src_name src_ns ref rc tmp
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
 
@@ -107,41 +120,78 @@ validate_tree() {
         done <"$tmp/standalone"
 
         echo "=== kustomize build | kubeconform ==="
+        : >"$tmp/oci.list"
         while IFS= read -r -d '' file; do
             dir="$(dirname "$file")"
             echo "--- $dir"
-            kustomize build "$dir" "${kustomize_args[@]}" | conform
+            kustomize build "$dir" "${kustomize_args[@]}" >"$tmp/build.yaml"
+            conform <"$tmp/build.yaml"
+            list_oci_repositories "$tmp/build.yaml" >>"$tmp/oci.list"
         done <"$tmp/kustomizations"
 
         echo "=== flux build ks --dry-run | kubeconform ==="
+        : >"$tmp/external.list"
         while IFS= read -r -d '' file; do
-            # An omitted metadata.namespace is flux build's default
-            # (flux-system); an omitted sourceRef.namespace is the
-            # Kustomization's own namespace.
+            # metadata.namespace: flux build's default is flux-system. The raw
+            # sourceRef.namespace is kept ("" when omitted) so it can be
+            # required below.
             yq -N 'select(.apiVersion == "kustomize.toolkit.fluxcd.io/*" and .kind == "Kustomization")
-                | (.metadata.namespace // "flux-system") as $ns
-                | [documentIndex, .metadata.name // "", $ns, .spec.path // "",
-                   .spec.sourceRef.kind // "", .spec.sourceRef.name // "",
-                   .spec.sourceRef.namespace // $ns] | join("|")' "$file" >"$tmp/ks.list"
+                | [documentIndex, .metadata.name // "", .metadata.namespace // "",
+                   .spec.path // "", .spec.sourceRef.kind // "",
+                   .spec.sourceRef.name // "", .spec.sourceRef.namespace // ""]
+                | join("|")' "$file" >"$tmp/ks.list"
             # yq prints an empty line when nothing matches. "|" rather than a
             # tab, because read collapses consecutive whitespace separators.
             while IFS='|' read -r index name namespace path src_kind src_name src_ns; do
                 [[ -n "$index" ]] || continue
                 [[ -n "$name" && -n "$path" ]] || die "$file: Flux Kustomization without metadata.name or spec.path"
                 yq "select(documentIndex == $index)" "$file" >"$tmp/ks.yaml"
-                if [[ "$src_kind/$src_ns/$src_name" != "GitRepository/flux-system/flux-system" ]]; then
-                    # Not this repo: validate the object, but its spec.path
-                    # lives in another source.
-                    echo "--- $file ($namespace/$name: skipped (external source) $src_kind $src_ns/$src_name)"
-                    conform <"$tmp/ks.yaml"
-                    continue
-                fi
+                case "$src_kind" in
+                    GitRepository)
+                        # The only GitRepository is this repo. Without an
+                        # explicit namespace Flux looks in the Kustomization's
+                        # effective namespace (often set by a parent
+                        # kustomization.yaml, so not visible here), and a
+                        # misspelt name would point at nothing.
+                        [[ -n "$src_ns" ]] \
+                            || die "$file: $name: GitRepository sourceRef needs an explicit namespace (flux-system)"
+                        [[ "$src_ns/$src_name" == "flux-system/flux-system" ]] \
+                            || die "$file: $name: GitRepository sourceRef must be flux-system/flux-system, not $src_ns/$src_name"
+                        ;;
+                    OCIRepository)
+                        # Built from another source, so only checked here and
+                        # resolved against the declared OCIRepositories below.
+                        src_ns="${src_ns:-$namespace}"
+                        [[ -n "$src_ns" ]] \
+                            || die "$file: $name: OCIRepository sourceRef needs sourceRef.namespace or metadata.namespace"
+                        echo "--- $file (${namespace:-flux-system}/$name: skipped (external source) OCIRepository $src_ns/$src_name)"
+                        echo "$file|$name|$src_ns/$src_name" >>"$tmp/external.list"
+                        conform <"$tmp/ks.yaml"
+                        continue
+                        ;;
+                    *)
+                        die "$file: $name: unsupported sourceRef kind '${src_kind}'"
+                        ;;
+                esac
+                namespace="${namespace:-flux-system}"
                 echo "--- $file ($namespace/$name -> $path)"
                 conform <"$tmp/ks.yaml"
                 flux build ks "$name" --namespace "$namespace" --dry-run --path "$path" \
-                    --kustomization-file "$tmp/ks.yaml" | conform
+                    --kustomization-file "$tmp/ks.yaml" >"$tmp/build.yaml"
+                conform <"$tmp/build.yaml"
+                list_oci_repositories "$tmp/build.yaml" >>"$tmp/oci.list"
             done <"$tmp/ks.list"
         done <"$tmp/manifests"
+
+        echo "=== external sources are declared ==="
+        # A skipped Kustomization must at least point at an OCIRepository this
+        # tree declares (same name and namespace, after kustomize namespace
+        # transformers and Flux targetNamespace), or Flux would never find it.
+        while IFS='|' read -r file name ref; do
+            grep -qxF "$ref" "$tmp/oci.list" \
+                || die "$file: $name: OCIRepository $ref is not declared under kubernetes/"
+            echo "--- $file ($name -> OCIRepository $ref)"
+        done <"$tmp/external.list"
 
         echo '=== unclosed ${VAR substitutions ==='
         # Flux postBuild leaves an unterminated `${VAR` untouched, so the typo

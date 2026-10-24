@@ -1,3 +1,22 @@
+# Hooks are installed on purpose only (`mise install` runs `lefthook install`
+# through the [hooks] postinstall in .mise/config.toml). Without this, lefthook
+# re-syncs .git/hooks whenever this file changes and moves any hook it did not
+# write to <hook>.old, which it never runs. That is how GitButler's pre-commit
+# guard got displaced.
+#
+# With GitButler: GitButler owns .git/hooks/pre-commit (a wrapper marked
+# GITBUTLER_MANAGED_HOOK_V1) and runs .git/hooks/pre-commit-user first, so
+# lefthook's pre-commit goes in as pre-commit-user and pre-push is installed
+# normally. The mise postinstall skips `lefthook install` while GitButler's
+# wrapper is in place. To install or repair by hand:
+#
+#   lefthook install pre-commit pre-push    # GitButler's wrapper -> pre-commit.old
+#   cd "$(git rev-parse --git-path hooks)"
+#   mv pre-commit pre-commit-user && mv pre-commit.old pre-commit
+#
+# (Use `lefthook install -f ...` if a stale pre-commit.old already exists.)
+no_auto_install = true
+
 [pre-commit]
 parallel = true
 skip = ["merge", "rebase"]
