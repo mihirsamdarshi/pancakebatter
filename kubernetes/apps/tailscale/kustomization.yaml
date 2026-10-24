@@ -1,0 +1,12 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: tailscale
+
+# Keep this namespace limited to operator/proxy credentials: do not copy
+# unrelated cluster-secrets into it via ../../components/sops. Nothing in
+# this app uses postBuild substitution.
+
+resources:
+  - ./namespace.yaml
+  - ./tailscale-operator/ks.yaml

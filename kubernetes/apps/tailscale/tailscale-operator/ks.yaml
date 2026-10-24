@@ -1,0 +1,74 @@
+---
+# Operator first: HelmRelease, CRDs, IngressClass. wait: true so that
+# dependents only start once the CRDs exist and the operator is Ready.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: tailscale-operator
+spec:
+  interval: 1h
+  path: ./kubernetes/apps/tailscale/tailscale-operator/app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: tailscale
+  timeout: 5m
+  wait: true
+---
+# Then the operator configuration (ProxyClass), which needs the CRDs.
+# The shared apps ProxyGroup depends on this Kustomization.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: tailscale-operator-config
+spec:
+  dependsOn:
+    - name: tailscale-operator
+  # The operator stamps ProxyClassReady with observedGeneration, so `current`
+  # only passes once it has validated the latest spec, not a stale one.
+  healthCheckExprs:
+    - apiVersion: tailscale.com/v1alpha1
+      kind: ProxyClass
+      current: >-
+        status.conditions.exists(e, e.type == 'ProxyClassReady' && e.status == 'True'
+        && e.observedGeneration == metadata.generation)
+      failed: >-
+        status.conditions.exists(e, e.type == 'ProxyClassReady' && e.status == 'False'
+        && e.observedGeneration == metadata.generation)
+  interval: 1h
+  path: ./kubernetes/apps/tailscale/tailscale-operator/config
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: tailscale
+  timeout: 5m
+  wait: true
+---
+# Shared ingress proxies for every family app; each app owns its Ingress.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: tailscale-apps
+spec:
+  dependsOn:
+    - name: tailscale-operator-config
+  healthCheckExprs:
+    - apiVersion: tailscale.com/v1alpha1
+      kind: ProxyGroup
+      current: >-
+        status.conditions.exists(e, e.type == 'ProxyGroupReady' && e.status == 'True'
+        && e.observedGeneration == metadata.generation)
+  interval: 1h
+  path: ./kubernetes/apps/tailscale/tailscale-operator/proxies
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: tailscale
+  timeout: 5m
+  wait: true

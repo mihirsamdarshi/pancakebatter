@@ -17,6 +17,9 @@ mod? talos 'talos'
 [group('dns')]
 mod? dns 'terraform/dns'
 
+[group('tailscale')]
+mod? tailscale 'kubernetes/apps/tailscale'
+
 [private]
 log lvl msg *args:
     gum log -t rfc3339 -s -l "{{ lvl }}" "{{ msg }}" {{ args }}

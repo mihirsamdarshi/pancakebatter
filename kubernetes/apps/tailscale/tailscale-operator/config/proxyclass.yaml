@@ -1,0 +1,25 @@
+---
+# Shared configuration for ProxyGroup/apps, reused by all family app Ingresses.
+# Keep the supported privileged kernel-network runtime for ProxyGroups;
+# standalone userspace Ingress security settings do not apply to this mode.
+#
+# Expected noise: every TS_* entry in tailscaleContainer.env (here
+# TS_DISABLE_PORTMAPPER) makes the operator emit a Warning event with reason
+# CustomTSEnvVar on each reconcile. It is harmless; audits should ignore it.
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyClass
+metadata:
+  name: apps
+spec:
+  statefulSet:
+    pod:
+      tailscaleContainer:
+        env:
+          - name: TS_DISABLE_PORTMAPPER
+            value: "true"
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 256Mi

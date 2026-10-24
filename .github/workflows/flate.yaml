@@ -44,7 +44,10 @@ jobs:
 
       - name: Run Flate
         id: flate
-        run: flate test all -p ./kubernetes/flux/cluster
+        # CI cannot decrypt SOPS auth values for private app artifacts. Skip
+        # unavailable auth/values refs; the separate Kubernetes gate still
+        # validates manifest schemas and exact OCI source references.
+        run: flate test all -p ./kubernetes/flux/cluster --allow-missing-secrets
 
   success:
     if: ${{ !cancelled() }}
