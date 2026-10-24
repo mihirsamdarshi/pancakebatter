@@ -10,6 +10,10 @@ not a ProxyGroup Tailscale Service. Do not add `tailscale.com/proxy-group` to
 this Service: it must remain a standalone shareable node. Existing LAN routes
 and the in-tailnet Services ProxyGroup remain available.
 
+The standalone proxy requires Cilium's `socketLB.hostNamespaceOnly: true` when
+kube-proxy replacement is enabled. Otherwise the node can be reachable while
+TCP forwarding to the Service times out. Cilium updates roll one agent at a time.
+
 ## HTTPS and DNS
 
 - Service `network/family-apps` forwards TCP 443 to Envoy's port 10443.
