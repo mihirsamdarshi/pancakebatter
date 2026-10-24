@@ -1,0 +1,26 @@
+---
+# A standalone node can be shared into family members' own tailnets.
+# Do not add a proxy-group: its Tailscale Service would require membership.
+# TLS passes through to Envoy, which uses the existing managed certificate.
+apiVersion: v1
+kind: Service
+metadata:
+  name: family-apps
+  annotations:
+    tailscale.com/hostname: family-apps
+    tailscale.com/proxy-class: apps
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  selector:
+    app.kubernetes.io/component: proxy
+    app.kubernetes.io/managed-by: envoy-gateway
+    app.kubernetes.io/name: envoy
+    gateway.envoyproxy.io/owning-gateway-name: envoy-internal
+    gateway.envoyproxy.io/owning-gateway-namespace: network
+    gateway.networking.k8s.io/gateway-name: envoy-internal
+  ports:
+    - name: https
+      port: 443
+      targetPort: 10443
+      protocol: TCP

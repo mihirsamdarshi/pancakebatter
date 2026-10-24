@@ -1,0 +1,45 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: family-apps
+spec:
+  dependsOn:
+    - name: tailscale-operator-config
+      namespace: tailscale
+    - name: envoy-gateway
+  interval: 1h
+  path: ./kubernetes/apps/network/family-apps/app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: network
+  wait: true
+---
+# Read the existing domain Secret in network; apply the route in the app's
+# namespace so backendRefs remain local to the application.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: quilt-planner-family
+spec:
+  dependsOn:
+    - name: family-apps
+      namespace: network
+    - name: quilt-planner
+      namespace: quilt-planner
+  interval: 1h
+  path: ./kubernetes/apps/quilt-planner/family
+  postBuild:
+    substituteFrom:
+      - name: cluster-secrets
+        kind: Secret
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: quilt-planner
+  wait: true
