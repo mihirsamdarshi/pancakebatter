@@ -32,8 +32,8 @@ data "cloudflare_zone" "this" {
 # app to the internal gateway from ordinary resolvers (LAN, Tailscale),
 # without router DNS changes. Resolvers with DNS-rebind filtering drop it, and
 # iCloud Private Relay is untested. It points at a private address,
-# so nothing becomes reachable from the internet, and per-app names never
-# leave the cluster.
+# so nothing becomes reachable from the internet. App queries can still reach
+# public resolvers; the wildcard avoids publishing separate app records.
 #
 # This holds only while cluster.toml keeps ingress.mode = "none". Any other
 # mode renders the template's cloudflare-dns external-dns (domainFilters on
@@ -48,4 +48,28 @@ resource "cloudflare_dns_record" "local_wildcard" {
   ttl     = 300
   proxied = false
   comment = "Internal apps (envoy-internal); managed by terraform/dns"
+}
+
+variable "family_gateway_ip" {
+  description = "Standalone family-apps node's Tailscale IPv4 address. Null keeps family DNS unconfigured."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.family_gateway_ip == null || can(cidrnetmask("${var.family_gateway_ip}/32"))
+    error_message = "family_gateway_ip must be an IPv4 address."
+  }
+}
+
+# A separate wildcard preserves LAN-only clients on *.local.<zone>.
+# The 100.x address is reachable through Tailscale node sharing, not the public
+# internet. Each recipient accepts one gateway share for all family apps.
+resource "cloudflare_dns_record" "family_wildcard" {
+  count   = var.family_gateway_ip == null ? 0 : 1
+  zone_id = data.cloudflare_zone.this.zone_id
+  name    = "*.family.local.${var.zone}"
+  type    = "A"
+  content = var.family_gateway_ip
+  ttl     = 300
+  proxied = false
+  comment = "Family apps (shared Tailscale gateway); managed by terraform/dns"
 }

@@ -1,0 +1,16 @@
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: quilt-planner-family
+spec:
+  parentRefs:
+    - name: envoy-internal
+      namespace: network
+      sectionName: https
+  hostnames:
+    - quilts.family.${SECRET_DOMAIN}
+  rules:
+    - backendRefs:
+        - name: quilt-planner
+          port: 80

@@ -1,20 +1,22 @@
 # Family applications over Tailscale
 
-## Direction — October 23, 2026
+## Direction — October 24, 2026
 
 Use this as shared infrastructure for the family's applications: Jellyfin, Seerr,
-Quilt Planner and future apps. Family members join the existing tailnet with their
-own Tailscale accounts. Keep the existing broad access policy; per-app guest
-sharing, `tag:quilts` and an app-specific egress policy are superseded.
+Quilt Planner and future apps. Family members keep their own accounts and stay
+connected to their own tailnets. Share the standalone
+[family-apps gateway](../network/family-apps/README.md) with each person once.
+Keep the existing broad access policy; no per-app guest restrictions are needed.
 
-This is the prepared family Services operator branch, with Quilt Planner as its
-first app. The earlier standalone Quilt Planner Ingress and egress-policy PRs (#705 and #706) describe
-that superseded design and must be revised before merging. Nothing here has been
-deployed. The encrypted OAuth Secret has been generated and verified.
+The operator and Services ProxyGroup were deployed by #704. Services are usable
+within this tailnet; they do not satisfy cross-tailnet family sharing. Preserve
+them for existing clients while the standalone gateway supplies family access.
+The older per-app Ingress/egress PRs #705 and #706 must not be merged as-is.
 
 ## Shared infrastructure
 
-The operator creates one Tailscale Service per app. Each app gets a stable HTTPS
+For members of this tailnet, the operator creates one Tailscale Service per app.
+Each app gets a stable HTTPS
 address, such as `jellyfin.<tailnet>.ts.net`, and all of them reuse ProxyGroup/apps.
 Adding another app means adding its Ingress; it does not need a new operator,
 proxy group, OAuth client or sharing invitation.
@@ -38,10 +40,10 @@ port-mapping remains disabled with `TS_DISABLE_PORTMAPPER=true`.
 
 ## One-time tailnet setup
 
-1. Invite family members from the tailnet's Users page. They accept with their
-   own accounts and select this tailnet in their Tailscale clients to use the
-   apps. Normal clients connect to one tailnet at a time, so someone using their
-   own tailnet switches between it and this one.
+1. For family access, share the `family-apps` machine from the Machines page.
+   Recipients accept the device share into their own tailnets; do not invite
+   them to join this tailnet or ask them to switch networks. Follow the
+   [gateway setup and verification](../network/family-apps/README.md).
 2. Enable MagicDNS and HTTPS certificates (HTTPS is already confirmed by the user).
 3. Merge these entries into the existing policy, preserving its grants and any
    unrelated tagOwners, autoApprovers, SSH or other settings:
