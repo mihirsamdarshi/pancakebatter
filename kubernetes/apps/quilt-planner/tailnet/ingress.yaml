@@ -1,0 +1,17 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: quilt-planner-tailnet
+  annotations:
+    tailscale.com/proxy-group: apps
+spec:
+  ingressClassName: tailscale
+  tls:
+    - hosts:
+        - quilts
+  defaultBackend:
+    service:
+      name: quilt-planner
+      port:
+        number: 80

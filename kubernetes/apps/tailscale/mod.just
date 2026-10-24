@@ -6,10 +6,9 @@ set default-script
 
 # Recipes run in this directory (kubernetes/apps/tailscale).
 
-[doc('Regenerate the operator OAuth SOPS Secret from 1Password (needs a signed-in op)')]
+[doc('Regenerate the operator OAuth SOPS Secret using 1Password CLI access')]
 [group('tailscale')]
 oauth-secret:
-    op whoami >/dev/null
     out=tailscale-operator/app/secret.sops.yaml
     # Same directory, so the final mv is an atomic rename; the committed file
     # is only replaced once a complete, fully encrypted copy exists. Plaintext

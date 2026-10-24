@@ -79,9 +79,8 @@ spec:
       image:
         repository: ghcr.io/tailscale/tailscale
       defaultTags: tag:k8s
-      # No defaultProxyClass on purpose: a proxy without an explicit hardened
-      # ProxyClass has no securityContext and the restricted namespace rejects
-      # it, so every new exposure has to choose its ProxyClass deliberately.
+      # The shared apps ProxyGroup explicitly selects ProxyClass/apps.
+      # New app Ingresses reuse that group instead of creating proxy pods.
     apiServerProxyConfig:
       # Keep the Kubernetes API server off the tailnet.
       mode: "false"

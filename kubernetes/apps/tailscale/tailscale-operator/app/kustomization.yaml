@@ -4,6 +4,4 @@ kind: Kustomization
 resources:
   - ./helmrelease.yaml
   - ./helmrepository.yaml
-  # The OAuth Secret does not exist yet. Generate it with
-  # `just tailscale oauth-secret` (see ../../README.md), then uncomment:
-  # - ./secret.sops.yaml
+  - ./secret.sops.yaml
