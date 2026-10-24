@@ -7,7 +7,6 @@ spec:
   dnsNames:
     - "${SECRET_DOMAIN}"
     - "*.${SECRET_DOMAIN}"
-    - "family.${SECRET_DOMAIN}"
     - "*.family.${SECRET_DOMAIN}"
   duration: 2160h
   issuerRef:

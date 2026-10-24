@@ -14,7 +14,9 @@ and the in-tailnet Services ProxyGroup remain available.
 
 - Service `network/family-apps` forwards TCP 443 to Envoy's port 10443.
 - Envoy terminates HTTPS with the existing cert-manager-managed certificate,
-  extended to cover `family.${SECRET_DOMAIN}` and `*.family.${SECRET_DOMAIN}`.
+  extended with `*.family.${SECRET_DOMAIN}`. Its existing `*.${SECRET_DOMAIN}`
+  already covers `family.${SECRET_DOMAIN}`; repeating that exact name would
+  make the ACME order redundant and fail issuance.
 - Terraform's separate DNS root manages one unproxied wildcard A record for
   `*.family.local.<zone>`, pointing at the standalone node's Tailscale IPv4.
   Set `family_gateway_ip` in an ignored local tfvars file after provisioning.
