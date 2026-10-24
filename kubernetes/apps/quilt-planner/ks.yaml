@@ -12,3 +12,26 @@ spec:
     namespace: flux-system
   targetNamespace: quilt-planner
   wait: false
+---
+# Tailnet exposure of the app as the device `quilts` (see ./tailnet). It lives
+# here, not in the app bundle: the bundle's quilt-reconciler Role cannot manage
+# Ingresses, and only this repo can order it after the operator.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: quilt-planner-tailnet
+spec:
+  dependsOn:
+    - name: tailscale-operator-config
+      namespace: tailscale
+  interval: 1h
+  path: ./kubernetes/apps/quilt-planner/tailnet
+  # Rollback: removing this Kustomization prunes the Ingress, and the operator
+  # then deletes the proxy StatefulSet and the tailnet device.
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: quilt-planner
+  wait: false

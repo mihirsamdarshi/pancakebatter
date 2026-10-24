@@ -1,0 +1,45 @@
+---
+# Exposes Quilt Planner on the tailnet as https://quilts.<tailnet>.ts.net
+# through the Tailscale operator (one userspace proxy pod in `tailscale`).
+#
+# Implicit contract with the app bundle (quilt-planner-deploy): a Service named
+# `quilt-planner` in namespace `quilt-planner` that serves HTTP on port 80. If
+# the app renames the Service or changes its port, update this file in the
+# same change.
+#
+# NEVER rename or change any of these on a live share:
+#   - tls.hosts `quilts`: it is the device name and so the HTTPS origin. A new
+#     name is a new origin, and shared users lose offline data stored under the
+#     old one.
+#   - metadata.name `quilt-planner-tailnet`: the operator tracks the proxy by
+#     its parent Ingress; a rename deletes the device and creates a new one,
+#     which breaks the share.
+#   - the tailscale.com/tags annotation: tags apply only when the device is
+#     first created, so changing them forces a new device and breaks the share.
+# A new device also gets a new certificate and may come up as `quilts-1`.
+# See kubernetes/apps/tailscale/README.md before touching this file.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: quilt-planner-tailnet
+  labels:
+    tailscale.com/proxy-class: quilts
+  annotations:
+    # Dedicated tag so the tailnet policy can grant shared users tcp:443 on
+    # exactly this device.
+    tailscale.com/tags: tag:quilts
+    # Deliberately absent:
+    #   tailscale.com/funnel (no public exposure);
+    #   tailscale.com/http-redirect (port 443 only, matching the policy grant);
+    #   tailscale.com/experimental-forward-cluster-traffic-via-ingress (would
+    #   make the proxy privileged; the restricted namespace rejects it anyway).
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: quilt-planner
+      port:
+        number: 80
+  tls:
+    - hosts:
+        - quilts
