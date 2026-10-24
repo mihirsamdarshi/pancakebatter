@@ -86,3 +86,8 @@ spec:
           - SYS_RESOURCE
     socketLB:
       enabled: true
+      # Standalone Tailscale proxies need pod traffic to traverse netfilter.
+      hostNamespaceOnly: true
+    updateStrategy:
+      rollingUpdate:
+        maxUnavailable: 1
