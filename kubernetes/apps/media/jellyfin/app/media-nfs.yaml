@@ -1,0 +1,38 @@
+---
+# Static PV so the NFS mount options are explicit. Read-only: Jellyfin never
+# writes to the library.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jellyfin-media
+spec:
+  capacity:
+    storage: 1Ti
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.2
+    - ro
+    - noatime
+    - hard
+  nfs:
+    server: 192.168.10.75
+    path: /mnt/nasty/Media/media
+  claimRef:
+    namespace: media
+    name: jellyfin-media
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-media
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: ""
+  volumeName: jellyfin-media
+  resources:
+    requests:
+      storage: 1Ti

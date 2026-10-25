@@ -1,0 +1,157 @@
+---
+# After first start, in the Jellyfin UI (these are settings, not manifests):
+#  - Networking: Known proxies = 10.42.0.0/16, LAN networks = 192.168.0.0/16,
+#    so traffic that arrives through Envoy from the Tailscale proxy pod counts
+#    as remote and per-user remote bitrate limits apply. Check which IP LAN
+#    clients show up as: externalTrafficPolicy Cluster may SNAT them.
+#  - Playback: NVENC, hardware decoding for H.264, HEVC, HEVC 10-bit, VP9,
+#    MPEG2 and VC1, CUDA tone mapping. Transcode path /transcode.
+#  - Libraries: trickplay image extraction off (local-path has no PVC quota).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: jellyfin
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: jellyfin
+  interval: 1h
+  values:
+    defaultPodOptions:
+      # Needs the GPU, which only talos-01 has; config PVs live on its disk.
+      runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - talos-01
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 568
+        runAsGroup: 568
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+    controllers:
+      jellyfin:
+        # One GPU and RWO volumes: a rolling update would leave the new pod
+        # Pending while the old one holds both.
+        strategy: Recreate
+        containers:
+          app:
+            image:
+              repository: docker.io/jellyfin/jellyfin
+              tag: 12.3@sha256:2038fe038ab3876a80f6e7b7e0aef6607b032c7dc0c9b3ad3296d0b2eba3bbb5
+            env:
+              TZ: Etc/UTC
+              NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+              JELLYFIN_PublishedServerUrl: https://jellyfin.${SECRET_DOMAIN}
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: &port 8096
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *port
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /health
+                    port: *port
+                  periodSeconds: 5
+                  failureThreshold: 60
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: 100m
+                memory: 1Gi
+              limits:
+                memory: 4Gi
+                nvidia.com/gpu: 1
+    service:
+      jellyfin:
+        controller: jellyfin
+        ports:
+          http:
+            port: *port
+    route:
+      jellyfin:
+        hostnames:
+          - jellyfin.${SECRET_DOMAIN}
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: jellyfin
+                port: *port
+    persistence:
+      # Users, watch state and the database: the only data here that matters.
+      config:
+        type: persistentVolumeClaim
+        storageClass: local-retain
+        accessMode: ReadWriteOnce
+        size: 2Gi
+        retain: true
+        advancedMounts:
+          jellyfin:
+            app:
+              - path: /config
+      # Artwork and metadata: regenerable, kept apart so it can grow.
+      metadata:
+        type: persistentVolumeClaim
+        storageClass: local-retain
+        accessMode: ReadWriteOnce
+        size: 10Gi
+        retain: true
+        advancedMounts:
+          jellyfin:
+            app:
+              - path: /config/metadata
+      media:
+        type: persistentVolumeClaim
+        existingClaim: jellyfin-media
+        advancedMounts:
+          jellyfin:
+            app:
+              - path: /media
+                readOnly: true
+      cache:
+        type: emptyDir
+        advancedMounts:
+          jellyfin:
+            app:
+              - path: /cache
+      transcode:
+        type: emptyDir
+        sizeLimit: 20Gi
+        advancedMounts:
+          jellyfin:
+            app:
+              - path: /transcode
