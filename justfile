@@ -14,6 +14,9 @@ mod? kube 'kubernetes'
 [group('talos')]
 mod? talos 'talos'
 
+[group('vms')]
+mod? vms 'terraform'
+
 [group('dns')]
 mod? dns 'terraform/dns'
 
