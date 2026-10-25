@@ -1,0 +1,46 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: nvidia-device-plugin
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: nvidia-device-plugin
+  interval: 1h
+  # The chart has no switch for the privileged MPS control daemon, which is
+  # unused without sharing. Drop it from the render.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: DaemonSet
+              name: nvidia-device-plugin-mps-control-daemon
+            patch: |
+              $patch: delete
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata:
+                name: nvidia-device-plugin-mps-control-daemon
+  values:
+    runtimeClassName: nvidia
+    # Replaces the chart's NFD-label affinity, which matches nothing here.
+    # The Talos toolkit extension labels the GPU node.
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: extensions.talos.dev/nvidia-container-toolkit-lts
+                  operator: Exists
+    # One GPU, one consumer: no time-slicing or sharing config.
+    gfd:
+      enabled: false
+    nfd:
+      enabled: false
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
