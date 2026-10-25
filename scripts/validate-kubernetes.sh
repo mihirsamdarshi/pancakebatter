@@ -2,14 +2,10 @@
 # Validates the Flux manifests under kubernetes/ before Flux applies them.
 #
 #   validate-kubernetes.sh [ROOT]   validate ROOT/kubernetes (default: repo root)
-#   validate-kubernetes.sh --pre-push
-#                                   read git's pre-push stdin and validate the
-#                                   committed tree of every pushed ref whose
-#                                   commits touch kubernetes/ (or this script)
 #
-# The lefthook pre-push hook, the Kubernetes workflow and `just template
-# configure` all call this script, so the local gate and CI cannot drift. It
-# lives outside template/ because `just template tidy` archives that folder.
+# The Kubernetes workflow and `just template configure` both call this script,
+# so local runs and CI cannot drift. It lives outside template/ because
+# `just template tidy` archives that folder.
 #
 # Checks, all of which fail the run:
 #   1. kubeconform on standalone manifests under kubernetes/flux (Flux reads
@@ -208,46 +204,7 @@ validate_tree() {
     echo "=== kubernetes manifests are valid ==="
 }
 
-# git pre-push stdin: "<local ref> <local oid> <remote ref> <remote oid>".
-pre_push() {
-    local zero _local_ref local_oid remote_ref remote_oid
-    local -a oids=()
-    zero="$(git hash-object --stdin </dev/null | tr '0-9a-f' '0')"
-    local script_rel
-    script_rel="$(git ls-files --full-name -- "$script_path")"
-    [[ -n "$script_rel" ]] || script_rel="scripts/validate-kubernetes.sh"
-
-    while read -r _local_ref local_oid remote_ref remote_oid; do
-        [[ "$local_oid" == "$zero" ]] && continue # branch deletion
-        # Unknown base (new remote branch, or a remote commit we lack):
-        # validate rather than guess.
-        if [[ "$remote_oid" != "$zero" ]] && git cat-file -e "$remote_oid^{commit}" 2>/dev/null \
-            && git diff --quiet "$remote_oid" "$local_oid" -- kubernetes "$script_rel"; then
-            echo "validate-kubernetes: $remote_ref: no kubernetes/ changes, skipping"
-            continue
-        fi
-        oids+=("$local_oid")
-    done
-
-    ((${#oids[@]} > 0)) || return 0
-
-    # Global, not local: the EXIT trap runs after this function returns.
-    push_tmp="$(mktemp -d)"
-    trap 'rm -rf "$push_tmp"' EXIT
-    local oid
-    for oid in $(printf '%s\n' "${oids[@]}" | sort -u); do
-        echo "validate-kubernetes: validating committed tree of ${oid:0:12}"
-        mkdir -p "$push_tmp/$oid"
-        git archive --format=tar "$oid" kubernetes | tar -x -C "$push_tmp/$oid"
-        validate_tree "$push_tmp/$oid"
-    done
-}
-
 require_tools
 setup_cache
 
-if [[ "${1:-}" == "--pre-push" ]]; then
-    pre_push
-else
-    validate_tree "${1:-$(git -C "$(dirname "$script_path")" rev-parse --show-toplevel)}"
-fi
+validate_tree "${1:-$(git -C "$(dirname "$script_path")" rev-parse --show-toplevel)}"

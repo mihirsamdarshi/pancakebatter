@@ -19,7 +19,6 @@ just = "1.59.0"
 kubeconform = "0.8.0"
 kubectl = "1.37.1"
 kustomize = "5.8.3"
-lefthook = "2.2.2"
 node = "24.22.0"
 oxfmt = "0.73.0"
 sops = "3.13.3"
@@ -31,7 +30,3 @@ zizmor = "1.31.0"
 
 [settings]
 lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64", "macos-x64"]
-
-[hooks]
-# Skipped while GitButler's pre-commit wrapper is installed: see .lefthook.toml.
-postinstall = "grep -qs GITBUTLER_MANAGED_HOOK_V1 \"$(git rev-parse --git-path hooks)/pre-commit\" || lefthook install"

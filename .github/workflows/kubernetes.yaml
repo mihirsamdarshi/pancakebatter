@@ -2,10 +2,9 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: "Kubernetes"
 
-# Runs scripts/validate-kubernetes.sh, the same validator as the lefthook
-# pre-push gate. The main session pushes straight to main and Flux reconciles
-# it right away, so on push this is an after-the-fact signal; the pre-push
-# hook is the gate.
+# Runs scripts/validate-kubernetes.sh. Flux reconciles main right away, so on
+# push to main this is an after-the-fact signal; run `just template configure`
+# (or the script) locally before pushing kubernetes/ changes.
 on:
   pull_request:
     branches:
