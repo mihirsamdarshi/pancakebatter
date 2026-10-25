@@ -4,7 +4,7 @@
 bridge        = "vmbr0"
 vlan_id       = 10
 start_vms     = true
-start_on_boot = false
+start_on_boot = true
 
 network = {
   prefix_length = 24
