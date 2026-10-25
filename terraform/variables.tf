@@ -29,7 +29,7 @@ variable "start_vms" {
 }
 
 variable "start_on_boot" {
-  description = "Start the VMs when Hobbes boots. Keep false until the cluster is configured; talos-01 takes the GPU (Hobbes's only display) when it starts."
+  description = "Start the VMs when Hobbes boots, after TrueNAS (VM 999, startup order 1). talos-01 takes the GPU, so the host console goes dark after boot; the user accepted this (October 23)."
   type        = bool
   default     = false
 }
@@ -83,7 +83,7 @@ variable "nodes" {
     memory_mib = optional(number, 12288)
     disk_gib   = optional(number, 128)
     # Second disk for local-path PVCs (Prometheus, Loki, Grafana).
-    local_disk_gib = optional(number, 32)
+    local_disk_gib = optional(number, 64)
     ip             = optional(string)
     mac_address    = optional(string)
     # Proxmox PCI resource mapping to pass through (all functions, PCIe). The token
