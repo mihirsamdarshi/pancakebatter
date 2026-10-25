@@ -28,11 +28,6 @@ jobs:
           version="${version#*release-}"
           echo "JF_VERSION=$version" >> $GITHUB_ENV
 
-      - name: Get jellyfin version
-        run: |
-          version=$(cat images/port_manager/gluetun-port-mgr/Cargo.toml | grep -E "^version" | awk '{print $3}' | sed 's/"//g')
-          echo "PORT_MGR_VERSION=$version" >> $GITHUB_ENV
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
@@ -57,20 +52,5 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ github.repository }}/jellyfin:${{ env.JF_VERSION }}
             ${{ env.REGISTRY }}/${{ github.repository }}/jellyfin:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # This step uses the `docker/build-push-action` action to build the image, based on your repository's `Dockerfile`. If the build succeeds, it pushes the image to GitHub Packages.
-      # It uses the `context` parameter to define the build's context as the set of files located in the specified path. For more information, see "[Usage](https://github.com/docker/build-push-action#usage)" in the README of the `docker/build-push-action` repository.
-      # It uses the `tags` and `labels` parameters to tag and label the image with the output from the "meta" step.
-      - name: Build and push Docker image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          file: images/port_manager/Dockerfile
-          context: ./images/port_manager
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ github.repository }}/gtpm:${{ env.PORT_MGR_VERSION }}
-            ${{ env.REGISTRY }}/${{ github.repository }}/gtpm:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
