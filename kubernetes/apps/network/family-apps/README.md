@@ -32,6 +32,25 @@ The gateway is a single persistent Tailscale node backed by a standalone proxy
 pod; its Kubernetes state Secret must be preserved. It is not the two-replica
 Services ProxyGroup. Existing Envoy backends retain two replicas.
 
+## Device roles
+
+- `tag:router`: the two routers providing routing/exit-node functions.
+- `tag:home`: shared home devices (NAS, Apple TV) and this family app gateway.
+- The gateway also retains `tag:k8s`; internal operator/proxy roles stay intact.
+- Apple TV is not being enabled as an exit node.
+
+The operator must own `tag:home` through `tagOwners`, in addition to family tag
+owners. The Service declares `tag:k8s,tag:home` for future provisioning.
+Tailscale does not retag an existing proxy when this annotation changes: update
+the existing gateway device's tags separately, preserving its identity, IP,
+state Secret and shares. Do not recreate it to change tags.
+
+Ordinary device sharing is the approved family method. Router shares can grant
+exit-node use; home-device and app-gateway shares do not enable exit-node use.
+Each person accepts a share into their own tailnet. Existing accepted or pending
+shares must be checked before creating another invitation. Friends' service-only
+access is future work and is not part of this setup.
+
 ## Share once with each family member
 
 1. Find `family-apps` on the admin console's **Machines** page.

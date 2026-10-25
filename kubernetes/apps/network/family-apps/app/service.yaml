@@ -9,6 +9,8 @@ metadata:
   annotations:
     tailscale.com/hostname: family-apps
     tailscale.com/proxy-class: apps
+    # Keep the operator's existing identity and classify the shared home gateway.
+    tailscale.com/tags: tag:k8s,tag:home
 spec:
   type: LoadBalancer
   loadBalancerClass: tailscale
