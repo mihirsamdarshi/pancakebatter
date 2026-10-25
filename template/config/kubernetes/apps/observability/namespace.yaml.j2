@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # node-exporter runs with hostNetwork, hostPID and a read-only hostPath
+    # mount of the node's root filesystem.
+    pod-security.kubernetes.io/enforce: privileged

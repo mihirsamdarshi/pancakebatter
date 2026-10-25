@@ -1,0 +1,43 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./helmrelease.yaml
+  - ./ocirepository.yaml
+  - ./secret.sops.yaml
+# Vendored dashboards, picked up by the Grafana sidecar through the
+# grafana_dashboard label. The JSON uses Grafana's own dollar-brace
+# variables, so Flux substitution is disabled on these ConfigMaps. Sources:
+#   flux-*.json            controlplaneio-fluxcd/flux-operator v0.61.0 config/monitoring/dashboards
+#   cert-manager.json      grafana.com 20842 rev 3 (cluster variable allValue set to .*)
+#   envoy-*.json           envoyproxy/gateway v1.9.2 charts/gateway-addons-helm/dashboards
+#   alerting-health.json   local
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    grafana_dashboard: "1"
+configMapGenerator:
+  - name: grafana-dashboards-flux
+    files:
+      - ./dashboards/flux-performance.json
+      - ./dashboards/flux-k8s-api-performance.json
+    options:
+      annotations:
+        grafana_folder: Flux
+        kustomize.toolkit.fluxcd.io/substitute: disabled
+  - name: grafana-dashboards-network
+    files:
+      - ./dashboards/cert-manager.json
+      - ./dashboards/envoy-clusters.json
+      - ./dashboards/envoy-proxy-global.json
+    options:
+      annotations:
+        grafana_folder: Network
+        kustomize.toolkit.fluxcd.io/substitute: disabled
+  - name: grafana-dashboards-observability
+    files:
+      - ./dashboards/alerting-health.json
+    options:
+      annotations:
+        grafana_folder: Observability
+        kustomize.toolkit.fluxcd.io/substitute: disabled

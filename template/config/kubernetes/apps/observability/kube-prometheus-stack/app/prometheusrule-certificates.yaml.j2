@@ -1,0 +1,83 @@
+---
+# cert-manager rules. Only the cert-manager leader exports certificate series,
+# hence `max by`; the certificate's namespace arrives as exported_namespace.
+#
+# Expiry thresholds are relative to the renewal window W = expiration -
+# renewalTime (constant while a renewal is failing): warning below 0.5 W
+# left, critical below 0.2 W left. For a 90-day certificate renewed at 2/3 of
+# its lifetime that is 15 d and 6 d; the thresholds follow shorter Let's
+# Encrypt lifetimes without edits and never fire before a scheduled renewal.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: certificates
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  groups:
+    - name: cert-manager.certificates
+      rules:
+        - alert: CertificateExpiringSoon
+          expr: |
+            (max by (exported_namespace, name) (certmanager_certificate_expiration_timestamp_seconds) - time())
+              < 0.5 * (
+                max by (exported_namespace, name) (certmanager_certificate_expiration_timestamp_seconds)
+                - max by (exported_namespace, name) (certmanager_certificate_renewal_timestamp_seconds)
+              )
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} expires in {{ $value | humanizeDuration }}"
+            description: "Half of the renewal window is gone without a renewal. kubectl -n {{ $labels.exported_namespace }} describe certificate {{ $labels.name }}"
+        - alert: CertificateExpiringSoon
+          expr: |
+            (max by (exported_namespace, name) (certmanager_certificate_expiration_timestamp_seconds) - time())
+              < 0.2 * (
+                max by (exported_namespace, name) (certmanager_certificate_expiration_timestamp_seconds)
+                - max by (exported_namespace, name) (certmanager_certificate_renewal_timestamp_seconds)
+              )
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} expires in {{ $value | humanizeDuration }}"
+            description: "Less than a fifth of the renewal window is left. The envoy wildcard certificate serves every route under the apps domain."
+        - alert: CertificateRenewalOverdue
+          expr: time() > max by (exported_namespace, name) (certmanager_certificate_renewal_timestamp_seconds) + 6 * 3600
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} missed its renewal time by more than 6 h"
+            description: "6 h absorbs cert-manager's ACME retry backoff. Muted once CertificateExpiringSoon fires for the same certificate."
+        - alert: CertificateNotReady
+          expr: max by (exported_namespace, name, condition) (certmanager_certificate_ready_status{condition=~"False|Unknown"}) == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} Ready={{ $labels.condition }}"
+            description: "Check the CertificateRequest, Order and Challenge events."
+        - alert: CertManagerACMEErrors
+          expr: sum by (action, status) (rate(certmanager_http_acme_client_request_count{status!~"2.."}[1h])) * 3600 >= 3
+          labels:
+            severity: warning
+          annotations:
+            summary: "cert-manager ACME {{ $labels.action }} returned HTTP {{ $labels.status }} about {{ $value | humanize }} times per hour"
+            description: "Single 400/403 responses (badNonce) are retried automatically; repeated ones block issuance."
+        - alert: CertManagerSyncErrors
+          expr: sum by (controller) (increase(certmanager_controller_sync_error_count[1h])) >= 5
+          labels:
+            severity: warning
+          annotations:
+            summary: "cert-manager {{ $labels.controller }}: {{ $value | humanize }} sync errors in 1 h"
+            description: "kubectl -n cert-manager logs deploy/cert-manager"
+        - alert: CertManagerMetricsAbsent
+          expr: absent(certmanager_certificate_expiration_timestamp_seconds)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No cert-manager certificate metrics for 30 m"
+            description: "Every certificate alert is blind. Check the cert-manager ServiceMonitor target."

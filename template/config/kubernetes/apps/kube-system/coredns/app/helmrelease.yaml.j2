@@ -20,6 +20,17 @@ spec:
       clusterIP: "#{ kubernetes.coredns_addr }#"
     replicaCount: #{ 2 if controller_count > 1 else 1 }#
     priorityClassName: system-cluster-critical
+    # Metrics Service and ServiceMonitor only; the pods are unchanged. The
+    # allowlist keeps the series the CoreDNS dashboard and alerts use.
+    prometheus:
+      service:
+        enabled: true
+      monitor:
+        enabled: true
+        metricRelabelings:
+          - sourceLabels: [__name__]
+            action: keep
+            regex: coredns_(dns_requests_total|dns_responses_total|cache_(hits|misses)_total|forward_(requests|responses)_total|forward_healthcheck_broken_total|panics_total|dns_request_duration_seconds_.*)|process_(cpu_seconds_total|resident_memory_bytes)
     servers:
       - zones:
           - zone: .
