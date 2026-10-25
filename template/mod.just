@@ -170,8 +170,8 @@ test-helmfile:
     helmfile --file "{{ bootstrap_dir }}/helmfile/apps.yaml" template --quiet > /dev/null
     just log info "bootstrap charts rendered cleanly"
 
-# The validator lives in scripts/ so the pre-push hook and CI keep it after
-# `just template tidy` archives template/.
+# The validator lives in scripts/ so CI keeps it after `just template tidy`
+# archives template/.
 [private]
 validate-kubernetes:
     bash "{{ justfile_dir() }}/scripts/validate-kubernetes.sh" "{{ justfile_dir() }}"
