@@ -110,10 +110,11 @@ spec:
           - ${SECRET_FAMILY_DOMAIN}
         parentRefs:
           # envoy-family only: the family-apps node forwards here and nowhere
-          # else. No sectionName, so the route lands on the listener that
-          # serves the bare family name (https-landing).
+          # else. https-landing is the listener for the bare family name; the
+          # wildcard listeners do not cover it.
           - name: envoy-family
             namespace: network
+            sectionName: https-landing
         rules:
           - backendRefs:
               - identifier: homepage-family
