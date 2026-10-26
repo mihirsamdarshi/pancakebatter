@@ -47,17 +47,19 @@ VM runs on the same machine as the cluster. Offsite copies are a later decision.
 3. Back up the config volume only. Leave out anything a restart regenerates
    (caches, artwork, transcodes).
 
-4. After the merge, take the first backup by hand instead of waiting for the
-   slot. For a SQLite app, run the export first, so that the first snapshot
-   already holds a consistent copy. A `manual` trigger takes precedence over
-   the schedule, so clear it afterwards:
+4. VolSync takes the first backup as soon as the ReplicationSource appears; it
+   does not wait for the slot. For an app without SQLite that is all. For a
+   SQLite app, that first snapshot runs before any export exists, so after the
+   merge run the export and take a second backup by hand. A `manual` trigger
+   takes precedence over the schedule, so clear it afterwards:
 
     ```sh
-    kubectl -n <ns> create job --from=cronjob/<app>-sqlite-export <app>-sqlite-export-first   # SQLite apps
+    kubectl -n <ns> create job --from=cronjob/<app>-sqlite-export <app>-sqlite-export-first
     kubectl -n <ns> wait --for=condition=complete job/<app>-sqlite-export-first --timeout=5m
     kubectl -n <ns> patch replicationsource <app> --type merge -p '{"spec":{"trigger":{"manual":"first-run"}}}'
     kubectl -n <ns> get replicationsource <app> -w   # until status.lastManualSync is first-run
     kubectl -n <ns> patch replicationsource <app> --type merge -p '{"spec":{"trigger":{"manual":null}}}'
+    kubectl -n <ns> delete job <app>-sqlite-export-first
     ```
 
 | Variable            | Component     | Meaning                                                                        |
