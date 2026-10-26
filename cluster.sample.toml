@@ -159,9 +159,11 @@ url = ""
 
 
 # =============================================================================
-#    The domain your cluster's hostnames live under. Used for every rendered
-#    hostname (echo, flux-webhook, internal split DNS) and the wildcard
-#    certificate, regardless of DNS provider.
+#    The LAN domain your cluster's hostnames live under, normally local.<zone>.
+#    Used for every rendered hostname (echo, flux-webhook, internal split DNS)
+#    and the wildcard certificate, regardless of DNS provider. It renders as
+#    SECRET_DOMAIN_LOCAL; SECRET_DOMAIN is the zone (a leading "local."
+#    removed) and SECRET_FAMILY_DOMAIN is family.<zone>.
 # =============================================================================
 [domain]
 
