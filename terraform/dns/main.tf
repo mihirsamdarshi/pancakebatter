@@ -60,9 +60,24 @@ variable "family_gateway_ip" {
   }
 }
 
-# A separate wildcard preserves LAN-only clients on *.local.<zone>.
-# The 100.x address is reachable through Tailscale node sharing, not the public
-# internet. Each recipient accepts one gateway share for all family apps.
+# Family apps live under family.<zone>, a separate wildcard from the LAN-only
+# *.local.<zone>. The 100.x address is reachable through Tailscale node sharing,
+# not the public internet. Each recipient accepts one gateway share for all
+# family apps.
+resource "cloudflare_dns_record" "family_zone_wildcard" {
+  count   = var.family_gateway_ip == null ? 0 : 1
+  zone_id = data.cloudflare_zone.this.zone_id
+  name    = "*.family.${var.zone}"
+  type    = "A"
+  content = var.family_gateway_ip
+  ttl     = 300
+  proxied = false
+  comment = "Family apps (shared Tailscale gateway); managed by terraform/dns"
+}
+
+# Previous family names (*.family.local.<zone>), kept while clients move to
+# *.family.<zone>. Remove this record with the matching envoy-family listener
+# and certificate name.
 resource "cloudflare_dns_record" "family_wildcard" {
   count   = var.family_gateway_ip == null ? 0 : 1
   zone_id = data.cloudflare_zone.this.zone_id
