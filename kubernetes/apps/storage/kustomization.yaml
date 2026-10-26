@@ -9,3 +9,4 @@ components:
 resources:
   - ./namespace.yaml
   - ./local-path-provisioner/ks.yaml
+  - ./snapshot-controller/ks.yaml

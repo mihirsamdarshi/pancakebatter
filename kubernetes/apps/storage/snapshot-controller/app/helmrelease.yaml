@@ -1,0 +1,34 @@
+---
+# The VolumeSnapshot CRDs and the upstream snapshot controller. VolSync needs
+# the CRDs even though it copies volumes directly (local-path has no CSI
+# snapshots); the controller idles until a CSI driver with snapshot support
+# (Rook-Ceph) arrives.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: snapshot-controller
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: snapshot-controller
+  interval: 1h
+  values:
+    # Removing the release must not delete the CRDs and every VolumeSnapshot.
+    keepCRDs: true
+    # Off by default in 5.4.0, but 5.1.1 defaulted it on and put a conversion
+    # webhook into a CRD (piraeusdatastore/helm-charts#98). The CRDs are
+    # templates, so a chart bump would apply such a change.
+    webhook:
+      enabled: false
+    controller:
+      podSecurityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      securityContext:
+        allowPrivilegeEscalation: false
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 128Mi
