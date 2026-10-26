@@ -56,7 +56,7 @@ spec:
     - name: volsync
       namespace: volsync-system
   interval: 1h
-  path: ./kubernetes/apps/quilt-planner/backup
+  path: ./kubernetes/apps/personal/quilt-planner/backup
   postBuild:
     substitute:
       APP: quilt-planner
