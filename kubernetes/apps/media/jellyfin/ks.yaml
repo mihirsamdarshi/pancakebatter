@@ -9,9 +9,17 @@ spec:
       namespace: storage
     - name: nvidia-device-plugin
       namespace: kube-system
+    - name: volsync
+      namespace: volsync-system
   interval: 1h
   path: ./kubernetes/apps/media/jellyfin/app
   postBuild:
+    substitute:
+      APP: jellyfin
+      # Only the config volume: jellyfin-metadata is artwork that a library
+      # refresh fetches again.
+      VOLSYNC_CLAIM: jellyfin-config
+      VOLSYNC_SCHEDULE: "0 10 * * *"
     substituteFrom:
       - name: cluster-secrets
         kind: Secret
