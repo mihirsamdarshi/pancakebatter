@@ -42,9 +42,9 @@ spec:
   targetNamespace: quilt-planner
   wait: true
 ---
-# Nightly backup of quilt-data. Separate from the app's Kustomization, which
-# comes from the OCI bundle. quilt.db is SQLite in WAL mode and is copied while
-# the app runs: read the SQLite section of components/volsync/README.md.
+# Nightly backup of quilt-data, plus a CronJob that exports a consistent copy of
+# quilt.db just before it (see components/volsync/README.md). Separate from the
+# app's Kustomization, which comes from the OCI bundle.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:

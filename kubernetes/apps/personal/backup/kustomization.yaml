@@ -4,3 +4,6 @@ kind: Kustomization
 
 components:
   - ../../../components/volsync
+
+resources:
+  - ./cronjob.yaml

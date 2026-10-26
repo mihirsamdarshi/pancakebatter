@@ -59,10 +59,78 @@ overlap on a node.
 Direct mode reads the live files. A SQLite database in WAL mode is three files
 (`db`, `db-wal`, `db-shm`) that must agree; a write between restic reading the
 first and the last can produce a copy that does not open cleanly, and restic
-cannot tell. The schedule is in the quiet hours and seven dailies plus four
-weeklies are kept, so one bad copy is not fatal, but an app whose database
-matters should also write its own consistent export (an app-native backup, or
-`sqlite3 .backup`) before the slot, so that the export is captured too.
+cannot tell. An app whose database matters should write its own consistent
+export before its slot, so that the export is captured too: an app-native
+backup, or SQLite's online backup, which is safe while the app writes. Jellyfin
+is backed up as is, at an hour when nobody is watching.
+
+### quilt-planner
+
+`kubernetes/apps/quilt-planner/backup/cronjob.yaml` runs at 10:05 UTC, ten
+minutes before the VolSync slot, on the node of the `quilt-data` volume. It
+writes `/data/backup/quilt.db` with SQLite's online backup to a temporary file,
+switches the copy out of WAL mode, checks it (`PRAGMA integrity_check` and at
+least one schema entry) and only then renames it over the previous export. A
+failed run leaves yesterday's export in place and shows as a failed Job. The
+VolSync run then backs up the whole volume, export included.
+
+Restore the database from the export, never from the live `quilt.db`,
+`quilt.db-wal` and `quilt.db-shm`: restic may have copied those at different
+moments. Use the restore steps below to stop the app, and also suspend the
+export so that it cannot overwrite the good copy:
+
+```sh
+kubectl -n quilt-planner patch cronjob quilt-planner-db-export -p '{"spec":{"suspend":true}}'
+```
+
+Then, after the volume restore (or on its own when only the database is
+damaged), apply this Job by hand, wait for it to complete and delete it. It
+replaces the database with the export and removes the stale WAL and SHM files.
+Resuming `quilt-planner-backup` afterwards sets `suspend` back to false.
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+    name: quilt-planner-db-restore
+    namespace: quilt-planner
+spec:
+    backoffLimit: 0
+    template:
+        spec:
+            restartPolicy: Never
+            securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                fsGroup: 1000
+                seccompProfile:
+                    type: RuntimeDefault
+            containers:
+                - name: restore
+                  image: <the image in cronjob.yaml>
+                  command: ["/bin/sh", "-ec"]
+                  args:
+                      - |
+                          test -s /data/backup/quilt.db
+                          test "$(sqlite3 /data/backup/quilt.db 'PRAGMA integrity_check;')" = ok
+                          cp /data/backup/quilt.db /data/quilt.db.restoring
+                          mv -f /data/quilt.db.restoring /data/quilt.db
+                          rm -f /data/quilt.db-wal /data/quilt.db-shm
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                          drop:
+                              - ALL
+                  volumeMounts:
+                      - name: data
+                        mountPath: /data
+            volumes:
+                - name: data
+                  persistentVolumeClaim:
+                      claimName: quilt-data
+```
 
 ## Restore
 

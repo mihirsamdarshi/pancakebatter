@@ -1,0 +1,92 @@
+---
+# Consistent copy of quilt.db for the nightly VolSync run at 10:15 UTC.
+#
+# quilt.db is SQLite in WAL mode and the app keeps it open, so restic reading
+# the live files can capture the db and the WAL at different moments. SQLite's
+# online backup reads a consistent snapshot while the app writes; it works
+# across containers because they share the node's filesystem and its locks.
+# The scheduler puts the pod on the node of the quilt-data PV (talos-02), and
+# an RWO local volume can be mounted by several pods of that node.
+#
+# VolSync backs up the whole volume, so it picks up /data/backup/quilt.db.
+# Restore the database from that copy: see components/volsync/README.md.
+#
+# No Flux substitution: the script is shell.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: quilt-planner-db-export
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  schedule: "5 10 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 300
+      template:
+        spec:
+          restartPolicy: Never
+          # The app's identity: the db and its -wal/-shm are owned by 1000, and a
+          # connection must be able to write -shm.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: export
+              image: docker.io/keinos/sqlite3:3.54.1@sha256:b577e65892c6468d94b390097eda4488e05253470c161bdea68a05abb961fa17
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  umask 022
+                  src=/data/quilt.db
+                  dir=/data/backup
+                  tmp=$dir/quilt.db.tmp
+                  # sqlite3 would create an empty database if the app's is missing.
+                  test -f $src
+                  mkdir -p $dir
+                  trap 'rm -f $tmp $tmp-journal $tmp-wal $tmp-shm' EXIT
+                  rm -f $tmp $tmp-journal $tmp-wal $tmp-shm
+                  sqlite3 $src ".timeout 30000" ".backup $tmp"
+                  # The copy keeps WAL mode; make it a single plain file, then check it.
+                  test "$(sqlite3 $tmp 'PRAGMA journal_mode=DELETE;')" = delete
+                  test "$(sqlite3 $tmp 'PRAGMA integrity_check;')" = ok
+                  test "$(sqlite3 $tmp 'SELECT count(*) FROM sqlite_master;')" -gt 0
+                  mv -f $tmp $dir/quilt.db
+                  echo "exported $(wc -c < $dir/quilt.db) bytes"
+              env:
+                - name: SQLITE_TMPDIR
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: quilt-data
+            - name: tmp
+              emptyDir: {}
