@@ -12,9 +12,13 @@
 #   REGISTRY_SECRET  default APP-registry: the dockerconfigjson Secret the app
 #                    supplies. Set these two only to adopt objects that already
 #                    exist under another name.
-# A variable left unset renders as an empty string. For APP that makes the names
-# invalid, so the apply is rejected and nothing is pruned; an empty OCI_REPO
-# leaves the OCIRepository failing to fetch.
+# A variable left unset renders as an empty string. On the defaults an empty APP
+# gives invalid names, so the apply is rejected. Where the names are overridden
+# (Quilt), an empty APP instead drops the OCIRepository and Kustomization from
+# the render and the bootstrap prunes them: the app and its data stay, but
+# updates stop. Run flux diff kustomization before merging a change to
+# postBuild.substitute. An empty OCI_REPO leaves the OCIRepository failing to
+# fetch.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata:

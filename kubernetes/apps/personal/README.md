@@ -20,10 +20,11 @@ not the manifests. `quilt-planner/` is the working example.
   `<app>/app/`.
 
 The Role covers Services, PVCs, ConfigMaps, Deployments and HTTPRoutes, plus
-read access to ReplicaSets and Pods for the health check. It cannot read
-Secrets, create Roles or touch anything outside the namespace. The bundle's
-Kustomization has `deletionPolicy: Orphan`: deleting it leaves the app and its
-data running.
+read access to ReplicaSets and Pods for the health check. Through the API it
+cannot read Secrets, create Roles or change anything outside the namespace. It
+is not a sandbox: the bundle can still run pods that mount the namespace's
+Secrets (see the gateway note below). The bundle's Kustomization has
+`deletionPolicy: Orphan`: deleting it leaves the app and its data running.
 
 ## Add an app
 
@@ -194,6 +195,19 @@ including restore.
   object, and prunes the old one together with what it applied. Change only its
   `spec.path` when files move.
 - Keep one namespace per app, and do not widen the reconciler's Role to
-  cluster-wide kinds. That limit is the isolation.
+  cluster-wide kinds. That limit is most of the isolation.
 - Do not remove `prune: disabled` from a Namespace, a StorageClass or a data
   PVC.
+- Preview any change to `postBuild.substitute` before merging it. A mistyped
+  or empty `APP` renames the app's OCIRepository and Kustomization (or drops
+  them, where the names are overridden), and the bootstrap prunes the old
+  ones. The app and its data stay; updates stop. Nothing in CI catches a
+  misspelled variable. No output and exit 0 mean no change; `created` or
+  `deleted` lines mean a rename:
+
+    ```sh
+    yq 'select(.metadata.name == "<app>-bootstrap") | .metadata.namespace = "<app>"' \
+      kubernetes/apps/personal/<app>/ks.yaml > /tmp/ks.yaml
+    flux diff kustomization <app>-bootstrap -n <app> \
+      --path ./kubernetes/apps/personal/<app>/app --kustomization-file /tmp/ks.yaml
+    ```

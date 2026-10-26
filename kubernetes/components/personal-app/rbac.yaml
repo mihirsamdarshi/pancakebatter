@@ -1,8 +1,11 @@
 ---
 # The identity the app's Kustomization applies its bundle as. The Role is
-# namespaced and has no access to Secrets, Roles or anything cluster-wide, so a
-# broken or hostile bundle cannot reach beyond this namespace. Add rules with a
-# patch in the app's own kustomization.yaml if its bundle ships other kinds.
+# namespaced and gives the API no access to Secrets, Roles or anything
+# cluster-wide, so the bundle cannot change objects outside this namespace. It
+# is not a sandbox: the bundle can still run pods that mount this namespace's
+# Secrets, and create HTTPRoutes that attach to the shared gateways. Add rules
+# with a patch in the app's own kustomization.yaml if its bundle ships other
+# kinds.
 #
 # Variables come from the bootstrap Kustomization's postBuild.substitute; see
 # flux.yaml.
