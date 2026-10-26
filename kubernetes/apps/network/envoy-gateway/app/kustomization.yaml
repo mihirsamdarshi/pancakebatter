@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - ./certificate.yaml
   - ./certificate-family.yaml
+  - ./certificate-family-landing.yaml
   - ./certificate-family-legacy.yaml
   - ./envoy.yaml
   - ./envoy-family.yaml

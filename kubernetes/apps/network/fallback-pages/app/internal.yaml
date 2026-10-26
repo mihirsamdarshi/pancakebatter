@@ -1,0 +1,45 @@
+---
+# Internal names no app route claims. Exact hostnames (grafana., jellyfin.,
+# quilts., echo., flux-webhook.) are more specific matches and keep winning.
+# Only the https listener: plain HTTP is redirected before any hostname match.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: internal-not-found
+spec:
+  directResponse:
+    statusCode: 404
+    contentType: text/html; charset=utf-8
+    header:
+      set:
+        - name: Cache-Control
+          value: no-store
+    body:
+      type: ValueRef
+      valueRef:
+        group: ""
+        kind: ConfigMap
+        name: internal-not-found
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: internal-not-found
+  annotations:
+    # The wildcard is already a Terraform-managed DNS record; keep external-dns
+    # (if ever deployed) from publishing it.
+    external-dns.kubernetes.io/controller: none
+spec:
+  parentRefs:
+    - name: envoy-internal
+      namespace: network
+      sectionName: https
+  hostnames:
+    - "*.${SECRET_DOMAIN}"
+  rules:
+    - filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: gateway.envoyproxy.io
+            kind: HTTPRouteFilter
+            name: internal-not-found

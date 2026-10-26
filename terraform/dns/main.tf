@@ -75,6 +75,19 @@ resource "cloudflare_dns_record" "family_zone_wildcard" {
   comment = "Family apps (shared Tailscale gateway); managed by terraform/dns"
 }
 
+# The bare family name serves the landing page (an app list). The wildcard above
+# does not cover it: a wildcard needs at least one label.
+resource "cloudflare_dns_record" "family_landing" {
+  count   = var.family_gateway_ip == null ? 0 : 1
+  zone_id = data.cloudflare_zone.this.zone_id
+  name    = "family.${var.zone}"
+  type    = "A"
+  content = var.family_gateway_ip
+  ttl     = 300
+  proxied = false
+  comment = "Family landing page (shared Tailscale gateway); managed by terraform/dns"
+}
+
 # Previous family names (*.family.local.<zone>), kept while clients move to
 # *.family.<zone>. Remove this record with the matching envoy-family listener
 # and certificate name.

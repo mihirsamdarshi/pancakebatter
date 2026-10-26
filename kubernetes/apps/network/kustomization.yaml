@@ -11,3 +11,4 @@ resources:
   - ./envoy-gateway/ks.yaml
   - ./k8s-gateway/ks.yaml
   - ./family-apps/ks.yaml
+  - ./fallback-pages/ks.yaml

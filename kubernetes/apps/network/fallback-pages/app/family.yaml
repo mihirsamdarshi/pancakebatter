@@ -1,0 +1,82 @@
+---
+# Family names no app route claims: a typo, or an app that is not set up yet.
+# The wildcard hostnames are the listeners' own, so every exact app hostname
+# (quilts., jellyfin., ...) is a more specific match and keeps winning.
+# Remove the legacy hostname with the https-legacy listener.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: family-not-found
+spec:
+  directResponse:
+    statusCode: 404
+    contentType: text/html; charset=utf-8
+    header:
+      set:
+        - name: Cache-Control
+          value: no-store
+    body:
+      type: ValueRef
+      valueRef:
+        group: ""
+        kind: ConfigMap
+        name: family-not-found
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: family-not-found
+spec:
+  parentRefs:
+    # No sectionName: each hostname attaches to the envoy-family listener that
+    # serves it.
+    - name: envoy-family
+      namespace: network
+  hostnames:
+    - "*.${SECRET_FAMILY_DOMAIN}"
+    - "*.family.${SECRET_DOMAIN}"
+  rules:
+    - filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: gateway.envoyproxy.io
+            kind: HTTPRouteFilter
+            name: family-not-found
+---
+# The bare family name, served by the https-landing listener.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: family-landing
+spec:
+  directResponse:
+    statusCode: 200
+    contentType: text/html; charset=utf-8
+    header:
+      set:
+        - name: Cache-Control
+          value: no-store
+    body:
+      type: ValueRef
+      valueRef:
+        group: ""
+        kind: ConfigMap
+        name: family-landing
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: family-landing
+spec:
+  parentRefs:
+    - name: envoy-family
+      namespace: network
+  hostnames:
+    - "${SECRET_FAMILY_DOMAIN}"
+  rules:
+    - filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: gateway.envoyproxy.io
+            kind: HTTPRouteFilter
+            name: family-landing

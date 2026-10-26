@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Address not found</title>
+<style>
+:root{color-scheme:light dark;--bg:#faf8f5;--fg:#2a2623;--muted:#6b645d;--card:#fff;--line:#e4ded6;--accent:#8a4b2a}
+@media (prefers-color-scheme:dark){:root{--bg:#1c1a18;--fg:#efeae4;--muted:#a39a90;--card:#26231f;--line:#3a3530;--accent:#e0a37f}}
+*{box-sizing:border-box}
+body{margin:0;padding:12vh 1.25rem 2rem;background:var(--bg);color:var(--fg);font:1.0625rem/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:28rem;margin:0 auto}
+h1{margin:0 0 .5rem;font-size:1.5rem;line-height:1.25}
+p{margin:0 0 1.25rem;color:var(--muted)}
+ul{margin:0;padding:0;list-style:none}
+li+li{margin-top:.75rem}
+a{display:block;min-height:3rem;padding:.75rem 1rem;border:1px solid var(--line);border-radius:.75rem;background:var(--card);color:var(--fg);text-decoration:none}
+a:hover,a:focus-visible{border-color:var(--accent);outline:none}
+b{display:block;color:var(--accent)}
+small{display:block;color:var(--muted);overflow-wrap:anywhere}
+</style>
+</head>
+<body>
+<main>
+<h1>That address doesn&rsquo;t exist</h1>
+<p>Check the spelling, or try one of these:</p>
+<ul>
+<li><a href="https://grafana.${SECRET_DOMAIN}"><b>Grafana</b><small>grafana.${SECRET_DOMAIN}</small></a></li>
+<li><a href="https://jellyfin.${SECRET_DOMAIN}"><b>Jellyfin</b><small>jellyfin.${SECRET_DOMAIN}</small></a></li>
+<li><a href="https://quilts.${SECRET_DOMAIN}"><b>Quilts</b><small>quilts.${SECRET_DOMAIN}</small></a></li>
+</ul>
+</main>
+</body>
+</html>

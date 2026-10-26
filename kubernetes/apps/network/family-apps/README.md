@@ -47,7 +47,9 @@ TCP forwarding to the Service times out. Cilium updates roll one agent at a time
   Secret per listener: `family-production` (Secret `family-production-tls`) for
   `*.${SECRET_FAMILY_DOMAIN}` on `https`, and `family-legacy-production` (Secret
   `family-legacy-production-tls`) for `*.family.${SECRET_DOMAIN}` on
-  `https-legacy`. Two listeners must not share a Secret: Envoy Gateway reports
+  `https-legacy`, and `family-landing-production` (Secret
+  `family-landing-production-tls`) for the bare `${SECRET_FAMILY_DOMAIN}` on
+  `https-landing`. Two listeners must not share a Secret: Envoy Gateway reports
   overlapping TLS config, and with h2 enabled a browser could reuse one
   connection across both names and get a 404. The shared wildcard used by
   `envoy-internal` carries no family names, so the internal Gateway never
@@ -58,10 +60,11 @@ TCP forwarding to the Service times out. Cilium updates roll one agent at a time
   zone, so the ClusterIssuer's DNS-01 solver must list it in `dnsZones` too
   (delivered as a separate change; it must be live before these Certificates
   can be issued).
-- Terraform's separate DNS root manages unproxied wildcard A records for
-  `*.family.<zone>` and, during the transition, `*.family.local.<zone>`, both
-  pointing at the standalone node's Tailscale IPv4. Set `family_gateway_ip` in
-  an ignored local tfvars file after provisioning.
+- Terraform's separate DNS root manages unproxied A records for
+  `*.family.<zone>`, the bare `family.<zone>` (landing page) and, during the
+  transition, `*.family.local.<zone>`, all pointing at the standalone node's
+  Tailscale IPv4. Set `family_gateway_ip` in an ignored local tfvars file after
+  provisioning.
 - The existing `*.local.<zone>` record keeps its LAN gateway address.
 - Quilt Planner's routes are `https://quilts.family.<zone>` and the previous
   `https://quilts.family.local.<zone>`. Future apps add an HTTPRoute on
@@ -71,8 +74,39 @@ TCP forwarding to the Service times out. Cilium updates roll one agent at a time
   family hostname with `envoy-family`'s ClusterIP, so do not point split DNS at
   it for `*.family` names.
 - Retire the legacy names together: the `https-legacy` listener, the
-  `family-legacy-production` Certificate, the `family_wildcard` DNS record and
-  each route's legacy hostname.
+  `family-legacy-production` Certificate, the `family_wildcard` DNS record, the
+  legacy hostname on the `family-not-found` route and each app route's legacy
+  hostname.
+
+## Landing page and unknown names
+
+The `network/fallback-pages` Kustomization serves small self-contained HTML
+pages straight from Envoy (Envoy Gateway `HTTPRouteFilter` `directResponse`,
+body from a ConfigMap built from the `.html` files in `fallback-pages/app/`):
+
+- `family.<zone>` (the bare name) answers 200 with the list of family apps. The
+  wildcard listener does not cover it, so `envoy-family` has a third listener,
+  `https-landing`, with its own Certificate `family-landing-production`. It is
+  not a SAN on `family-production`: Envoy Gateway flags overlapping certificate
+  SANs between listeners, and the shared ClientTrafficPolicy sets ALPN `h2`
+  explicitly, so a browser could reuse a connection across the two names and
+  get a 404.
+- Any other name under `*.family.<zone>` (and the legacy `*.family.local.<zone>`)
+  answers 404 with the same list. The route's hostnames are the listeners'
+  wildcards, so an app's exact hostname is always the more specific match and
+  keeps winning.
+- On the LAN gateway, any other name under `*.local.<zone>` answers 404 with the
+  list of internal apps. The exact routes (Grafana, Jellyfin, Quilts, echo, Flux
+  webhook) win over it.
+
+When an app is added, add a link to the pages it belongs on
+(`family-not-found.html` and `family-landing.html` for family apps,
+`internal-not-found.html` for LAN apps). The page body is an Envoy format string:
+keep percent signs out of it. `k8s-gateway` reads HTTPRoute hostnames, so the
+internal wildcard makes it answer unknown `*.local.<zone>` names with the
+`envoy-internal` address (the same address the Terraform wildcard record gives).
+The legacy wildcard likewise yields `envoy-family`'s ClusterIP, like every
+existing legacy name, which is why split DNS must not point `*.family` at it.
 - `family-apps` itself (this Service and its Flux Kustomizations) is specific to
   this cluster and is not part of `template/`. `template/` has the
   `envoy-family` Gateway with only the new-name listener, and `family-production`;
