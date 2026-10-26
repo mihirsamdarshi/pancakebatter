@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - ./gitrepository.yaml
   - ./helmrelease.yaml
+  - ./storage-class.yaml

@@ -1,0 +1,12 @@
+---
+# Node-local like local-path, but a deleted PVC or a Flux prune keeps the
+# data. For app state that matters (SQLite configs); pin pods to their node.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-retain
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+provisioner: cluster.local/local-path-provisioner
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
