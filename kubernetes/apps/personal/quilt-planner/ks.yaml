@@ -4,7 +4,7 @@ metadata:
   name: quilt-planner-bootstrap
 spec:
   interval: 1h
-  path: ./kubernetes/apps/quilt-planner/app
+  path: ./kubernetes/apps/personal/quilt-planner/app
   prune: true
   sourceRef:
     kind: GitRepository
@@ -25,7 +25,7 @@ spec:
     - name: quilt-planner
       namespace: quilt-planner
   interval: 1h
-  path: ./kubernetes/apps/quilt-planner/tailnet
+  path: ./kubernetes/apps/personal/quilt-planner/tailnet
   prune: true
   sourceRef:
     kind: GitRepository
