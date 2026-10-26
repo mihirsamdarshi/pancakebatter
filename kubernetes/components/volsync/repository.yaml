@@ -1,0 +1,42 @@
+---
+# The restic repositories live on TrueNAS, one directory per app under the
+# export. Each app gets its own PV and PVC: a PV binds once, and a PVC must
+# sit in the mover's namespace. A PVC rather than an inline NFS volume
+# because the quilt-planner namespace enforces the restricted Pod Security
+# profile, which rejects inline NFS, and because a PV can set mount options.
+# The claimRef reserves the PV for its own PVC. If that PVC is deleted the PV
+# stays Released: see the README.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${APP}-volsync-repo
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.2
+    - hard
+    - noatime
+  nfs:
+    server: 192.168.10.75
+    path: /mnt/nasty/Backups/volsync
+  claimRef:
+    namespace: ${VOLSYNC_NAMESPACE}
+    name: ${APP}-volsync-repo
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${APP}-volsync-repo
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: ${APP}-volsync-repo
+  resources:
+    requests:
+      storage: 100Gi

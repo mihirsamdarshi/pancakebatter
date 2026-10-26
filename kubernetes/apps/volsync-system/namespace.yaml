@@ -1,0 +1,10 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: volsync-system
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # Only the operator runs here; the movers run in each app's namespace.
+    pod-security.kubernetes.io/enforce: restricted

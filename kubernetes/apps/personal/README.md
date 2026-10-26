@@ -166,9 +166,10 @@ below, and read a bundle's HTTPRoutes before you trust it. Restricting
 ## Backups
 
 Nightly restic backups of an app's volume use the `volsync` component
-(`kubernetes/components/volsync`, added by the VolSync change, PR #729; it is
-not available before that merges). An app opts in with a `backup/` folder
-that includes the component, plus one more Flux Kustomization in its `ks.yaml`:
+(`kubernetes/components/volsync`), and apps with SQLite databases add the
+`sqlite-export` component, which writes a consistent copy of each database
+shortly before the backup. An app opts in with a `backup/` folder that includes
+the components, plus one more Flux Kustomization in its `ks.yaml`:
 
 ```yaml
 metadata:
@@ -184,12 +185,18 @@ spec:
         substitute:
             APP: <app>
             VOLSYNC_CLAIM: <the app's PVC name>
+            VOLSYNC_NAMESPACE: <app>
             VOLSYNC_SCHEDULE: "<cron, UTC; 15 minutes after the previous app>"
+            APP_UID: "<the app's uid, if not 568>"
+            APP_GID: "<the app's gid, if not 568>"
+            SQLITE_DBS: <databases, relative to the volume root>
+            SQLITE_SCHEDULE: "<cron, UTC; 10 minutes before the backup>"
 ```
 
-From `personal/<app>/backup/` the component path is
-`../../../../components/volsync`. The component's README has the rest,
-including restore.
+From `personal/<app>/backup/` the component paths are
+`../../../../components/volsync` and `../../../../components/sqlite-export`.
+`quilt-planner/backup` is a working example. The volsync component's README has
+the rest, including the first backup and restore.
 
 ## Rules that keep a move safe
 
