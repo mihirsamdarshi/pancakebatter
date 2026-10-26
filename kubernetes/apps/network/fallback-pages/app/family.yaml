@@ -34,7 +34,7 @@ spec:
       namespace: network
   hostnames:
     - "*.${SECRET_FAMILY_DOMAIN}"
-    - "*.family.${SECRET_DOMAIN}"
+    - "*.family.${SECRET_DOMAIN_LOCAL}"
   rules:
     - filters:
         - type: ExtensionRef

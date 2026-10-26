@@ -52,7 +52,7 @@ spec:
     - name: https-legacy
       protocol: HTTPS
       port: 443
-      hostname: "*.family.${SECRET_DOMAIN}"
+      hostname: "*.family.${SECRET_DOMAIN_LOCAL}"
       allowedRoutes:
         namespaces:
           from: All
