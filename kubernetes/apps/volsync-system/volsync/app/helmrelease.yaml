@@ -21,4 +21,6 @@ spec:
         cpu: 10m
         memory: 64Mi
       limits:
+        # null drops the chart's 1000m default.
+        cpu: null
         memory: 256Mi

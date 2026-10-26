@@ -61,6 +61,7 @@ spec:
     substitute:
       APP: quilt-planner
       VOLSYNC_CLAIM: quilt-data
+      VOLSYNC_NAMESPACE: quilt-planner
       VOLSYNC_SCHEDULE: "15 10 * * *"
   prune: true
   sourceRef:

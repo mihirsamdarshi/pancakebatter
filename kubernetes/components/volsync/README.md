@@ -32,6 +32,7 @@ VM runs on the same machine as the cluster. Offsite copies are a later decision.
             substitute:
                 APP: sonarr # names the ReplicationSource, Secret, PV/PVC and repository directory
                 VOLSYNC_CLAIM: sonarr-config # the PVC to back up
+                VOLSYNC_NAMESPACE: media # the app's namespace (the PV's claimRef)
                 VOLSYNC_SCHEDULE: "30 10 * * *" # optional, UTC
     ```
 
@@ -175,6 +176,18 @@ password is in 1Password and in `secret.sops.yaml`
             # previous: 1                           # or: skip this many newer snapshots
             cacheCapacity: 512Mi
             cacheStorageClassName: local-path
+            # <node> is where the app must run. With an existing PVC that is the
+            # PV's node; with a recreated one (node lost) the new PV is created on
+            # whichever node the mover reaches first, so name the right one.
+            moverAffinity:
+                nodeAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                        nodeSelectorTerms:
+                            - matchExpressions:
+                                  - key: kubernetes.io/hostname
+                                    operator: In
+                                    values:
+                                        - <node>
             moverSecurityContext:
                 runAsNonRoot: true
                 runAsUser: 568
@@ -210,5 +223,17 @@ password is in 1Password and in `secret.sops.yaml`
 
 The PV is node-local, so the PVC is stuck on the dead node. The data is only in
 the repository. Delete the PVC and its Retain PV, let Flux recreate an empty
-PVC (suspend the app first so nothing writes to it), then run step 3 into the
-new PVC with the app still stopped.
+PVC (suspend the app first so nothing writes to it), then run step 2 into the
+new PVC with the app still stopped. Keep `moverAffinity` in that step: the new
+PV is created on whichever node the mover lands on first, and the app has to
+run there (Jellyfin: talos-01, for the GPU).
+
+### If the repository PVC is deleted
+
+The repository PV has a `claimRef` to its PVC and `Retain`. Deleting the PVC
+leaves the PV `Released`, and a new PVC of the same name will not bind until the
+old claim's UID is cleared (the NFS data is not touched):
+
+```sh
+kubectl patch pv <app>-volsync-repo --type json -p '[{"op":"remove","path":"/spec/claimRef/uid"}]'
+```

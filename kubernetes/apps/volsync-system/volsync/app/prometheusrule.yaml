@@ -1,6 +1,10 @@
 ---
-# volsync_volume_out_of_sync is 1 while the last scheduled run failed or ran
-# past the next start. It needs a schedule, which every backup here has.
+# volsync_volume_out_of_sync is 1 until a source has completed its first sync,
+# and again when a sync has not completed by the start after the next one
+# (about a day late for a nightly schedule). A completed sync resets it to 0; a
+# failed run alone does not set it. So it fires 1 h after a new source appears
+# unless the first run was done by hand (see the rollout steps), and about a
+# day after a backup stops working.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -18,4 +22,4 @@ spec:
             severity: warning
           annotations:
             summary: "Backup {{ $labels.obj_namespace }}/{{ $labels.obj_name }} is out of sync"
-            description: "The last run failed or overran. kubectl -n {{ $labels.obj_namespace }} describe replicationsource {{ $labels.obj_name }}, then the logs of its volsync-src job."
+            description: "No sync has completed yet, or the last one is over a schedule interval late. kubectl -n {{ $labels.obj_namespace }} describe replicationsource {{ $labels.obj_name }}, then the logs of its volsync-src job."

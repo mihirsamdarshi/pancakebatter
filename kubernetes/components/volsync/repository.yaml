@@ -4,6 +4,8 @@
 # sit in the mover's namespace. A PVC rather than an inline NFS volume
 # because the quilt-planner namespace enforces the restricted Pod Security
 # profile, which rejects inline NFS, and because a PV can set mount options.
+# The claimRef reserves the PV for its own PVC. If that PVC is deleted the PV
+# stays Released: see the README.
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -22,6 +24,9 @@ spec:
   nfs:
     server: 192.168.10.75
     path: /mnt/nasty/Backups/volsync
+  claimRef:
+    namespace: ${VOLSYNC_NAMESPACE}
+    name: ${APP}-volsync-repo
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

@@ -19,6 +19,7 @@ spec:
       # Only the config volume: jellyfin-metadata is artwork that a library
       # refresh fetches again.
       VOLSYNC_CLAIM: jellyfin-config
+      VOLSYNC_NAMESPACE: media
       VOLSYNC_SCHEDULE: "0 10 * * *"
     substituteFrom:
       - name: cluster-secrets
