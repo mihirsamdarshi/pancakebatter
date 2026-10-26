@@ -1,0 +1,25 @@
+---
+# Friendly 404 pages for hostnames that no app route claims. Specific to this
+# cluster (the pages list its apps), so they are not part of template/.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: fallback-pages
+spec:
+  dependsOn:
+    - name: envoy-gateway
+  interval: 1h
+  path: ./kubernetes/apps/network/fallback-pages/app
+  postBuild:
+    # The pages link to apps by hostname, so ${SECRET_DOMAIN} and
+    # ${SECRET_FAMILY_DOMAIN} are substituted inside the HTML as well.
+    substituteFrom:
+      - name: cluster-secrets
+        kind: Secret
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: network
+  wait: false

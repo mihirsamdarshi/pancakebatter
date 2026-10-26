@@ -1,0 +1,22 @@
+---
+# The bare family name (family.<zone>) for the https-landing listener, where
+# the family homepage is served. Rendered only in this cluster, not in
+# template/. A Certificate of its own, not a SAN on family-production: both
+# listeners would then present overlapping SANs, which Envoy Gateway flags and
+# which lets h2 browsers coalesce connections across the two names.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: family-landing-production
+spec:
+  dnsNames:
+    - "${SECRET_FAMILY_DOMAIN}"
+  duration: 2160h
+  issuerRef:
+    name: letsencrypt-production
+    kind: ClusterIssuer
+  privateKey:
+    algorithm: ECDSA
+  secretName: family-landing-production-tls
+  usages:
+    - digital signature

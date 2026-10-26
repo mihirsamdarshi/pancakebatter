@@ -21,7 +21,9 @@
 #      OCIRepository it names (namespace defaulting to the Kustomization's
 #      metadata.namespace) must be declared in the tree. Any other source
 #      kind fails;
-#   4. no unclosed `${VAR` (a Flux postBuild substitution missing its `}`).
+#   4. no unclosed `${VAR` (a Flux postBuild substitution missing its `}`);
+#   5. no `%` in an Envoy Gateway directResponse body (inline, or the ConfigMap
+#      an HTTPRouteFilter's valueRef names).
 # archive/ and other trees outside kubernetes/ are never read.
 #
 # Schemas fail closed: there is no -ignore-missing-schemas, so a typo in
@@ -59,6 +61,36 @@ conform() {
         -e 's/\$\{[A-Za-z_][A-Za-z0-9_]*:[-=]([^}]*)\}/\1/g' \
         -e 's/\$\{[A-Za-z_][^}]*\}/placeholder/g' \
         | kubeconform "${kubeconform_args[@]}"
+}
+
+# Envoy parses a directResponse body as a format string, where `%` starts a
+# command operator. A stray one (a CSS width, "100%") makes Envoy reject the
+# whole route configuration, so the Gateway keeps serving its previous config
+# while the change looks applied. Checks every HTTPRouteFilter in a rendered
+# manifest stream ($1, labelled $2): an inline body, or the ConfigMap named by
+# its valueRef (key response.body, else the first key) matched by name within
+# the same stream. A ConfigMap that is not in the stream cannot be checked, so
+# that fails too.
+check_direct_response_bodies() {
+    local file="$1" label="$2" name bodies
+    bodies="$(yq -N 'select(.kind == "HTTPRouteFilter" and .spec.directResponse.body.inline != null
+        and (.spec.directResponse.body.inline | contains("%"))) | .metadata.name' "$file")"
+    [[ -z "${bodies//[[:space:]]/}" ]] \
+        || die "$label: HTTPRouteFilter directResponse body contains '%' (Envoy format string): ${bodies//$'\n'/ }"
+
+    yq -N 'select(.kind == "HTTPRouteFilter" and .spec.directResponse.body.type == "ValueRef")
+        | .spec.directResponse.body.valueRef.name' "$file" >"$tmp/dr-refs"
+    while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        NAME="$name" yq -N 'select(.kind == "ConfigMap" and .metadata.name == strenv(NAME))
+            | .metadata.name' "$file" >"$tmp/dr-found"
+        [[ -n "$(<"$tmp/dr-found")" ]] \
+            || die "$label: HTTPRouteFilter directResponse body ConfigMap $name is not in the same build, so it cannot be checked for '%'"
+        bodies="$(NAME="$name" yq -N 'select(.kind == "ConfigMap" and .metadata.name == strenv(NAME))
+            | ((.data["response.body"] // (.data | to_entries | .[0].value) // "") | contains("%"))' "$file")"
+        [[ "$bodies" != *true* ]] \
+            || die "$label: ConfigMap $name (HTTPRouteFilter directResponse body) contains '%' (Envoy format string)"
+    done <"$tmp/dr-refs"
 }
 
 # "namespace/name" of every Flux OCIRepository in a rendered manifest stream.
@@ -122,6 +154,7 @@ validate_tree() {
             echo "--- $dir"
             kustomize build "$dir" "${kustomize_args[@]}" >"$tmp/build.yaml"
             conform <"$tmp/build.yaml"
+            check_direct_response_bodies "$tmp/build.yaml" "$dir"
             list_oci_repositories "$tmp/build.yaml" >>"$tmp/oci.list"
         done <"$tmp/kustomizations"
 
@@ -175,6 +208,7 @@ validate_tree() {
                 flux build ks "$name" --namespace "$namespace" --dry-run --path "$path" \
                     --kustomization-file "$tmp/ks.yaml" >"$tmp/build.yaml"
                 conform <"$tmp/build.yaml"
+                check_direct_response_bodies "$tmp/build.yaml" "$file ($namespace/$name)"
                 list_oci_repositories "$tmp/build.yaml" >>"$tmp/oci.list"
             done <"$tmp/ks.list"
         done <"$tmp/manifests"

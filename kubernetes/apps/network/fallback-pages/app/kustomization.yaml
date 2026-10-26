@@ -1,0 +1,23 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./family.yaml
+  - ./internal.yaml
+# One page per file, served by an Envoy Gateway directResponse. The filters
+# name these ConfigMaps (key response.body), so the names must stay fixed: no
+# hash suffix. Unlike the Grafana dashboards, Flux substitution stays on, since
+# the pages contain ${SECRET_*} links.
+#
+# Page rules: no percent sign anywhere (Envoy reads the body as a format string,
+# where percent starts a command operator); keep each page small; no external
+# assets or scripts.
+configMapGenerator:
+  - name: family-not-found
+    files:
+      - response.body=family-not-found.html
+  - name: internal-not-found
+    files:
+      - response.body=internal-not-found.html
+generatorOptions:
+  disableNameSuffixHash: true
