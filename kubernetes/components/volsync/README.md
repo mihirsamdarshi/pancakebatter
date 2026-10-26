@@ -60,15 +60,15 @@ VM runs on the same machine as the cluster. Offsite copies are a later decision.
     kubectl -n <ns> patch replicationsource <app> --type merge -p '{"spec":{"trigger":{"manual":null}}}'
     ```
 
-| Variable            | Component     | Meaning                                                                          |
-| ------------------- | ------------- | -------------------------------------------------------------------------------- |
-| `APP`               | both          | Names the ReplicationSource, Secret, PV/PVC, CronJob and repository directory    |
-| `VOLSYNC_CLAIM`     | both          | The PVC to back up and to export from                                            |
-| `VOLSYNC_NAMESPACE` | volsync       | The app's namespace (the PV's `claimRef`)                                        |
-| `VOLSYNC_SCHEDULE`  | volsync       | Optional, UTC cron, default `0 10 * * *`                                         |
-| `SQLITE_DBS`        | sqlite-export | Required: the databases, relative to the volume root                             |
-| `SQLITE_SCHEDULE`   | sqlite-export | Optional, UTC cron, default `50 9 * * *` (ten minutes before the default slot)   |
-| `APP_UID`/`APP_GID` | both          | The app's user and group, default 568 (see below)                                |
+| Variable            | Component     | Meaning                                                                        |
+| ------------------- | ------------- | ------------------------------------------------------------------------------ |
+| `APP`               | both          | Names the ReplicationSource, Secret, PV/PVC, CronJob and repository directory  |
+| `VOLSYNC_CLAIM`     | both          | The PVC to back up and to export from                                          |
+| `VOLSYNC_NAMESPACE` | volsync       | The app's namespace (the PV's `claimRef`)                                      |
+| `VOLSYNC_SCHEDULE`  | volsync       | Optional, UTC cron, default `0 10 * * *`                                       |
+| `SQLITE_DBS`        | sqlite-export | Required: the databases, relative to the volume root                           |
+| `SQLITE_SCHEDULE`   | sqlite-export | Optional, UTC cron, default `50 9 * * *` (ten minutes before the default slot) |
+| `APP_UID`/`APP_GID` | both          | The app's user and group, default 568 (see below)                              |
 
 Both the export and the mover run as the app's user and group. The export needs
 that to write the database's `-shm` file; the mover needs it so that a restore
