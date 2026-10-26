@@ -1,0 +1,23 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: homepage-family
+spec:
+  dependsOn:
+    # The HTTPRouteFilter CRD comes with Envoy Gateway.
+    - name: envoy-gateway
+      namespace: network
+  interval: 1h
+  path: ./kubernetes/apps/home/homepage-family/app
+  postBuild:
+    substituteFrom:
+      - name: cluster-secrets
+        kind: Secret
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: home
+  wait: false
