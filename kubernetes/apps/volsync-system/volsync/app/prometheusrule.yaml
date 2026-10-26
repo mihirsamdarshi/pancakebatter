@@ -1,0 +1,21 @@
+---
+# volsync_volume_out_of_sync is 1 while the last scheduled run failed or ran
+# past the next start. It needs a schedule, which every backup here has.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: volsync
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  groups:
+    - name: volsync
+      rules:
+        - alert: VolSyncBackupFailing
+          expr: volsync_volume_out_of_sync{role="source"} == 1
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Backup {{ $labels.obj_namespace }}/{{ $labels.obj_name }} is out of sync"
+            description: "The last run failed or overran. kubectl -n {{ $labels.obj_namespace }} describe replicationsource {{ $labels.obj_name }}, then the logs of its volsync-src job."
