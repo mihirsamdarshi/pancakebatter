@@ -5,7 +5,7 @@ metadata:
   name: quilt-planner-family
 spec:
   parentRefs:
-    - name: envoy-internal
+    - name: envoy-family
       namespace: network
       sectionName: https
   hostnames:

@@ -1,0 +1,44 @@
+---
+# Family tailnets reach the cluster only through the standalone family-apps
+# Tailscale node, which forwards straight to this Gateway's proxy pods. A
+# separate Gateway that serves nothing but *.family hostnames keeps every
+# internal-only route (all attached to envoy-internal) off those tailnets.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: envoy-family
+spec:
+  # Inherit replicas, resources, shutdown and telemetry from the GatewayClass
+  # EnvoyProxy. Its externalTrafficPolicy is ignored for a ClusterIP Service.
+  mergeType: StrategicMerge
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        # The Tailscale Service selects these pods directly, so no LAN
+        # LoadBalancer IP is needed or wanted.
+        type: ClusterIP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: envoy-family
+spec:
+  gatewayClassName: envoy
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: envoy-family
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.family.${SECRET_DOMAIN}"
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: ${SECRET_DOMAIN/./-}-production-tls
