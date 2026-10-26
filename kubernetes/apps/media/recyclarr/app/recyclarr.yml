@@ -1,0 +1,32 @@
+---
+# Recyclarr 8 config. Profiles are guide-backed (trash_id), so qualities,
+# custom formats and scores come from the TRaSH Guides, including the
+# default custom format groups (e.g. "Unwanted Formats", which scores AV1
+# down: the GTX 1650 cannot decode it). Look up more profiles with
+#   recyclarr list quality-profiles sonarr|radarr
+# The API keys come from the environment (the sonarr/radarr Secrets).
+
+sonarr:
+  sonarr:
+    base_url: http://sonarr.media.svc.cluster.local:8989
+    api_key: !env_var SONARR_API_KEY
+    quality_definition:
+      type: series
+    quality_profiles:
+      - trash_id: 72dae194fc92bf828f32cde7744e51a1 # WEB-1080p
+        reset_unmatched_scores:
+          enabled: true
+      - trash_id: d1498e7d189fbe6c7110ceaabb7473e6 # WEB-2160p
+        reset_unmatched_scores:
+          enabled: true
+
+radarr:
+  radarr:
+    base_url: http://radarr.media.svc.cluster.local:7878
+    api_key: !env_var RADARR_API_KEY
+    quality_definition:
+      type: movie
+    quality_profiles:
+      - trash_id: 64fb5f9858489bdac2af690e27c8f42f # UHD Bluray + WEB
+        reset_unmatched_scores:
+          enabled: true
