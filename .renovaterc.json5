@@ -53,6 +53,15 @@
       minimumGroupSize: 2,
     },
     {
+      // home-operations also publishes upstream Sonarr v5 pre-releases as 5.x
+      // tags. Stay on v4 until v5 is stable. (Docker versioning has no range
+      // support, so Renovate evaluates this with its npm-semver fallback.)
+      description: "Sonarr stays on v4",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["ghcr.io/home-operations/sonarr"],
+      allowedVersions: "<5",
+    },
+    {
       matchUpdateTypes: ["major"],
       addLabels: ["type/major"],
     },
