@@ -1,0 +1,13 @@
+---
+# The app's namespace. The including kustomization.yaml renames it with its
+# `namespace:` field. The placeholder is not a valid name on purpose: an app
+# that forgets `namespace:` fails to apply instead of creating a stray one.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: REPLACE_ME
+  annotations:
+    # A pruned Namespace takes its PVCs with it.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    pod-security.kubernetes.io/enforce: restricted

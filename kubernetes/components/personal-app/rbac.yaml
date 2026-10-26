@@ -1,0 +1,51 @@
+---
+# The identity the app's Kustomization applies its bundle as. The Role is
+# namespaced and gives the API no access to Secrets, Roles or anything
+# cluster-wide, so the bundle cannot change objects outside this namespace. It
+# is not a sandbox: the bundle can still run pods that mount this namespace's
+# Secrets, and create HTTPRoutes that attach to the shared gateways. Add rules
+# with a patch in the app's own kustomization.yaml if its bundle ships other
+# kinds.
+#
+# Variables come from the bootstrap Kustomization's postBuild.substitute; see
+# flux.yaml.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${RECONCILER_NAME:=${APP}-reconciler}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${RECONCILER_NAME:=${APP}-reconciler}
+rules:
+  - apiGroups: [""]
+    resources: [services, persistentvolumeclaims, configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Read-only, for the Deployment health check.
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${RECONCILER_NAME:=${APP}-reconciler}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${RECONCILER_NAME:=${APP}-reconciler}
+subjects:
+  - kind: ServiceAccount
+    name: ${RECONCILER_NAME:=${APP}-reconciler}
+    namespace: ${APP}

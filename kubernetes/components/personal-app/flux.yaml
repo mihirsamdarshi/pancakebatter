@@ -1,0 +1,68 @@
+---
+# Pulls the app's private OCI bundle and applies it into its namespace as the
+# scoped reconciler (rbac.yaml). Used by a per-app "bootstrap" Flux
+# Kustomization; the namespace comes from its targetNamespace.
+#
+# Variables, set in that Kustomization's postBuild.substitute:
+#   APP              required. App name; also its namespace, its Deployment and
+#                    the name of the OCIRepository and Kustomization below.
+#   OCI_REPO         required. ghcr.io/<owner>/<repo>, without the oci:// prefix.
+#   OCI_TAG          tag to follow, default main.
+#   RECONCILER_NAME  default APP-reconciler.
+#   REGISTRY_SECRET  default APP-registry: the dockerconfigjson Secret the app
+#                    supplies. Set these two only to adopt objects that already
+#                    exist under another name.
+# A variable left unset renders as an empty string. On the defaults an empty APP
+# gives invalid names, so the apply is rejected. Where the names are overridden
+# (Quilt), an empty APP drops the OCIRepository and Kustomization from the
+# render, and a mistyped one renames them. Either way the old pair is not
+# pruned (see the annotations below): a typo leaves a second pair next to it
+# that you delete by hand. Run flux diff kustomization before merging a change
+# to postBuild.substitute. An empty OCI_REPO leaves the OCIRepository failing to
+# fetch.
+#
+# The OCIRepository and Kustomization are never pruned by the bootstrap, so to
+# remove an app, remove it from Git and then delete these two by hand. Its own
+# objects stay until you delete them too (deletionPolicy: Orphan).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: ${APP}
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  interval: 1m
+  url: oci://${OCI_REPO}
+  ref:
+    tag: ${OCI_TAG:=main}
+  secretRef:
+    name: ${REGISTRY_SECRET:=${APP}-registry}
+  layerSelector:
+    mediaType: application/vnd.cncf.flux.content.v1.tar+gzip
+    operation: extract
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: ${APP}
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  interval: 5m
+  retryInterval: 1m
+  timeout: 3m
+  path: ./
+  prune: true
+  # Deleting this Kustomization leaves the app and its data running.
+  deletionPolicy: Orphan
+  wait: false
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: ${APP}
+      namespace: ${APP}
+  serviceAccountName: ${RECONCILER_NAME:=${APP}-reconciler}
+  targetNamespace: ${APP}
+  sourceRef:
+    kind: OCIRepository
+    name: ${APP}
