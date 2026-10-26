@@ -142,6 +142,13 @@ Both are separate Flux Kustomizations that apply a small folder into the app's
 namespace. Copy the Quilt version and change the names. Whether and how to
 expose an app is the owner's decision, so confirm it first.
 
+Take care: the gateways accept routes from every namespace, and the
+reconciler's Role can create HTTPRoutes. So an app's own bundle can attach a
+route to `envoy-internal` or `envoy-family` without any change here. Add family
+exposure deliberately, in this repo, with the `family/httproute.yaml` pattern
+below, and read a bundle's HTTPRoutes before you trust it. Restricting
+`envoy-family` to labelled namespaces is a possible follow-up.
+
 - **Tailnet:** copy `quilt-planner/tailnet/` and the `quilt-planner-tailnet`
   block in `quilt-planner/ks.yaml`. In `ingress.yaml`, change `tls.hosts` (the
   Tailscale machine name) and the backend Service.
