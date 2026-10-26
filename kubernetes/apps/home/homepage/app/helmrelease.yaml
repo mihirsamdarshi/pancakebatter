@@ -11,9 +11,9 @@
 # services.yaml. Helm would expand the braces, so write the placeholder as the
 # string template {{ "{{HOMEPAGE_VAR_<NAME>}}" }}.
 #
-# TODO(pi-hole): Pi-hole on the Pi is left out. Its web UI is not published on
-# the Pi (port 80 refuses connections as of October 25), and Pi-hole is no
-# longer used. Add a tile once the UI has an address.
+# Status dots (siteMonitor) are server-side checks from this pod: any answer
+# up to HTTP 403 is green, a timeout or a 5xx is red. Cluster apps are checked
+# through their own hostnames, so a red dot can also mean DNS or the Gateway.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -173,6 +173,7 @@ spec:
             hideVersion: true
             disableUpdateCheck: true
             disableIndexing: true
+            statusStyle: dot
             target: _blank
             layout:
               Apps:
@@ -183,59 +184,76 @@ spec:
                 columns: 4
               Infrastructure:
                 style: row
-                columns: 4
+                columns: 5
           services.yaml: |
             - Apps:
                 - Jellyfin:
                     icon: jellyfin.png
                     href: https://jellyfin.${SECRET_DOMAIN}
+                    siteMonitor: https://jellyfin.${SECRET_DOMAIN}
                     description: Movies and shows
                 - Requests:
                     icon: seerr.png
                     href: https://requests.${SECRET_DOMAIN}
+                    siteMonitor: https://requests.${SECRET_DOMAIN}
                     description: Seerr
                 - Quilts:
                     icon: mdi-needle
                     href: https://quilts.${SECRET_DOMAIN}
+                    siteMonitor: https://quilts.${SECRET_DOMAIN}
                     description: Quilt Planner
                 - Home Assistant:
                     icon: home-assistant.png
                     href: http://192.168.1.150:8123
+                    siteMonitor: http://192.168.1.150:8123
                     description: On the Raspberry Pi
             - Automation:
                 - Sonarr:
                     icon: sonarr.png
                     href: https://sonarr.${SECRET_DOMAIN}
+                    siteMonitor: https://sonarr.${SECRET_DOMAIN}
                     description: TV
                 - Radarr:
                     icon: radarr.png
                     href: https://radarr.${SECRET_DOMAIN}
+                    siteMonitor: https://radarr.${SECRET_DOMAIN}
                     description: Movies
                 - Prowlarr:
                     icon: prowlarr.png
                     href: https://prowlarr.${SECRET_DOMAIN}
+                    siteMonitor: https://prowlarr.${SECRET_DOMAIN}
                     description: Indexers
                 - qBittorrent:
                     icon: qbittorrent.png
                     href: https://qbittorrent.${SECRET_DOMAIN}
+                    siteMonitor: https://qbittorrent.${SECRET_DOMAIN}
                     description: Downloads over VPN
             - Infrastructure:
                 - Grafana:
                     icon: grafana.png
                     href: https://grafana.${SECRET_DOMAIN}
+                    siteMonitor: https://grafana.${SECRET_DOMAIN}
                     description: Metrics and logs
                 - TrueNAS:
                     icon: truenas.png
                     href: https://192.168.1.75
+                    siteMonitor: https://192.168.1.75
                     description: Storage
                 - Proxmox:
                     icon: proxmox.png
                     href: https://192.168.1.62:8006
+                    siteMonitor: https://192.168.1.62:8006
                     description: Hobbes
                 - UniFi:
                     icon: unifi.png
                     href: https://192.168.1.1
+                    siteMonitor: https://192.168.1.1
                     description: Network
+                - Pi-hole:
+                    icon: pi-hole.png
+                    href: http://192.168.1.150:32769/admin
+                    siteMonitor: http://192.168.1.150:32769/admin
+                    description: DNS, still running on the Pi
           widgets.yaml: |
             - kubernetes:
                 cluster:
