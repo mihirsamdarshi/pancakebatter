@@ -1,0 +1,192 @@
+---
+# The family's start page, served at the bare family name through the shared
+# family-apps Tailscale node. It is a static list of three links. It has no
+# Kubernetes access (no ServiceAccount token, no RBAC), no widgets and no
+# integrations, so nothing internal can leak through it. Keep it that way: an
+# internal service belongs on the `homepage` release, never here.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: homepage-family
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: homepage-family
+  interval: 1h
+  values:
+    defaultPodOptions:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+    controllers:
+      homepage-family:
+        # Stateless, so the new pod can start before the old one stops. A
+        # config edit changes the chart's configMaps checksum annotation on the
+        # pod template, which rolls the pod (subPath mounts never refresh in
+        # a running pod); Reloader is not needed.
+        strategy: RollingUpdate
+        containers:
+          app:
+            image:
+              repository: ghcr.io/gethomepage/homepage
+              tag: v2.7.0@sha256:19c5c09184458a41b7b5915e71463a39f36cd33540f41bdbed008791b8182d5f
+            env:
+              TZ: Etc/UTC
+              # Required since v1.0: Homepage rejects API calls whose Host is
+              # not listed. The Host header arrives unchanged from the browser.
+              HOMEPAGE_ALLOWED_HOSTS: ${SECRET_FAMILY_DOMAIN}
+              # The default also writes /app/config/logs, which the read-only
+              # root filesystem does not allow.
+              LOG_TARGETS: stdout
+              NEXT_TELEMETRY_DISABLED: "1"
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/healthcheck
+                    port: &port 3000
+                    # The kubelet sends the pod IP as Host, which the allowed
+                    # hosts check would reject. localhost:3000 is always allowed.
+                    httpHeaders:
+                      - name: Host
+                        value: localhost:3000
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/healthcheck
+                    port: *port
+                    httpHeaders:
+                      - name: Host
+                        value: localhost:3000
+                  initialDelaySeconds: 5
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/healthcheck
+                    port: *port
+                    httpHeaders:
+                      - name: Host
+                        value: localhost:3000
+                  periodSeconds: 5
+                  failureThreshold: 30
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 384Mi
+    service:
+      homepage-family:
+        controller: homepage-family
+        ports:
+          http:
+            port: *port
+    route:
+      homepage-family:
+        hostnames:
+          - ${SECRET_FAMILY_DOMAIN}
+        parentRefs:
+          # envoy-family only: the family-apps node forwards here and nowhere
+          # else. No sectionName, so the route lands on the listener that
+          # serves the bare family name (https-landing).
+          - name: envoy-family
+            namespace: network
+        rules:
+          - backendRefs:
+              - identifier: homepage-family
+                port: *port
+    configMaps:
+      config:
+        data:
+          settings.yaml: |
+            title: Family Hub
+            theme: dark
+            color: slate
+            headerStyle: clean
+            useEqualHeights: true
+            disableCollapse: true
+            hideVersion: true
+            hideErrors: true
+            disableUpdateCheck: true
+            disableIndexing: true
+            target: _blank
+            layout:
+              Apps:
+                style: row
+                columns: 3
+          services.yaml: |
+            - Apps:
+                - Quilts:
+                    icon: mdi-needle
+                    href: https://quilts.${SECRET_FAMILY_DOMAIN}
+                    description: Plan a quilt
+                - Jellyfin:
+                    icon: jellyfin.png
+                    href: https://jellyfin.${SECRET_FAMILY_DOMAIN}
+                    description: Movies and shows
+                - Requests:
+                    icon: seerr.png
+                    href: https://requests.${SECRET_FAMILY_DOMAIN}
+                    description: Ask for something to watch
+          widgets.yaml: |
+            - greeting:
+                text_size: 3xl
+                text: Welcome home
+          bookmarks.yaml: ""
+          docker.yaml: ""
+          kubernetes.yaml: |
+            mode: disabled
+          custom.css: ""
+          custom.js: ""
+    persistence:
+      config:
+        type: configMap
+        identifier: config
+        globalMounts:
+          - path: /app/config/settings.yaml
+            subPath: settings.yaml
+            readOnly: true
+          - path: /app/config/services.yaml
+            subPath: services.yaml
+            readOnly: true
+          - path: /app/config/widgets.yaml
+            subPath: widgets.yaml
+            readOnly: true
+          - path: /app/config/bookmarks.yaml
+            subPath: bookmarks.yaml
+            readOnly: true
+          - path: /app/config/docker.yaml
+            subPath: docker.yaml
+            readOnly: true
+          - path: /app/config/kubernetes.yaml
+            subPath: kubernetes.yaml
+            readOnly: true
+          - path: /app/config/custom.css
+            subPath: custom.css
+            readOnly: true
+          - path: /app/config/custom.js
+            subPath: custom.js
+            readOnly: true
