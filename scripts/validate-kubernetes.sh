@@ -27,7 +27,10 @@
 #      kind fails;
 #   4. no unclosed `${VAR` (a Flux postBuild substitution missing its `}`);
 #   5. no `%` in an Envoy Gateway directResponse body (inline, or the ConfigMap
-#      an HTTPRouteFilter's valueRef names).
+#      an HTTPRouteFilter's valueRef names);
+#   6. no `${SECRET_DOMAIN}` outside an allowlist: it is the bare zone, and LAN
+#      names use `${SECRET_DOMAIN_LOCAL}` (SECRET_DOMAIN meant local.<zone>
+#      until October 26, 2026).
 # archive/ and other trees outside kubernetes/ are never read.
 #
 # Schemas fail closed: there is no -ignore-missing-schemas, so a typo in
@@ -242,6 +245,25 @@ validate_tree() {
         if ((rc == 0)); then
             cat "$tmp/unclosed" >&2
             die 'unclosed ${ substitution (missing "}") in the lines above'
+        fi
+
+        echo '=== ${SECRET_DOMAIN} uses ==='
+        # SECRET_DOMAIN is the bare zone; LAN hostnames use SECRET_DOMAIN_LOCAL.
+        # Until October 26, 2026 SECRET_DOMAIN meant local.<zone>, so a manifest
+        # written before then would silently point at <app>.<zone>. A file that
+        # really means the bare zone goes in zone_allow.
+        zone_allow=()
+        rc=0
+        # Any substitution form: ${V}, ${V:=x}, ${V=x}, ${V/a/b}, ${V#x}, ${#V}...
+        grep -rnE '\$\{#?SECRET_DOMAIN([^A-Za-z0-9_]|$)' kubernetes >"$tmp/zone" || rc=$?
+        ((rc <= 1)) || die "grep failed while checking for \${SECRET_DOMAIN}"
+        for f in ${zone_allow[@]+"${zone_allow[@]}"}; do
+            grep -vF "$f:" "$tmp/zone" >"$tmp/zone.keep" || true
+            mv "$tmp/zone.keep" "$tmp/zone"
+        done
+        if [[ -s "$tmp/zone" ]]; then
+            cat "$tmp/zone" >&2
+            die '${SECRET_DOMAIN} is the bare zone: use ${SECRET_DOMAIN_LOCAL} for LAN names, or add the file to zone_allow'
         fi
     )
     echo "=== kubernetes manifests are valid ==="

@@ -20,7 +20,7 @@ spec:
       passwordKey: admin-password
     grafana.ini:
       server:
-        root_url: https://grafana.${SECRET_DOMAIN}
+        root_url: https://grafana.${SECRET_DOMAIN_LOCAL}
       analytics:
         reporting_enabled: false
         check_for_updates: false
@@ -88,7 +88,7 @@ spec:
       main:
         enabled: true
         hostnames:
-          - grafana.${SECRET_DOMAIN}
+          - grafana.${SECRET_DOMAIN_LOCAL}
         parentRefs:
           - name: envoy-internal
             namespace: network

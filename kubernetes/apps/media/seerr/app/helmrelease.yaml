@@ -103,7 +103,7 @@ spec:
     route:
       seerr:
         hostnames:
-          - requests.${SECRET_DOMAIN}
+          - requests.${SECRET_DOMAIN_LOCAL}
         parentRefs:
           - name: envoy-internal
             namespace: network

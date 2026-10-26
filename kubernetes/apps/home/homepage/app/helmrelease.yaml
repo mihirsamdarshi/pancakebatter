@@ -82,7 +82,7 @@ spec:
               TZ: Etc/UTC
               # Required since v1.0: Homepage rejects API calls whose Host is
               # not listed. The Host header arrives unchanged from the browser.
-              HOMEPAGE_ALLOWED_HOSTS: home.${SECRET_DOMAIN}
+              HOMEPAGE_ALLOWED_HOSTS: home.${SECRET_DOMAIN_LOCAL}
               # The default also writes /app/config/logs, which the read-only
               # root filesystem does not allow.
               LOG_TARGETS: stdout
@@ -151,7 +151,7 @@ spec:
     route:
       homepage:
         hostnames:
-          - home.${SECRET_DOMAIN}
+          - home.${SECRET_DOMAIN_LOCAL}
         parentRefs:
           - name: envoy-internal
             namespace: network
@@ -189,18 +189,18 @@ spec:
             - Apps:
                 - Jellyfin:
                     icon: jellyfin.png
-                    href: https://jellyfin.${SECRET_DOMAIN}
-                    siteMonitor: https://jellyfin.${SECRET_DOMAIN}
+                    href: https://jellyfin.${SECRET_DOMAIN_LOCAL}
+                    siteMonitor: https://jellyfin.${SECRET_DOMAIN_LOCAL}
                     description: Movies and shows
                 - Requests:
                     icon: seerr.png
-                    href: https://requests.${SECRET_DOMAIN}
-                    siteMonitor: https://requests.${SECRET_DOMAIN}
+                    href: https://requests.${SECRET_DOMAIN_LOCAL}
+                    siteMonitor: https://requests.${SECRET_DOMAIN_LOCAL}
                     description: Seerr
                 - Quilts:
                     icon: mdi-needle
-                    href: https://quilts.${SECRET_DOMAIN}
-                    siteMonitor: https://quilts.${SECRET_DOMAIN}
+                    href: https://quilts.${SECRET_DOMAIN_LOCAL}
+                    siteMonitor: https://quilts.${SECRET_DOMAIN_LOCAL}
                     description: Quilt Planner
                 - Home Assistant:
                     icon: home-assistant.png
@@ -210,29 +210,29 @@ spec:
             - Automation:
                 - Sonarr:
                     icon: sonarr.png
-                    href: https://sonarr.${SECRET_DOMAIN}
-                    siteMonitor: https://sonarr.${SECRET_DOMAIN}
+                    href: https://sonarr.${SECRET_DOMAIN_LOCAL}
+                    siteMonitor: https://sonarr.${SECRET_DOMAIN_LOCAL}
                     description: TV
                 - Radarr:
                     icon: radarr.png
-                    href: https://radarr.${SECRET_DOMAIN}
-                    siteMonitor: https://radarr.${SECRET_DOMAIN}
+                    href: https://radarr.${SECRET_DOMAIN_LOCAL}
+                    siteMonitor: https://radarr.${SECRET_DOMAIN_LOCAL}
                     description: Movies
                 - Prowlarr:
                     icon: prowlarr.png
-                    href: https://prowlarr.${SECRET_DOMAIN}
-                    siteMonitor: https://prowlarr.${SECRET_DOMAIN}
+                    href: https://prowlarr.${SECRET_DOMAIN_LOCAL}
+                    siteMonitor: https://prowlarr.${SECRET_DOMAIN_LOCAL}
                     description: Indexers
                 - qBittorrent:
                     icon: qbittorrent.png
-                    href: https://qbittorrent.${SECRET_DOMAIN}
-                    siteMonitor: https://qbittorrent.${SECRET_DOMAIN}
+                    href: https://qbittorrent.${SECRET_DOMAIN_LOCAL}
+                    siteMonitor: https://qbittorrent.${SECRET_DOMAIN_LOCAL}
                     description: Downloads over VPN
             - Infrastructure:
                 - Grafana:
                     icon: grafana.png
-                    href: https://grafana.${SECRET_DOMAIN}
-                    siteMonitor: https://grafana.${SECRET_DOMAIN}
+                    href: https://grafana.${SECRET_DOMAIN_LOCAL}
+                    siteMonitor: https://grafana.${SECRET_DOMAIN_LOCAL}
                     description: Metrics and logs
                 - TrueNAS:
                     icon: truenas.png

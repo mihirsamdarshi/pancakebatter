@@ -96,7 +96,7 @@ spec:
     route:
       radarr:
         hostnames:
-          - radarr.${SECRET_DOMAIN}
+          - radarr.${SECRET_DOMAIN_LOCAL}
         parentRefs:
           - name: envoy-internal
             namespace: network

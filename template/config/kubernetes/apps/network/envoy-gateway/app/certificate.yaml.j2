@@ -2,17 +2,17 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: "${SECRET_DOMAIN/./-}-production"
+  name: "${SECRET_DOMAIN_LOCAL/./-}-production"
 spec:
   dnsNames:
-    - "${SECRET_DOMAIN}"
-    - "*.${SECRET_DOMAIN}"
+    - "${SECRET_DOMAIN_LOCAL}"
+    - "*.${SECRET_DOMAIN_LOCAL}"
   duration: 2160h
   issuerRef:
     name: #{ cluster_issuer }#
     kind: ClusterIssuer
   privateKey:
     algorithm: ECDSA
-  secretName: "${SECRET_DOMAIN/./-}-production-tls"
+  secretName: "${SECRET_DOMAIN_LOCAL/./-}-production-tls"
   usages:
     - digital signature

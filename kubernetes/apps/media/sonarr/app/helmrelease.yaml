@@ -97,7 +97,7 @@ spec:
     route:
       sonarr:
         hostnames:
-          - sonarr.${SECRET_DOMAIN}
+          - sonarr.${SECRET_DOMAIN_LOCAL}
         parentRefs:
           - name: envoy-internal
             namespace: network

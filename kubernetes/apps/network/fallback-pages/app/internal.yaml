@@ -35,7 +35,7 @@ spec:
       namespace: network
       sectionName: https
   hostnames:
-    - "*.${SECRET_DOMAIN}"
+    - "*.${SECRET_DOMAIN_LOCAL}"
   rules:
     - filters:
         - type: ExtensionRef

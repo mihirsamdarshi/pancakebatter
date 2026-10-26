@@ -17,7 +17,7 @@ spec:
     httpRoute:
       enabled: true
       hostnames:
-        - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        - "{{ .Release.Name }}.${SECRET_DOMAIN_LOCAL}"
       parentRefs:
         - name: envoy-#{ 'external' if ingress.mode != 'none' else 'internal' }#
           namespace: network

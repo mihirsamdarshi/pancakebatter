@@ -11,7 +11,7 @@ spec:
   interval: 1h
   path: ./kubernetes/apps/network/fallback-pages/app
   postBuild:
-    # The pages link to apps by hostname, so ${SECRET_DOMAIN} and
+    # The pages link to apps by hostname, so ${SECRET_DOMAIN_LOCAL} and
     # ${SECRET_FAMILY_DOMAIN} are substituted inside the HTML as well.
     substituteFrom:
       - name: cluster-secrets

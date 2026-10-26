@@ -4,14 +4,14 @@ Family members keep their own accounts and remain connected to their own
 tailnets. One shared `family-apps` node forwards HTTPS to a dedicated Envoy
 Gateway, `envoy-family`. Every app uses its own hostname under
 `${SECRET_FAMILY_DOMAIN}` (`family.<zone>`); the single gateway share covers
-current and future apps. The previous names under `family.${SECRET_DOMAIN}`
+current and future apps. The previous names under `family.${SECRET_DOMAIN_LOCAL}`
 (`family.local.<zone>`) keep working during a transition.
 
 ## Internal-only apps stay unreachable
 
 `envoy-family` is a second Gateway (same GatewayClass, its own proxy pods) with
 HTTPS listeners restricted to `*.${SECRET_FAMILY_DOMAIN}` (`https`) and, during
-the transition, `*.family.${SECRET_DOMAIN}` (`https-legacy`). The `family-apps`
+the transition, `*.family.${SECRET_DOMAIN_LOCAL}` (`https-legacy`). The `family-apps`
 Service selects only its pods, so a family tailnet can never reach
 `envoy-internal`, where the internal-only routes (Grafana, Flux webhook, future
 Sonarr, Radarr, qBittorrent) are attached. Hostname matching alone would not
@@ -21,7 +21,7 @@ proxies. Two rules keep it enforced:
 - Attach a family route **only** to `envoy-family` (parentRef name and
   namespace, no `sectionName`, so each hostname lands on its own listener), and
   only with `<app>.${SECRET_FAMILY_DOMAIN}` plus, during the transition,
-  `<app>.family.${SECRET_DOMAIN}` hostnames. Do not also attach it to
+  `<app>.family.${SECRET_DOMAIN_LOCAL}` hostnames. Do not also attach it to
   `envoy-internal`.
 - Never point the `family-apps` selector at `envoy-internal`.
 
@@ -46,7 +46,7 @@ TCP forwarding to the Service times out. Cilium updates roll one agent at a time
 - `envoy-family` terminates HTTPS with its own cert-manager Certificates, one
   Secret per listener: `family-production` (Secret `family-production-tls`) for
   `*.${SECRET_FAMILY_DOMAIN}` on `https`, and `family-legacy-production` (Secret
-  `family-legacy-production-tls`) for `*.family.${SECRET_DOMAIN}` on
+  `family-legacy-production-tls`) for `*.family.${SECRET_DOMAIN_LOCAL}` on
   `https-legacy`, and `family-landing-production` (Secret
   `family-landing-production-tls`) for the bare `${SECRET_FAMILY_DOMAIN}` on
   `https-landing`. Two listeners must not share a Secret: Envoy Gateway reports
@@ -56,7 +56,7 @@ TCP forwarding to the Service times out. Cilium updates roll one agent at a time
   presents a certificate for them. Until the Secrets exist, `envoy-family` has no
   certificate and serves no TLS.
 - `${SECRET_FAMILY_DOMAIN}` is a `cluster-secrets` variable (`family.<zone>`,
-  derived from the zone). It is outside the ClusterIssuer's `${SECRET_DOMAIN}`
+  derived from the zone). It is outside the ClusterIssuer's `${SECRET_DOMAIN_LOCAL}`
   zone, so the ClusterIssuer's DNS-01 solver must list it in `dnsZones` too
   (delivered as a separate change; it must be live before these Certificates
   can be issued).
