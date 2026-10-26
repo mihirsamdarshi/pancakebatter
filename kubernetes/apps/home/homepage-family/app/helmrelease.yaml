@@ -201,10 +201,7 @@ spec:
                     icon: jellyfin.png
                     href: https://jellyfin.${SECRET_FAMILY_DOMAIN}
                     description: Movies and shows
-                - Requests:
-                    icon: seerr.png
-                    href: https://requests.${SECRET_FAMILY_DOMAIN}
-                    description: Ask for something to watch
+                # Requests (Seerr) comes back with Seerr's family route.
           widgets.yaml: |
             - greeting:
                 text_size: 3xl

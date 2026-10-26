@@ -1,0 +1,125 @@
+---
+# Seerr: the request front end for Jellyfin, Sonarr and Radarr. Family sign in
+# with their Jellyfin accounts. Internal route only for now: the family route
+# follows once setup is done, because the first visitor becomes the admin.
+#
+# After first start, in the Seerr UI (these are settings, not manifests):
+#  - Setup: sign in with Jellyfin at http://jellyfin.media.svc.cluster.local:8096
+#    (internal name; the Jellyfin accounts are the Seerr users).
+#  - Settings > General: turn on "Enable Proxy Support" (Envoy terminates TLS
+#    in front of Seerr), set the application URL to the internal hostname.
+#  - Settings > Services: add Sonarr (http://sonarr.media.svc.cluster.local:8989)
+#    and Radarr (http://radarr.media.svc.cluster.local:7878) with their API
+#    keys, and the quality profiles Recyclarr created.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: seerr
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: seerr
+  interval: 1h
+  values:
+    defaultPodOptions:
+      # Keeps the family-facing apps on one node (with Jellyfin); the config
+      # PV lives on talos-01's disk.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - talos-01
+      # The image runs as its `node` user (1000).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+    controllers:
+      seerr:
+        # RWO config PV with a single SQLite writer: never two pods at once.
+        strategy: Recreate
+        containers:
+          app:
+            image:
+              repository: ghcr.io/seerr-team/seerr
+              tag: v3.5.1@sha256:d8fab675b55ad293ded98fd71efcfd46054cbad9746534ae1cc4794a88c0b3be
+            env:
+              TZ: Etc/UTC
+              LOG_LEVEL: info
+              PORT: "5055"
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/v1/settings/public
+                    port: &port 5055
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/v1/settings/public
+                    port: *port
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/v1/settings/public
+                    port: *port
+                  periodSeconds: 5
+                  failureThreshold: 60
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: 50m
+                memory: 256Mi
+              limits:
+                memory: 1Gi
+    service:
+      seerr:
+        controller: seerr
+        ports:
+          http:
+            port: *port
+    route:
+      seerr:
+        hostnames:
+          - requests.${SECRET_DOMAIN}
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: seerr
+                port: *port
+    persistence:
+      config:
+        type: persistentVolumeClaim
+        storageClass: local-retain
+        accessMode: ReadWriteOnce
+        size: 1Gi
+        retain: true
+        advancedMounts:
+          seerr:
+            app:
+              - path: /app/config
