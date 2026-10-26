@@ -1,0 +1,19 @@
+---
+# The gateway-wide policy (network/envoy-gateway) retries a request when the
+# upstream connection resets. That is safe for GET and HEAD, not for a write
+# that may already have been applied, so the `writes` rule gets no retries.
+# mergeType keeps everything else from the gateway-wide policy (compression,
+# keepalive, timeouts) instead of replacing it.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: quilt-planner-internal-writes
+spec:
+  mergeType: StrategicMerge
+  retry:
+    numRetries: 0
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: quilt-planner-internal
+      sectionName: writes

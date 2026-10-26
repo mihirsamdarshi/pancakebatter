@@ -141,7 +141,7 @@ as Quilt's `quilt-data` has. Quilt predates the shared class and has its own
 
 ## Reach it from the tailnet or from family
 
-Both are separate Flux Kustomizations that apply a small folder into the app's
+Each is a separate Flux Kustomization that applies a small folder into the app's
 namespace. Copy the Quilt version and change the names. Whether and how to
 expose an app is the owner's decision, so confirm it first.
 
@@ -157,11 +157,26 @@ below, and read a bundle's HTTPRoutes before you trust it. Restricting
   Tailscale machine name) and the backend Service.
 - **Family:** copy `quilt-planner/family/` and the `quilt-planner-family` block
   in `network/family-apps/ks.yaml`. It has to live there, because it reads
-  `cluster-secrets` in the `network` namespace. Keep two rules: the route's only
-  parent is `envoy-family` in `network`, with no `sectionName`, and its hostnames
-  sit under `${SECRET_FAMILY_DOMAIN}`. Never attach it to `envoy-internal`. See
+  `cluster-secrets` in the `network` namespace. Two things must hold: the
+  route's only parent is `envoy-family` in `network`, with no `sectionName`, and
+  its hostnames sit under `${SECRET_FAMILY_DOMAIN}`. Never attach it to
+  `envoy-internal`. See
   `network/family-apps/README.md`, which also explains the transitional names
   Quilt's route still lists.
+- **LAN (`envoy-internal`):** copy `quilt-planner/internal/` and the
+  `quilt-planner-internal` block in `network/internal-apps/ks.yaml`. It lives
+  there for the same reason as the family one: the hostname needs
+  `${SECRET_DOMAIN_LOCAL}` from `cluster-secrets` in `network`, and an app's own
+  namespace must not hold that Secret. The route's parent is `envoy-internal`,
+  section `https`, and its hostname is `<app>.${SECRET_DOMAIN_LOCAL}`, as for
+  every other internal route. Do not also attach it to `envoy-family`.
+- **No retries for writes:** both Quilt routes have two named rules, `reads`
+  (GET and HEAD) and `writes` (everything else). The gateway-wide policy
+  retries a request after a connection reset, which is only safe to replay for
+  reads. A BackendTrafficPolicy next to each route sets `retry.numRetries: 0`
+  on its `writes` rule. `mergeType: StrategicMerge` keeps compression,
+  keepalive and timeouts from the gateway-wide policy. Copy the pair for any
+  app whose writes are not idempotent.
 
 ## Backups
 

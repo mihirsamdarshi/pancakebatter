@@ -14,6 +14,17 @@ spec:
     # Previous name, kept while clients move over.
     - quilts.family.${SECRET_DOMAIN_LOCAL}
   rules:
-    - backendRefs:
+    # Two named rules so backendtrafficpolicy.yaml can switch retries off for
+    # writes only. GET and HEAD are more specific than the catch-all, so they
+    # always land on `reads`.
+    - name: reads
+      matches:
+        - method: GET
+        - method: HEAD
+      backendRefs:
+        - name: quilt-planner
+          port: 80
+    - name: writes
+      backendRefs:
         - name: quilt-planner
           port: 80

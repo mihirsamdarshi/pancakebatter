@@ -1,0 +1,29 @@
+---
+# Routes for apps whose own namespace has no cluster-secrets. A Kustomization
+# reads its substitution Secret from its own namespace, and the app namespaces
+# under apps/personal must not hold the cluster-wide Secret (a bundle can mount
+# a Secret in its namespace). So each one lives here, reads cluster-secrets in
+# network, and applies its route into the app's namespace, where backendRefs
+# stay local.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: quilt-planner-internal
+spec:
+  dependsOn:
+    - name: envoy-gateway
+    - name: quilt-planner
+      namespace: quilt-planner
+  interval: 1h
+  path: ./kubernetes/apps/personal/quilt-planner/internal
+  postBuild:
+    substituteFrom:
+      - name: cluster-secrets
+        kind: Secret
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: quilt-planner
+  wait: true
