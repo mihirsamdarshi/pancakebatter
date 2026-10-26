@@ -8,6 +8,9 @@ spec:
     # The ServiceMonitor and PrometheusRule CRDs.
     - name: kube-prometheus-stack
       namespace: observability
+    # The VolumeSnapshot CRDs: the controller exits without them.
+    - name: snapshot-controller
+      namespace: storage
   interval: 1h
   path: ./kubernetes/apps/volsync-system/volsync/app
   postBuild:
