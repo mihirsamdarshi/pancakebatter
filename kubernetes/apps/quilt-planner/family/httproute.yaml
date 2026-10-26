@@ -5,10 +5,13 @@ metadata:
   name: quilt-planner-family
 spec:
   parentRefs:
-    - name: envoy-internal
+    # No sectionName: each hostname attaches to the envoy-family listener that
+    # serves it.
+    - name: envoy-family
       namespace: network
-      sectionName: https
   hostnames:
+    - quilts.${SECRET_FAMILY_DOMAIN}
+    # Previous name, kept while clients move over.
     - quilts.family.${SECRET_DOMAIN}
   rules:
     - backendRefs:
