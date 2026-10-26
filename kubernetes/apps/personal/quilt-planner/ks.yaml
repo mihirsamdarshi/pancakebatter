@@ -41,3 +41,31 @@ spec:
     namespace: flux-system
   targetNamespace: quilt-planner
   wait: true
+---
+# Nightly backup of quilt-data. Separate from the app's Kustomization, which
+# comes from the OCI bundle. quilt.db is SQLite in WAL mode and is copied while
+# the app runs: read the SQLite section of components/volsync/README.md.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: quilt-planner-backup
+spec:
+  dependsOn:
+    - name: quilt-planner
+      namespace: quilt-planner
+    - name: volsync
+      namespace: volsync-system
+  interval: 1h
+  path: ./kubernetes/apps/quilt-planner/backup
+  postBuild:
+    substitute:
+      APP: quilt-planner
+      VOLSYNC_CLAIM: quilt-data
+      VOLSYNC_SCHEDULE: "15 10 * * *"
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: quilt-planner
+  wait: false
