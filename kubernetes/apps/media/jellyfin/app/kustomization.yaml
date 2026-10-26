@@ -4,6 +4,7 @@ kind: Kustomization
 
 components:
   - ../../../../components/volsync
+  - ../../../../components/sqlite-export
 
 resources:
   - ./helmrelease.yaml

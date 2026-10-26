@@ -1,0 +1,111 @@
+---
+# Consistent copies of an app's SQLite databases, a few minutes before its
+# VolSync run. Pair it with the volsync component (same APP and VOLSYNC_CLAIM).
+#
+# A WAL-mode database is three files that the app keeps changing, so restic
+# reading the live files can capture them at different moments. SQLite's online
+# backup reads a consistent snapshot while the app writes; it works from another
+# container because both share the node's filesystem and its locks.
+#
+# Each database in SQLITE_DBS (paths relative to the volume root, space
+# separated, globs allowed, no spaces in names) is exported to
+# .sqlite-export/<path> on the same volume: written to a temporary file, taken
+# out of WAL mode, checked with integrity_check and renamed over the previous
+# copy, so a failed run keeps the old one. The job fails if any database
+# failed, after trying all of them. VolSync then backs up the whole volume,
+# exports included. Restore from the exports: see components/volsync/README.md.
+#
+# The pod needs the volume's node: the scheduler only places a pod that uses a
+# bound local PV on the PV's node, and an RWO volume can be mounted by several
+# pods of one node. It runs as the app's uid and gid, because a connection must
+# be able to write the -shm file.
+#
+# Flux substitutes only ${...} and turns $$ into $; the script uses neither.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ${APP}-sqlite-export
+spec:
+  # UTC. The default is ten minutes before the default volsync slot (10:00).
+  schedule: "${SQLITE_SCHEDULE:=50 9 * * *}"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 300
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: ${SQLITE_UID:=568}
+            runAsGroup: ${SQLITE_GID:=568}
+            fsGroup: ${SQLITE_GID:=568}
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: export
+              image: docker.io/keinos/sqlite3:3.54.1@sha256:b577e65892c6468d94b390097eda4488e05253470c161bdea68a05abb961fa17
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  test -n "$DBS" || { echo "SQLITE_DBS is empty" >&2; exit 1; }
+                  umask 022
+                  cd /data
+                  dir=.sqlite-export
+                  export_one() {
+                    out=$dir/$1
+                    tmp=$out.tmp
+                    test -f "$1" || { echo "$1: not found" >&2; return 1; }
+                    mkdir -p "$(dirname "$out")" || return 1
+                    rm -f "$tmp" "$tmp-journal" "$tmp-wal" "$tmp-shm"
+                    sqlite3 "$1" ".timeout 30000" ".backup '$tmp'" || return 1
+                    # The copy keeps WAL mode; make it a single plain file, then check it.
+                    test "$(sqlite3 "$tmp" 'PRAGMA journal_mode=DELETE;')" = delete || return 1
+                    test "$(sqlite3 "$tmp" 'PRAGMA integrity_check;')" = ok || return 1
+                    test "$(sqlite3 "$tmp" 'SELECT count(*) FROM sqlite_master;')" -gt 0 || return 1
+                    mv -f "$tmp" "$out" || return 1
+                    echo "$1: exported $(wc -c < "$out") bytes"
+                  }
+                  rc=0
+                  for db in $DBS; do
+                    if ! export_one "$db"; then
+                      echo "$db: FAILED" >&2
+                      rm -f "$dir/$db.tmp" "$dir/$db.tmp-journal" "$dir/$db.tmp-wal" "$dir/$db.tmp-shm"
+                      rc=1
+                    fi
+                  done
+                  exit $rc
+              env:
+                - name: DBS
+                  value: "${SQLITE_DBS}"
+                - name: SQLITE_TMPDIR
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: ${VOLSYNC_CLAIM}
+            - name: tmp
+              emptyDir: {}

@@ -21,6 +21,10 @@ spec:
       VOLSYNC_CLAIM: jellyfin-config
       VOLSYNC_NAMESPACE: media
       VOLSYNC_SCHEDULE: "0 10 * * *"
+      # Jellyfin 12 keeps its library, users and watch state in this WAL-mode
+      # database. The export runs ten minutes before the backup.
+      SQLITE_DBS: data/jellyfin.db
+      SQLITE_SCHEDULE: "50 9 * * *"
     substituteFrom:
       - name: cluster-secrets
         kind: Secret

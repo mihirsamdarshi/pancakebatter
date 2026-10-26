@@ -42,9 +42,9 @@ spec:
   targetNamespace: quilt-planner
   wait: true
 ---
-# Nightly backup of quilt-data, plus a CronJob that exports a consistent copy of
-# quilt.db just before it (see components/volsync/README.md). Separate from the
-# app's Kustomization, which comes from the OCI bundle.
+# Nightly backup of quilt-data, plus an export of a consistent copy of quilt.db
+# just before it (components/volsync and components/sqlite-export). Separate
+# from the app's Kustomization, which comes from the OCI bundle.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -63,6 +63,12 @@ spec:
       VOLSYNC_CLAIM: quilt-data
       VOLSYNC_NAMESPACE: quilt-planner
       VOLSYNC_SCHEDULE: "15 10 * * *"
+      # quilt.db is WAL-mode SQLite; the app runs as 1000. The export runs ten
+      # minutes before the backup.
+      SQLITE_DBS: quilt.db
+      SQLITE_UID: "1000"
+      SQLITE_GID: "1000"
+      SQLITE_SCHEDULE: "5 10 * * *"
   prune: true
   sourceRef:
     kind: GitRepository
