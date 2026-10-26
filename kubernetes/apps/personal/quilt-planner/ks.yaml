@@ -63,11 +63,12 @@ spec:
       VOLSYNC_CLAIM: quilt-data
       VOLSYNC_NAMESPACE: quilt-planner
       VOLSYNC_SCHEDULE: "15 10 * * *"
-      # quilt.db is WAL-mode SQLite; the app runs as 1000. The export runs ten
-      # minutes before the backup.
+      # The app runs as 1000: the export and the backup mover run as it too.
+      APP_UID: "1000"
+      APP_GID: "1000"
+      # quilt.db is WAL-mode SQLite. The export runs ten minutes before the
+      # backup.
       SQLITE_DBS: quilt.db
-      SQLITE_UID: "1000"
-      SQLITE_GID: "1000"
       SQLITE_SCHEDULE: "5 10 * * *"
   prune: true
   sourceRef:

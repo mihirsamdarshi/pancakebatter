@@ -24,13 +24,16 @@ spec:
     # The restic metadata cache is a PVC; there is no default StorageClass.
     cacheCapacity: 512Mi
     cacheStorageClassName: local-path
-    # 568 is the TrueNAS `apps` user, which owns the repository share and can
-    # read the app configs.
+    # The mover runs as the app's user, so that a restore can replace the app's
+    # files (restic cannot change ownership without root). The extra group 568
+    # is the TrueNAS `apps` group, which owns the repository share (mode 770).
     moverSecurityContext:
       runAsNonRoot: true
-      runAsUser: 568
-      runAsGroup: 568
-      fsGroup: 568
+      runAsUser: ${APP_UID:=568}
+      runAsGroup: ${APP_GID:=568}
+      fsGroup: ${APP_GID:=568}
+      supplementalGroups:
+        - 568
       fsGroupChangePolicy: OnRootMismatch
       seccompProfile:
         type: RuntimeDefault

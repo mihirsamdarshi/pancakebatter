@@ -38,12 +38,27 @@ VM runs on the same machine as the cluster. Offsite copies are a later decision.
                 VOLSYNC_CLAIM: sonarr-config
                 VOLSYNC_NAMESPACE: media
                 VOLSYNC_SCHEDULE: "30 10 * * *"
+                APP_UID: "568" # only if the app does not run as 568
+                APP_GID: "568"
                 SQLITE_DBS: config/sonarr.db # paths in the volume, space separated, globs allowed
                 SQLITE_SCHEDULE: "20 10 * * *"
     ```
 
 3. Back up the config volume only. Leave out anything a restart regenerates
    (caches, artwork, transcodes).
+
+4. After the merge, take the first backup by hand instead of waiting for the
+   slot. For a SQLite app, run the export first, so that the first snapshot
+   already holds a consistent copy. A `manual` trigger takes precedence over
+   the schedule, so clear it afterwards:
+
+    ```sh
+    kubectl -n <ns> create job --from=cronjob/<app>-sqlite-export <app>-sqlite-export-first   # SQLite apps
+    kubectl -n <ns> wait --for=condition=complete job/<app>-sqlite-export-first --timeout=5m
+    kubectl -n <ns> patch replicationsource <app> --type merge -p '{"spec":{"trigger":{"manual":"first-run"}}}'
+    kubectl -n <ns> get replicationsource <app> -w   # until status.lastManualSync is first-run
+    kubectl -n <ns> patch replicationsource <app> --type merge -p '{"spec":{"trigger":{"manual":null}}}'
+    ```
 
 | Variable            | Component     | Meaning                                                                          |
 | ------------------- | ------------- | -------------------------------------------------------------------------------- |
@@ -53,10 +68,13 @@ VM runs on the same machine as the cluster. Offsite copies are a later decision.
 | `VOLSYNC_SCHEDULE`  | volsync       | Optional, UTC cron, default `0 10 * * *`                                         |
 | `SQLITE_DBS`        | sqlite-export | Required: the databases, relative to the volume root                             |
 | `SQLITE_SCHEDULE`   | sqlite-export | Optional, UTC cron, default `50 9 * * *` (ten minutes before the default slot)   |
-| `SQLITE_UID`/`_GID` | sqlite-export | The app's user and group, default 568; a connection must be able to write `-shm` |
+| `APP_UID`/`APP_GID` | both          | The app's user and group, default 568 (see below)                                |
 
-Mover pods run as 568:568 (the TrueNAS `apps` user), so the app's files must be
-readable by 568. Direct mode needs no snapshots, but the app keeps running
+Both the export and the mover run as the app's user and group. The export needs
+that to write the database's `-shm` file; the mover needs it so that a restore
+can replace the app's files, because restic cannot change ownership without
+root. The mover also gets the extra group 568 (TrueNAS `apps`), which owns the
+repository share. Direct mode needs no snapshots, but the app keeps running
 during the backup: see SQLite below.
 
 ### Schedule slots
@@ -94,8 +112,9 @@ Restore databases from the exports, never from the live `db`, `db-wal` and
 ## Restore
 
 There are no CSI snapshots, so a restore writes straight into the existing PVC
-and the app must be stopped first. Replace `<app>`, `<ns>`, `<pvc>`, `<uid>`,
-`<gid>` and `<node>`. The restic password is in 1Password and in `secret.sops.yaml`
+and the app must be stopped first. Replace `<app>`, `<ns>`, `<pvc>` and `<node>`,
+and `<uid>`/`<gid>` with the app's `APP_UID`/`APP_GID` (568 unless the app's
+`ks.yaml` sets them; Quilt: 1000). The restic password is in 1Password and in `secret.sops.yaml`
 (`sops decrypt --extract '["stringData"]["RESTIC_PASSWORD"]' kubernetes/components/volsync/secret.sops.yaml`).
 
 1. Stop the app, and stop Flux and the nightly runs from undoing or racing it.
@@ -150,9 +169,11 @@ and the app must be stopped first. Replace `<app>`, `<ns>`, `<pvc>`, `<uid>`,
                                         - <node>
             moverSecurityContext:
                 runAsNonRoot: true
-                runAsUser: 568
-                runAsGroup: 568
-                fsGroup: 568
+                runAsUser: <uid>
+                runAsGroup: <gid>
+                fsGroup: <gid>
+                supplementalGroups:
+                    - 568
                 fsGroupChangePolicy: OnRootMismatch
                 seccompProfile:
                     type: RuntimeDefault
@@ -215,6 +236,9 @@ and the app must be stopped first. Replace `<app>`, `<ns>`, `<pvc>`, `<uid>`,
                                 test "$(sqlite3 "$db" 'PRAGMA integrity_check;')" = ok
                                 echo "restored $db"
                               done
+                      env:
+                          - name: SQLITE_TMPDIR
+                            value: /tmp
                       securityContext:
                           allowPrivilegeEscalation: false
                           readOnlyRootFilesystem: true
@@ -224,10 +248,14 @@ and the app must be stopped first. Replace `<app>`, `<ns>`, `<pvc>`, `<uid>`,
                       volumeMounts:
                           - name: data
                             mountPath: /data
+                          - name: tmp
+                            mountPath: /tmp
                 volumes:
                     - name: data
                       persistentVolumeClaim:
                           claimName: <pvc>
+                    - name: tmp
+                      emptyDir: {}
     ```
 
     If the Job fails, the export it names is damaged. Do not start the app: repeat
@@ -240,21 +268,40 @@ and the app must be stopped first. Replace `<app>`, `<ns>`, `<pvc>`, `<uid>`,
 
     ```sh
     kubectl -n <ns> patch replicationsource <app> --type merge -p '{"spec":{"paused":false}}'
+    kubectl -n <ns> patch cronjob <app>-sqlite-export -p '{"spec":{"suspend":false}}'   # SQLite apps
     flux resume helmrelease <app> -n <ns>
     flux resume kustomization <ks> -n <ns>
+    kubectl -n <ns> scale deploy/<app> --replicas=1
     ```
 
-    Flux restores the replica count and sets the export CronJob's `suspend` back to
-    false. For an app that Flux does not own, scale it back up yourself.
+    Set both by hand: a HelmRelease without drift detection (Jellyfin) does not
+    put the replica count back, and a suspended export creates no Job, so nothing
+    would alert while the exports go stale.
 
 ### If the node is lost
 
 The PV is node-local, so the PVC is stuck on the dead node. The data is only in
-the repository. Delete the PVC and its Retain PV, let Flux recreate an empty
-PVC (suspend the app first so nothing writes to it), then run step 2 into the
-new PVC with the app still stopped. Keep `moverAffinity` in that step: the new
-PV is created on whichever node the mover lands on first, and the app has to
-run there (Jellyfin: talos-01, for the GPU). Then continue with step 3.
+the repository. With the app stopped and Flux suspended (step 1), recreate the
+PVC by hand instead of letting the app's owner do it: a running owner would
+start the app on an empty volume.
+
+1. Save the PVC without its binding, keeping its labels and owner annotations
+   so that Flux or Helm adopt it again:
+
+    ```sh
+    kubectl -n <ns> get pvc <pvc> -o yaml | yq 'del(.status, .spec.volumeName,
+        .metadata.uid, .metadata.resourceVersion, .metadata.creationTimestamp,
+        .metadata.finalizers, .metadata.annotations["volume.kubernetes.io/selected-node"],
+        .metadata.annotations["pv.kubernetes.io/bind-completed"],
+        .metadata.annotations["pv.kubernetes.io/bound-by-controller"])' > pvc.yaml
+    ```
+
+2. Delete the PVC and its Retain PV, then `kubectl apply -f pvc.yaml`. The new
+   PVC waits for its first consumer.
+3. Run step 2 with `moverAffinity` set to the node where the app must run
+   (Jellyfin: talos-01, for the GPU). The mover is the first consumer, so the
+   new PV is created on that node.
+4. Continue with steps 3 and 4.
 
 ### If the repository PVC is deleted
 

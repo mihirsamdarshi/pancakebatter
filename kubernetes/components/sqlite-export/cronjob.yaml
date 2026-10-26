@@ -8,17 +8,25 @@
 # container because both share the node's filesystem and its locks.
 #
 # Each database in SQLITE_DBS (paths relative to the volume root, space
-# separated, globs allowed, no spaces in names) is exported to
+# separated, no spaces in names, no `..`) is exported to
 # .sqlite-export/<path> on the same volume: written to a temporary file, taken
 # out of WAL mode, checked with integrity_check and renamed over the previous
 # copy, so a failed run keeps the old one. The job fails if any database
 # failed, after trying all of them. VolSync then backs up the whole volume,
 # exports included. Restore from the exports: see components/volsync/README.md.
 #
+# Globs are allowed, but `x.db*` also matches x.db-wal and x.db-shm, and a
+# value that starts with `*` must be quoted in YAML.
+#
+# The online backup starts over whenever the app writes during the copy: fine
+# for small databases, but a large one under constant writes can run past
+# activeDeadlineSeconds. Use VACUUM INTO or a longer deadline for that.
+#
 # The pod needs the volume's node: the scheduler only places a pod that uses a
 # bound local PV on the PV's node, and an RWO volume can be mounted by several
-# pods of one node. It runs as the app's uid and gid, because a connection must
-# be able to write the -shm file.
+# pods of one node. It runs as the app's uid and gid (APP_UID, APP_GID; shared
+# with the volsync component), because a connection must be able to write the
+# -shm file.
 #
 # Flux substitutes only ${...} and turns $$ into $; the script uses neither.
 apiVersion: batch/v1
@@ -26,6 +34,9 @@ kind: CronJob
 metadata:
   name: ${APP}-sqlite-export
 spec:
+  # Set so that Flux owns the field: resuming the Kustomization after a restore
+  # undoes the `kubectl patch` that suspended the export.
+  suspend: false
   # UTC. The default is ten minutes before the default volsync slot (10:00).
   schedule: "${SQLITE_SCHEDULE:=50 9 * * *}"
   timeZone: Etc/UTC
@@ -42,9 +53,9 @@ spec:
           restartPolicy: Never
           securityContext:
             runAsNonRoot: true
-            runAsUser: ${SQLITE_UID:=568}
-            runAsGroup: ${SQLITE_GID:=568}
-            fsGroup: ${SQLITE_GID:=568}
+            runAsUser: ${APP_UID:=568}
+            runAsGroup: ${APP_GID:=568}
+            fsGroup: ${APP_GID:=568}
             fsGroupChangePolicy: OnRootMismatch
             seccompProfile:
               type: RuntimeDefault
@@ -59,6 +70,7 @@ spec:
                   cd /data
                   dir=.sqlite-export
                   export_one() {
+                    case $1 in /* | *..*) echo "$1: must be relative, without .." >&2; return 1 ;; esac
                     out=$dir/$1
                     tmp=$out.tmp
                     test -f "$1" || { echo "$1: not found" >&2; return 1; }
