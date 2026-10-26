@@ -2,8 +2,9 @@
 # Prowlarr. Indexer manager. Pushes indexers to Sonarr and Radarr (Settings > Apps), so it
 # needs their API keys; it is not on the VPN.
 # Login: forms, required for every client. The API key is pre-generated in SOPS
-# (prowlarr-secret) so other apps can reference it. The first visit asks you to
-# create the admin account. Config lives on talos-02's disk (local-retain).
+# (prowlarr-secret) so other apps can reference it. No user exists at first and the
+# login page cannot create one: set it through the API (../../README.md). Config
+# lives on talos-02's disk (local-retain).
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
