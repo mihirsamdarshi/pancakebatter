@@ -1,0 +1,55 @@
+---
+# Selecting the pod turns on default-deny in both directions. Replies to
+# allowed connections (Envoy, the *arrs, kubelet) are stateful and need no
+# egress rule. Peer traffic never leaves as itself: it goes out encapsulated
+# in the WireGuard tunnel to Proton, so the only egress at all is that UDP
+# port; the pod cannot open connections into the cluster. Cluster DNS is not
+# used (the pod resolves through gluetun on loopback).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: qbittorrent
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: qbittorrent
+  ingress:
+    # The Web UI through the internal gateway.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: envoy-internal
+            gateway.envoyproxy.io/owning-gateway-namespace: network
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # The *arrs talk to the download client API.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - prowlarr
+                - radarr
+                - sonarr
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Kubelet probes come from the node.
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "51820"
+              protocol: UDP

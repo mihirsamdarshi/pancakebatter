@@ -1,0 +1,308 @@
+---
+# qBittorrent behind a gluetun (ProtonVPN, WireGuard) sidecar in one pod. Both
+# share a network namespace: gluetun's firewall is the kill switch, and its
+# VPN_PORT_FORWARDING_UP_COMMAND pushes the forwarded port into qBittorrent.
+# The *arrs stay off the VPN and reach the Web UI through the Service.
+#
+# Web UI login is variant A': reverse-proxy support on, but trusting only
+# 127.0.0.2/32, so X-Forwarded-For from anyone real is ignored (a forged
+# 127.0.0.1 cannot reach the localhost auth bypass that gluetun's UP/DOWN
+# commands need). If the spoofing tests in the PR fail, fall back to variant A:
+# set ReverseProxySupportEnabled=false under [WebUI] in the config.
+#
+# qBittorrent.conf is seeded once, on first start, because the port-forward
+# push needs the localhost bypass from the very first boot and the image's own
+# default config would whitelist all of 10/8 and 192.168/16 without a login.
+# After that the file is yours: change settings in the UI. The seed uses
+# 5.3.0's own key names and migration version, so qBittorrent neither migrates
+# it nor treats it as an old install (which would turn queueing on).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: qbittorrent
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: qbittorrent
+  interval: 1h
+  values:
+    defaultPodOptions:
+      # Config lives on talos-03's disk (local-retain).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - talos-03
+      securityContext:
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+      # No cluster DNS in this pod: gluetun's resolver answers on loopback and
+      # sends queries through the tunnel, so nothing leaks to the UCG.
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 127.0.0.1
+    configMaps:
+      seed:
+        data:
+          qBittorrent.conf: |
+            [AutoRun]
+            enabled=false
+            program=
+
+            [BitTorrent]
+            Session\AsyncIOThreadsCount=10
+            Session\DefaultSavePath=/data/downloads/completed
+            Session\DisableAutoTMMByDefault=false
+            Session\DiskCacheSize=-1
+            Session\DiskIOReadMode=DisableOSCache
+            Session\DiskIOType=SimplePreadPwrite
+            Session\DiskIOWriteMode=EnableOSCache
+            Session\DiskQueueSize=4194304
+            Session\FilePoolSize=40
+            Session\HashingThreadsCount=2
+            Session\Port=50413
+            Session\QueueingSystemEnabled=false
+            Session\ResumeDataStorageType=SQLite
+            Session\TempPath=/data/downloads/incomplete
+            Session\TempPathEnabled=true
+
+            [LegalNotice]
+            Accepted=true
+
+            [Meta]
+            MigrationVersion=12
+
+            [Network]
+            PortForwardingEnabled=false
+
+            [Preferences]
+            General\Locale=en
+
+            [WebUI]
+            Address=*
+            AuthSubnetWhitelistEnabled=false
+            CSRFProtection=true
+            HostHeaderValidation=true
+            LocalHostAuth=false
+            Port=8080
+            ReverseProxySupportEnabled=true
+            SecureCookie=true
+            ServerDomains=qbittorrent.${SECRET_DOMAIN_LOCAL};qbittorrent.downloads.svc.cluster.local
+            TrustedReverseProxiesList=127.0.0.2/32
+            UseUPnP=false
+    controllers:
+      qbittorrent:
+        # RWO config PV and one VPN session: never two pods at once.
+        strategy: Recreate
+        annotations:
+          # A new WireGuard key arrives as a Secret change.
+          reloader.stakater.com/auto: "true"
+        initContainers:
+          seed-config:
+            image: &image
+              repository: ghcr.io/home-operations/qbittorrent
+              tag: 5.3.0@sha256:5a858e61f94cf2712391db32ed03556576c700858f3e62c4c6fcde262443ebd8
+            command:
+              - /bin/bash
+              - -c
+              - |
+                set -eu
+                if [ ! -f /config/qBittorrent/qBittorrent.conf ]; then
+                  mkdir -p /config/qBittorrent
+                  cp /seed/qBittorrent.conf /config/qBittorrent/qBittorrent.conf
+                fi
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 568
+              runAsGroup: 568
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+          # A native sidecar: it starts before qBittorrent and keeps running
+          # beside it. qBittorrent starts only once the tunnel is healthy.
+          gluetun:
+            # After seed-config, which also pulls qBittorrent's image, so that
+            # qBittorrent listens soon after the tunnel is up. gluetun runs the
+            # UP command once per forwarded port, and wget gives up after about
+            # two minutes.
+            dependsOn: seed-config
+            restartPolicy: Always
+            image:
+              repository: ghcr.io/qdm12/gluetun
+              tag: v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+            env:
+              TZ: Etc/UTC
+              VPN_SERVICE_PROVIDER: protonvpn
+              VPN_TYPE: wireguard
+              WIREGUARD_PRIVATE_KEY:
+                valueFrom:
+                  secretKeyRef:
+                    name: qbittorrent-vpn
+                    key: WIREGUARD_PRIVATE_KEY
+              SERVER_COUNTRIES: United States
+              # Port-forwarding servers only (Proton's P2P servers).
+              PORT_FORWARD_ONLY: "on"
+              VPN_PORT_FORWARDING: "on"
+              # Push the forwarded port into qBittorrent over loopback (the
+              # localhost auth bypass). The DOWN command resets it, because
+              # qBittorrent will not re-bind to a new port otherwise. DOWN
+              # tries once: at pod shutdown qBittorrent is already gone, and
+              # retries would hold gluetun until the grace period ends.
+              VPN_PORT_FORWARDING_UP_COMMAND: >-
+                /bin/sh -c 'wget -O- -nv --retry-connrefused --post-data
+                "json={\"listen_port\":{{ `{{PORT}}` }},\"current_network_interface\":\"{{ `{{VPN_INTERFACE}}` }}\",\"random_port\":false,\"upnp\":false}"
+                http://127.0.0.1:8080/api/v2/app/setPreferences'
+              VPN_PORT_FORWARDING_DOWN_COMMAND: >-
+                /bin/sh -c 'wget -O- -nv -t 1 -T 3 --post-data
+                "json={\"listen_port\":0,\"current_network_interface\":\"lo\"}"
+                http://127.0.0.1:8080/api/v2/app/setPreferences'
+              # Web UI in from the pod network. Replies to the pod, service
+              # and node CIDRs must bypass the tunnel or the UI is unreachable.
+              # None of them overlap Proton's 10.2.0.0/16 tunnel range.
+              FIREWALL_INPUT_PORTS: "8080"
+              FIREWALL_OUTBOUND_SUBNETS: 10.42.0.0/16,10.43.0.0/16,192.168.10.0/24
+              # Never enable the proxies in this pod.
+              HTTPPROXY: "off"
+              SHADOWSOCKS: "off"
+              HTTP_CONTROL_SERVER_ADDRESS: 127.0.0.1:8000
+            lifecycle:
+              # A restarted container finds the previous run's ip rules still
+              # in the shared network namespace and fails with "file exists".
+              postStart:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - (ip rule del table 51820; ip -6 rule del table 51820) || true
+            probes:
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  exec:
+                    command:
+                      - /gluetun-entrypoint
+                      - healthcheck
+                  initialDelaySeconds: 10
+                  periodSeconds: 5
+                  timeoutSeconds: 5
+                  failureThreshold: 60
+            securityContext:
+              capabilities:
+                add:
+                  - NET_ADMIN
+            # The default DNS block lists (malicious, surveillance) alone can
+            # take about 200 MB (gluetun issue 2054).
+            resources:
+              requests:
+                cpu: 10m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+        containers:
+          app:
+            image: *image
+            env:
+              TZ: Etc/UTC
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &port 8080
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  periodSeconds: 5
+                  failureThreshold: 60
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 568
+              runAsGroup: 568
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 1536Mi
+    service:
+      qbittorrent:
+        controller: qbittorrent
+        ports:
+          http:
+            port: *port
+    route:
+      qbittorrent:
+        hostnames:
+          - qbittorrent.${SECRET_DOMAIN_LOCAL}
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: qbittorrent
+                port: *port
+    persistence:
+      config:
+        type: persistentVolumeClaim
+        storageClass: local-retain
+        accessMode: ReadWriteOnce
+        size: 1Gi
+        retain: true
+        advancedMounts:
+          qbittorrent:
+            seed-config:
+              - path: /config
+            app:
+              - path: /config
+      seed:
+        type: configMap
+        identifier: seed
+        advancedMounts:
+          qbittorrent:
+            seed-config:
+              - path: /seed
+                readOnly: true
+      data:
+        type: persistentVolumeClaim
+        existingClaim: qbittorrent-data
+        advancedMounts:
+          qbittorrent:
+            app:
+              - path: /data
+      # The host's tun device; containerd does not provide it by default.
+      tun:
+        type: hostPath
+        hostPath: /dev/net/tun
+        hostPathType: CharDevice
+        advancedMounts:
+          qbittorrent:
+            gluetun:
+              - path: /dev/net/tun
