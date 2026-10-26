@@ -12,18 +12,22 @@ but no user, and the login page cannot create one. Until a user exists the UI
 is locked; the API key still works, so Recyclarr and Prowlarr can already talk
 to Sonarr and Radarr.
 
-Set the user once per app through the API. Run this from the repo root in
-bash; nothing secret is echoed or put on a command line:
+Set the user once per app through the API. Run this in bash from the repo root
+with mise active (it sets `KUBECONFIG` and the SOPS variables; without it,
+kubectl talks to whatever context is the default). Nothing secret is echoed or
+put on a command line:
 
 ```sh
 app=sonarr port=8989 api=v3   # radarr: 7878 v3; prowlarr: 9696 v1
 key=$(sops -d --extract "[\"stringData\"][\"$(tr a-z A-Z <<<"$app")__AUTH__APIKEY\"]" \
     kubernetes/apps/media/$app/app/secret.sops.yaml)
 read -rp 'Username: ' U; read -rsp 'Password: ' P; echo; export U P
-kubectl -n media port-forward svc/$app $port:$port >/dev/null & sleep 2
-curl -fsS -H "X-Api-Key: $key" localhost:$port/api/$api/config/host \
+kubectl -n media port-forward svc/$app $port:$port >/dev/null &
+for i in 1 2 3 4 5 6 7 8 9 10; do curl -fs -o /dev/null localhost:$port/ping && break; sleep 1; done
+hdr() { printf 'header = "X-Api-Key: %s"\n' "$key"; }   # read by curl -K, not argv
+curl -fsS -K <(hdr) localhost:$port/api/$api/config/host \
     | jq '.username = env.U | .password = env.P | .passwordConfirmation = env.P' \
-    | curl -fsS -o /dev/null -w '%{http_code}\n' -X PUT -H "X-Api-Key: $key" \
+    | curl -fsS -o /dev/null -w '%{http_code}\n' -X PUT -K <(hdr) \
         -H 'Content-Type: application/json' -d @- localhost:$port/api/$api/config/host/1
 kill %1; unset key U P
 ```
