@@ -1,0 +1,22 @@
+---
+# Answer for every Homepage /api path the static page does not load. Homepage
+# serves some API routes to anyone who can reach it, whatever the config says:
+# host CPU, memory, disk and network counters, an update check, and relays for
+# search suggestions and weather. The route sends those here instead.
+#
+# Percent signs are forbidden in the body: Envoy reads it as a format string.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: homepage-family-api-denied
+spec:
+  directResponse:
+    statusCode: 404
+    contentType: text/plain; charset=utf-8
+    header:
+      set:
+        - name: Cache-Control
+          value: no-store
+    body:
+      type: Inline
+      inline: Not found

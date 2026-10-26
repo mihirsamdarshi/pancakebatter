@@ -274,6 +274,7 @@ spec:
                   timeStyle: short
           bookmarks.yaml: ""
           docker.yaml: ""
+          proxmox.yaml: ""
           # Cluster mode so the widget can list nodes. Discovery is off: the
           # tiles above are the only source, in one reviewable place.
           kubernetes.yaml: |
@@ -303,6 +304,9 @@ spec:
           - path: /app/config/docker.yaml
             subPath: docker.yaml
             readOnly: true
+          - path: /app/config/proxmox.yaml
+            subPath: proxmox.yaml
+            readOnly: true
           - path: /app/config/kubernetes.yaml
             subPath: kubernetes.yaml
             readOnly: true
@@ -312,3 +316,10 @@ spec:
           - path: /app/config/custom.js
             subPath: custom.js
             readOnly: true
+      # Next.js creates its cache directory on the first /_next/image request
+      # and exits when the read-only root filesystem refuses.
+      next-cache:
+        type: emptyDir
+        sizeLimit: 128Mi
+        globalMounts:
+          - path: /app/.next/cache

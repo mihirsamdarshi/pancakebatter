@@ -1,9 +1,11 @@
 ---
 # The family's start page, served at the bare family name through the shared
-# family-apps Tailscale node. It is a static list of three links. It has no
-# Kubernetes access (no ServiceAccount token, no RBAC), no widgets and no
-# integrations, so nothing internal can leak through it. Keep it that way: an
-# internal service belongs on the `homepage` release, never here.
+# family-apps Tailscale node. It is a static list of three links: no Kubernetes
+# access (no ServiceAccount token, no RBAC), no widgets and no integrations.
+# Homepage still answers a few API routes without any widget (host counters,
+# update check, search and weather relays), so the route below lets only the
+# calls the page itself makes through and answers the rest with a 404. Keep
+# internal services off this release; they belong on `homepage`.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -116,6 +118,52 @@ spec:
             namespace: network
             sectionName: https-landing
         rules:
+          # An exact match beats a prefix match, so the calls below win and
+          # every other /api path gets the 404. Envoy normalizes the path first
+          # (dot segments, double slashes, escaped slashes), so those tricks
+          # land on the same rule. The kubelet probes the pod directly and does
+          # not pass through here.
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /api
+            filters:
+              - type: ExtensionRef
+                extensionRef:
+                  group: gateway.envoyproxy.io
+                  kind: HTTPRouteFilter
+                  name: homepage-family-api-denied
+          # What the page loads: its data, the config hash check and the custom
+          # files. /api/revalidate lets a returning visitor reload after a
+          # deploy; without it the page stays marked stale.
+          - matches:
+              - path:
+                  type: Exact
+                  value: /api/services
+              - path:
+                  type: Exact
+                  value: /api/bookmarks
+              - path:
+                  type: Exact
+                  value: /api/widgets
+              - path:
+                  type: Exact
+                  value: /api/hash
+              - path:
+                  type: Exact
+                  value: /api/validate
+              - path:
+                  type: Exact
+                  value: /api/revalidate
+              - path:
+                  type: Exact
+                  value: /api/config/custom.css
+              - path:
+                  type: Exact
+                  value: /api/config/custom.js
+            backendRefs:
+              - identifier: homepage-family
+                port: *port
           - backendRefs:
               - identifier: homepage-family
                 port: *port
@@ -158,6 +206,7 @@ spec:
                 text: Welcome home
           bookmarks.yaml: ""
           docker.yaml: ""
+          proxmox.yaml: ""
           kubernetes.yaml: |
             mode: disabled
           custom.css: ""
@@ -182,6 +231,9 @@ spec:
           - path: /app/config/docker.yaml
             subPath: docker.yaml
             readOnly: true
+          - path: /app/config/proxmox.yaml
+            subPath: proxmox.yaml
+            readOnly: true
           - path: /app/config/kubernetes.yaml
             subPath: kubernetes.yaml
             readOnly: true
@@ -191,3 +243,10 @@ spec:
           - path: /app/config/custom.js
             subPath: custom.js
             readOnly: true
+      # Next.js creates its cache directory on the first /_next/image request
+      # and exits when the read-only root filesystem refuses.
+      next-cache:
+        type: emptyDir
+        sizeLimit: 128Mi
+        globalMounts:
+          - path: /app/.next/cache

@@ -4,6 +4,10 @@ kind: Kustomization
 metadata:
   name: homepage-family
 spec:
+  dependsOn:
+    # The HTTPRouteFilter CRD comes with Envoy Gateway.
+    - name: envoy-gateway
+      namespace: network
   interval: 1h
   path: ./kubernetes/apps/home/homepage-family/app
   postBuild:
