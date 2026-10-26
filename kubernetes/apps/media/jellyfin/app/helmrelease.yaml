@@ -7,6 +7,8 @@
 #  - Playback: NVENC, hardware decoding for H.264, HEVC, HEVC 10-bit, VP9,
 #    MPEG2 and VC1, CUDA tone mapping. Transcode path /transcode.
 #  - Libraries: trickplay image extraction off (local-path has no PVC quota).
+#  - Users: one account per family member, each with a remote bitrate limit
+#    (Users > Playback) so family streams cannot saturate home upload.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -107,6 +109,21 @@ spec:
           - name: envoy-internal
             namespace: network
             sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: jellyfin
+                port: *port
+      # Family reach this through the family-apps Tailscale node, which
+      # forwards to the separate envoy-family gateway. The old
+      # family.<internal domain> name stays during the move to the family
+      # domain. Each person gets their own Jellyfin account.
+      family:
+        hostnames:
+          - jellyfin.${SECRET_FAMILY_DOMAIN}
+          - jellyfin.family.${SECRET_DOMAIN}
+        parentRefs:
+          - name: envoy-family
+            namespace: network
         rules:
           - backendRefs:
               - identifier: jellyfin
