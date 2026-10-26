@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: downloads
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # gluetun needs NET_ADMIN and a hostPath /dev/net/tun. Only the
+    # qBittorrent pod belongs in this namespace.
+    pod-security.kubernetes.io/enforce: privileged
