@@ -135,7 +135,9 @@ spec:
                   name: homepage-family-api-denied
           # What the page loads: its data, the config hash check and the custom
           # files. /api/revalidate lets a returning visitor reload after a
-          # deploy; without it the page stays marked stale.
+          # deploy; without it the page stays marked stale. /api/auth/session
+          # answers an empty object (auth is off); denied, the page logs a
+          # client fetch error.
           - matches:
               - path:
                   type: Exact
@@ -155,6 +157,9 @@ spec:
               - path:
                   type: Exact
                   value: /api/revalidate
+              - path:
+                  type: Exact
+                  value: /api/auth/session
               - path:
                   type: Exact
                   value: /api/config/custom.css
