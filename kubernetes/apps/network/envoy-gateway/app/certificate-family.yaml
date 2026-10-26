@@ -1,0 +1,19 @@
+---
+# Served only by the envoy-family Gateway. Keeping the family names out of the
+# shared wildcard means envoy-internal never presents a certificate for them.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: family-production
+spec:
+  dnsNames:
+    - "*.${SECRET_FAMILY_DOMAIN}"
+  duration: 2160h
+  issuerRef:
+    name: letsencrypt-production
+    kind: ClusterIssuer
+  privateKey:
+    algorithm: ECDSA
+  secretName: family-production-tls
+  usages:
+    - digital signature

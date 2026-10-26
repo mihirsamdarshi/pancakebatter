@@ -1,8 +1,10 @@
 ---
 # Family tailnets reach the cluster only through the standalone family-apps
 # Tailscale node, which forwards straight to this Gateway's proxy pods. A
-# separate Gateway that serves nothing but *.family hostnames keeps every
+# separate Gateway that serves nothing but family hostnames keeps every
 # internal-only route (all attached to envoy-internal) off those tailnets.
+# Routes attach with the parentRef name only (no sectionName): each hostname
+# then lands on the one listener that matches it.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyProxy
 metadata:
@@ -34,6 +36,22 @@ spec:
     - name: https
       protocol: HTTPS
       port: 443
+      hostname: "*.${SECRET_FAMILY_DOMAIN}"
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: family-production-tls
+    # Previous family names (*.family.local.<zone>), kept while clients move to
+    # *.family.<zone>. Remove this listener, its Certificate and the legacy DNS
+    # record together. It has its own Secret: two listeners sharing one Secret
+    # overlap in TLS config, and with h2 on browsers could reuse a connection
+    # across the old and new names and get a 404.
+    - name: https-legacy
+      protocol: HTTPS
+      port: 443
       hostname: "*.family.${SECRET_DOMAIN}"
       allowedRoutes:
         namespaces:
@@ -41,4 +59,4 @@ spec:
       tls:
         certificateRefs:
           - kind: Secret
-            name: ${SECRET_DOMAIN/./-}-production-tls
+            name: family-legacy-production-tls

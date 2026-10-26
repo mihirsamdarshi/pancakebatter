@@ -3,21 +3,25 @@
 Family members keep their own accounts and remain connected to their own
 tailnets. One shared `family-apps` node forwards HTTPS to a dedicated Envoy
 Gateway, `envoy-family`. Every app uses its own hostname under
-`family.${SECRET_DOMAIN}`; the single gateway share covers current and future
-apps.
+`${SECRET_FAMILY_DOMAIN}` (`family.<zone>`); the single gateway share covers
+current and future apps. The previous names under `family.${SECRET_DOMAIN}`
+(`family.local.<zone>`) keep working during a transition.
 
 ## Internal-only apps stay unreachable
 
 `envoy-family` is a second Gateway (same GatewayClass, its own proxy pods) with
-one HTTPS listener restricted to `*.family.${SECRET_DOMAIN}`. The `family-apps`
+HTTPS listeners restricted to `*.${SECRET_FAMILY_DOMAIN}` (`https`) and, during
+the transition, `*.family.${SECRET_DOMAIN}` (`https-legacy`). The `family-apps`
 Service selects only its pods, so a family tailnet can never reach
 `envoy-internal`, where the internal-only routes (Grafana, Flux webhook, future
 Sonarr, Radarr, qBittorrent) are attached. Hostname matching alone would not
 hold that line: the shared node would forward any Host header to the same
 proxies. Two rules keep it enforced:
 
-- Attach a family route **only** to `envoy-family` (`sectionName: https`), and
-  only with a `*.family.${SECRET_DOMAIN}` hostname. Do not also attach it to
+- Attach a family route **only** to `envoy-family` (parentRef name and
+  namespace, no `sectionName`, so each hostname lands on its own listener), and
+  only with `<app>.${SECRET_FAMILY_DOMAIN}` plus, during the transition,
+  `<app>.family.${SECRET_DOMAIN}` hostnames. Do not also attach it to
   `envoy-internal`.
 - Never point the `family-apps` selector at `envoy-internal`.
 
@@ -39,20 +43,41 @@ TCP forwarding to the Service times out. Cilium updates roll one agent at a time
 
 - Service `network/family-apps` forwards TCP 443 to `envoy-family`'s port 10443
   (Envoy Gateway maps listener port 443 to container port 10443).
-- Envoy terminates HTTPS with the existing cert-manager-managed certificate,
-  extended with `*.family.${SECRET_DOMAIN}`. Its existing `*.${SECRET_DOMAIN}`
-  already covers `family.${SECRET_DOMAIN}`; repeating that exact name would
-  make the ACME order redundant and fail issuance.
-- Terraform's separate DNS root manages one unproxied wildcard A record for
-  `*.family.local.<zone>`, pointing at the standalone node's Tailscale IPv4.
-  Set `family_gateway_ip` in an ignored local tfvars file after provisioning.
+- `envoy-family` terminates HTTPS with its own cert-manager Certificates, one
+  Secret per listener: `family-production` (Secret `family-production-tls`) for
+  `*.${SECRET_FAMILY_DOMAIN}` on `https`, and `family-legacy-production` (Secret
+  `family-legacy-production-tls`) for `*.family.${SECRET_DOMAIN}` on
+  `https-legacy`. Two listeners must not share a Secret: Envoy Gateway reports
+  overlapping TLS config, and with h2 enabled a browser could reuse one
+  connection across both names and get a 404. The shared wildcard used by
+  `envoy-internal` carries no family names, so the internal Gateway never
+  presents a certificate for them. Until the Secrets exist, `envoy-family` has no
+  certificate and serves no TLS.
+- `${SECRET_FAMILY_DOMAIN}` is a `cluster-secrets` variable (`family.<zone>`,
+  derived from the zone). It is outside the ClusterIssuer's `${SECRET_DOMAIN}`
+  zone, so the ClusterIssuer's DNS-01 solver must list it in `dnsZones` too
+  (delivered as a separate change; it must be live before these Certificates
+  can be issued).
+- Terraform's separate DNS root manages unproxied wildcard A records for
+  `*.family.<zone>` and, during the transition, `*.family.local.<zone>`, both
+  pointing at the standalone node's Tailscale IPv4. Set `family_gateway_ip` in
+  an ignored local tfvars file after provisioning.
 - The existing `*.local.<zone>` record keeps its LAN gateway address.
-- Quilt Planner's route is `https://quilts.family.local.<zone>`. Future apps
-  add an HTTPRoute on `envoy-family`; no new share, DNS record or certificate.
+- Quilt Planner's routes are `https://quilts.family.<zone>` and the previous
+  `https://quilts.family.local.<zone>`. Future apps add an HTTPRoute on
+  `envoy-family`; no new share, DNS record or certificate.
 - The route is not also attached to `envoy-internal`: LAN clients resolve
   `*.family` to the Tailscale address anyway. `k8s-gateway` would answer a
   family hostname with `envoy-family`'s ClusterIP, so do not point split DNS at
   it for `*.family` names.
+- Retire the legacy names together: the `https-legacy` listener, the
+  `family-legacy-production` Certificate, the `family_wildcard` DNS record and
+  each route's legacy hostname.
+- `family-apps` itself (this Service and its Flux Kustomizations) is specific to
+  this cluster and is not part of `template/`. `template/` has the
+  `envoy-family` Gateway with only the new-name listener, and `family-production`;
+  the legacy listener and Certificate are rendered only here, because for a
+  domain without a `local.` prefix the legacy and new names are identical.
 
 The gateway is a single persistent Tailscale node backed by a standalone proxy
 pod; its Kubernetes state Secret must be preserved. It is not the two-replica
@@ -103,21 +128,27 @@ fails, rather than changing the recipient's tailnet membership.
 
 `network/family-apps` depends on the operator's validated ProxyClass and the
 `envoy-gateway` Kustomization, which creates `envoy-family`. That Kustomization
-does not wait for the proxy pods, so the Service selector can switch before they
-are Ready; the family endpoint is briefly empty until they are.
+does not wait for the proxy pods or the new Certificates, so the Service
+selector can switch before they are Ready; the family endpoint stays empty
+until they are, and Envoy Gateway does not create `envoy-family`'s proxy pods
+until its Secrets exist (expect about two to four minutes of family downtime).
+If a Certificate's Order fails, `cmctl renew family-production` (or
+`family-legacy-production`) retries it.
 `network/quilt-planner-family` reads the existing domain Secret in `network`
 and creates its HTTPRoute in `quilt-planner`, depending on both the gateway and
 the existing app. No credentials are copied into the app namespace.
 
-Before delivery, verify the `envoy-family` Gateway is Programmed with two Ready
-proxy pods, the `family-apps` Service has endpoints on port 10443, the Service
-has a Tailscale address, the standalone proxy is Ready, the route has
-Accepted/ResolvedRefs conditions on `envoy-family`, the certificate covers the
-family hostname, and HTTPS works with normal certificate verification.
+Before delivery, verify the `family-production` and `family-legacy-production`
+Certificates are Ready, the
+`envoy-family` Gateway is Programmed with two Ready proxy pods (named
+`envoy-family-*`), the `family-apps` Service has endpoints on port 10443, the
+Service has a Tailscale address, the standalone proxy is Ready, the route has
+Accepted/ResolvedRefs conditions on `envoy-family`, and HTTPS works with normal
+certificate verification on both family names.
 Then confirm the boundary: through the family address, a request for an
 internal-only hostname (for example `grafana.local.<zone>` sent with
 `curl --resolve` to the family IP, or a forced `Host` header) must fail the TLS
-handshake or return 404, never the app.
+handshake or return 404 or 421, never the app.
 After sharing, repeat the HTTPS check from a recipient's own tailnet.
 
 ## Sources
