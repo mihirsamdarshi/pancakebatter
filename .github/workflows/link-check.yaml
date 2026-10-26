@@ -17,6 +17,10 @@ jobs:
       - name: Link Checker
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         id: lychee
+        with:
+          # v2 fails the step on broken links by default, which would skip the
+          # issue steps below; report instead of failing.
+          fail: false
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
 
