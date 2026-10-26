@@ -50,7 +50,7 @@ variable "talos_schematics" {
   }
 }
 
-# --- Networking: not settled yet (see docs/agents/unifi-network-plan.md). Keep configurable. ---
+# --- Networking: not settled yet (see docs/agents/reference/network.md). Keep configurable. ---
 
 variable "bridge" {
   description = "Linux bridge for the node NICs."
@@ -88,7 +88,7 @@ variable "nodes" {
     mac_address    = optional(string)
     # Proxmox PCI resource mapping to pass through (all functions, PCIe). The token
     # only has Mapping.Use on /mapping/pci/gtx1650. That node needs the NVIDIA Talos
-    # extensions in its schematic (see docs/agents/kubernetes-rebuild.md).
+    # extensions in its schematic (see docs/agents/runbooks/talos-config-and-upgrades.md).
     gpu_mapping = optional(string)
   }))
   default = {
