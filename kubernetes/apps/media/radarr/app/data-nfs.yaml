@@ -1,0 +1,38 @@
+---
+# Static PV so the NFS mount options are explicit. The whole Media export is
+# mounted at /data (downloads/ and media/ side by side), the same path
+# qBittorrent uses, so imports are hardlinks.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: radarr-data
+spec:
+  capacity:
+    storage: 1Ti
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.2
+    - hard
+    - noatime
+  nfs:
+    server: 192.168.10.75
+    path: /mnt/nasty/Media
+  claimRef:
+    namespace: media
+    name: radarr-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: radarr-data
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: radarr-data
+  resources:
+    requests:
+      storage: 1Ti

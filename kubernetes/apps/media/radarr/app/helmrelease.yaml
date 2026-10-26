@@ -1,0 +1,126 @@
+---
+# Radarr. Movie manager.
+# Login: forms, required for every client. The API key is pre-generated in SOPS
+# (radarr-secret) so other apps can reference it. The first visit asks you to
+# create the admin account. Config lives on talos-03's disk (local-retain).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: radarr
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: radarr
+  interval: 1h
+  values:
+    defaultPodOptions:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - talos-03
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 568
+        runAsGroup: 568
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+    controllers:
+      radarr:
+        # RWO config PV with a single SQLite writer: never two pods at once.
+        strategy: Recreate
+        containers:
+          app:
+            image:
+              repository: ghcr.io/home-operations/radarr
+              tag: 6.4.4@sha256:1902ad2c08e9bac276ff9a1429af2eaa2f3c635a51f138f1b3eb734995171537
+            env:
+              TZ: Etc/UTC
+              RADARR__AUTH__METHOD: Forms
+              RADARR__AUTH__REQUIRED: Enabled
+            envFrom:
+              - secretRef:
+                  name: radarr-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /ping
+                    port: &port 7878
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /ping
+                    port: *port
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /ping
+                    port: *port
+                  periodSeconds: 5
+                  failureThreshold: 60
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: 50m
+                memory: 256Mi
+              limits:
+                memory: 1Gi
+    service:
+      radarr:
+        controller: radarr
+        ports:
+          http:
+            port: *port
+    route:
+      radarr:
+        hostnames:
+          - radarr.${SECRET_DOMAIN}
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: radarr
+                port: *port
+    persistence:
+      config:
+        type: persistentVolumeClaim
+        storageClass: local-retain
+        accessMode: ReadWriteOnce
+        size: 4Gi
+        retain: true
+        advancedMounts:
+          radarr:
+            app:
+              - path: /config
+      # The whole Media export at the same path qBittorrent uses, so imports
+      # from /data/downloads into /data/media are hardlinks.
+      data:
+        type: persistentVolumeClaim
+        existingClaim: radarr-data
+        advancedMounts:
+          radarr:
+            app:
+              - path: /data

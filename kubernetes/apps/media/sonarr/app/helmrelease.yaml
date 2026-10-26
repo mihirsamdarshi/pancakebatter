@@ -1,0 +1,127 @@
+---
+# Sonarr. Series manager, 4.x only: home-operations also publishes upstream v5
+# pre-releases as 5.x tags, which Renovate is told to skip.
+# Login: forms, required for every client. The API key is pre-generated in SOPS
+# (sonarr-secret) so other apps can reference it. The first visit asks you to
+# create the admin account. Config lives on talos-02's disk (local-retain).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: sonarr
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: sonarr
+  interval: 1h
+  values:
+    defaultPodOptions:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - talos-02
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 568
+        runAsGroup: 568
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+    controllers:
+      sonarr:
+        # RWO config PV with a single SQLite writer: never two pods at once.
+        strategy: Recreate
+        containers:
+          app:
+            image:
+              repository: ghcr.io/home-operations/sonarr
+              tag: 4.0.20@sha256:1f19eb5e0f421418c1a956bbe01310a0141423afe28bd9a4b1dcb8629ff2bce2
+            env:
+              TZ: Etc/UTC
+              SONARR__AUTH__METHOD: Forms
+              SONARR__AUTH__REQUIRED: Enabled
+            envFrom:
+              - secretRef:
+                  name: sonarr-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /ping
+                    port: &port 8989
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /ping
+                    port: *port
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /ping
+                    port: *port
+                  periodSeconds: 5
+                  failureThreshold: 60
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: 50m
+                memory: 256Mi
+              limits:
+                memory: 1Gi
+    service:
+      sonarr:
+        controller: sonarr
+        ports:
+          http:
+            port: *port
+    route:
+      sonarr:
+        hostnames:
+          - sonarr.${SECRET_DOMAIN}
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: sonarr
+                port: *port
+    persistence:
+      config:
+        type: persistentVolumeClaim
+        storageClass: local-retain
+        accessMode: ReadWriteOnce
+        size: 4Gi
+        retain: true
+        advancedMounts:
+          sonarr:
+            app:
+              - path: /config
+      # The whole Media export at the same path qBittorrent uses, so imports
+      # from /data/downloads into /data/media are hardlinks.
+      data:
+        type: persistentVolumeClaim
+        existingClaim: sonarr-data
+        advancedMounts:
+          sonarr:
+            app:
+              - path: /data
