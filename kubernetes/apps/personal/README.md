@@ -19,11 +19,11 @@ not the manifests. `quilt-planner/` is the working example.
 - The registry pull Secret is the app's own file, SOPS-encrypted in
   `<app>/app/`.
 
-The Role covers Services, PVCs, ConfigMaps, Deployments and HTTPRoutes, plus
-read access to ReplicaSets and Pods for the health check. Through the API it
-cannot read Secrets, create Roles or change anything outside the namespace. It
-is not a sandbox: the bundle can still run pods that mount the namespace's
-Secrets (see the gateway note below). The bundle's Kustomization has
+The Role covers Services, PVCs, ConfigMaps and Deployments, plus read access to
+ReplicaSets and Pods for the health check. Through the API it cannot read
+Secrets, create Roles or HTTPRoutes, or change anything outside the namespace.
+It is not a sandbox: the bundle can still run pods that mount the namespace's
+Secrets. The bundle's Kustomization has
 `deletionPolicy: Orphan`: deleting it leaves the app and its data running. It
 and the OCIRepository are also `prune: disabled`, so Flux never deletes them
 for you.
@@ -145,11 +145,11 @@ Each is a separate Flux Kustomization that applies a small folder into the app's
 namespace. Copy the Quilt version and change the names. Whether and how to
 expose an app is the owner's decision, so confirm it first.
 
-Take care: the gateways accept routes from every namespace, and the
-reconciler's Role can create HTTPRoutes. So an app's own bundle can attach a
-route to `envoy-internal` or `envoy-family` without any change here. Add family
-exposure deliberately, in this repo, with the `family/httproute.yaml` pattern
-below, and read a bundle's HTTPRoutes before you trust it. Restricting
+A bundle cannot create routes: the reconciler's Role has no rule for
+HTTPRoutes, so a bundle that ships one fails to apply. Exposure is added in
+this repo, with the folders below. Keep it that way, because the gateways
+accept routes from every namespace and a route in an app's namespace can attach
+to `envoy-internal` or `envoy-family` without any other change. Restricting
 `envoy-family` to labelled namespaces is a possible follow-up.
 
 - **Tailnet:** copy `quilt-planner/tailnet/` and the `quilt-planner-tailnet`
@@ -219,7 +219,7 @@ the rest, including the first backup and restore.
   object, and prunes the old one together with what it applied. Change only its
   `spec.path` when files move.
 - Keep one namespace per app, and do not widen the reconciler's Role to
-  cluster-wide kinds. That limit is most of the isolation.
+  cluster-wide kinds or to HTTPRoutes. That limit is most of the isolation.
 - Do not remove `prune: disabled` from a Namespace, a StorageClass or a data
   PVC.
 - Preview any change to `postBuild.substitute` before merging it. A mistyped
