@@ -11,7 +11,11 @@
 #   1. kubeconform on standalone manifests under kubernetes/flux (Flux reads
 #      kubernetes/flux/cluster directly; it has no kustomization.yaml);
 #   2. `kustomize build | kubeconform` for every kustomization.yaml under
-#      kubernetes/flux and kubernetes/apps;
+#      kubernetes/flux and kubernetes/apps, and every Namespace it builds must
+#      be named with a lowercase RFC 1123 label (the schemas do not check
+#      names, and a Namespace that cannot be applied stops Flux applying the
+#      rest of that Kustomization, e.g. an app that forgot `namespace:` and so
+#      keeps the REPLACE_ME placeholder of components/personal-namespace);
 #   3. kubeconform on every Flux Kustomization object, and
 #      `flux build ks --dry-run | kubeconform` for each one sourced from this
 #      repo, which also catches a wrong spec.path and broken spec.patches.
@@ -155,6 +159,11 @@ validate_tree() {
             kustomize build "$dir" "${kustomize_args[@]}" >"$tmp/build.yaml"
             conform <"$tmp/build.yaml"
             check_direct_response_bodies "$tmp/build.yaml" "$dir"
+            yq -N 'select(.kind == "Namespace") | .metadata.name' "$tmp/build.yaml" >"$tmp/namespaces"
+            while IFS= read -r name; do
+                [[ -z "$name" || "$name" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] \
+                    || die "$dir: Namespace name '$name' is not a lowercase RFC 1123 label"
+            done <"$tmp/namespaces"
             list_oci_repositories "$tmp/build.yaml" >>"$tmp/oci.list"
         done <"$tmp/kustomizations"
 
