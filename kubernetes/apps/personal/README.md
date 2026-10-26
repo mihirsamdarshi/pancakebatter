@@ -24,7 +24,9 @@ read access to ReplicaSets and Pods for the health check. Through the API it
 cannot read Secrets, create Roles or change anything outside the namespace. It
 is not a sandbox: the bundle can still run pods that mount the namespace's
 Secrets (see the gateway note below). The bundle's Kustomization has
-`deletionPolicy: Orphan`: deleting it leaves the app and its data running.
+`deletionPolicy: Orphan`: deleting it leaves the app and its data running. It
+and the OCIRepository are also `prune: disabled`, so Flux never deletes them
+for you.
 
 ## Add an app
 
@@ -199,11 +201,11 @@ including restore.
 - Do not remove `prune: disabled` from a Namespace, a StorageClass or a data
   PVC.
 - Preview any change to `postBuild.substitute` before merging it. A mistyped
-  or empty `APP` renames the app's OCIRepository and Kustomization (or drops
-  them, where the names are overridden), and the bootstrap prunes the old
-  ones. The app and its data stay; updates stop. Nothing in CI catches a
+  `APP` creates a second OCIRepository and Kustomization next to the old pair,
+  and an empty one drops the pair from the render. Nothing is pruned, but a
+  typo leaves a duplicate to delete by hand, and nothing in CI catches a
   misspelled variable. No output and exit 0 mean no change; `created` or
-  `deleted` lines mean a rename:
+  `deleted` lines mean a name changed:
 
     ```sh
     yq 'select(.metadata.name == "<app>-bootstrap") | .metadata.namespace = "<app>"' \
@@ -211,3 +213,9 @@ including restore.
     flux diff kustomization <app>-bootstrap -n <app> \
       --path ./kubernetes/apps/personal/<app>/app --kustomization-file /tmp/ks.yaml
     ```
+
+- To remove an app, delete its folder and its line in
+  `personal/kustomization.yaml`, then delete its OCIRepository and Kustomization
+  by hand (`kubectl -n <app> delete kustomization,ocirepository <app>`). Both
+  are `prune: disabled`, so Flux leaves them. The app's own objects, its PVC and
+  the Namespace stay until you delete them too.

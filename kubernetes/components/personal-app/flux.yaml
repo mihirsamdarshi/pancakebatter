@@ -14,15 +14,22 @@
 #                    exist under another name.
 # A variable left unset renders as an empty string. On the defaults an empty APP
 # gives invalid names, so the apply is rejected. Where the names are overridden
-# (Quilt), an empty APP instead drops the OCIRepository and Kustomization from
-# the render and the bootstrap prunes them: the app and its data stay, but
-# updates stop. Run flux diff kustomization before merging a change to
-# postBuild.substitute. An empty OCI_REPO leaves the OCIRepository failing to
+# (Quilt), an empty APP drops the OCIRepository and Kustomization from the
+# render, and a mistyped one renames them. Either way the old pair is not
+# pruned (see the annotations below): a typo leaves a second pair next to it
+# that you delete by hand. Run flux diff kustomization before merging a change
+# to postBuild.substitute. An empty OCI_REPO leaves the OCIRepository failing to
 # fetch.
+#
+# The OCIRepository and Kustomization are never pruned by the bootstrap, so to
+# remove an app, remove it from Git and then delete these two by hand. Its own
+# objects stay until you delete them too (deletionPolicy: Orphan).
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata:
   name: ${APP}
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
 spec:
   interval: 1m
   url: oci://${OCI_REPO}
@@ -38,6 +45,8 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: ${APP}
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
 spec:
   interval: 5m
   retryInterval: 1m
