@@ -1,0 +1,55 @@
+---
+# Pulls the app's private OCI bundle and applies it into its namespace as the
+# scoped reconciler (rbac.yaml). Used by a per-app "bootstrap" Flux
+# Kustomization; the namespace comes from its targetNamespace.
+#
+# Variables, set in that Kustomization's postBuild.substitute:
+#   APP              required. App name; also its namespace, its Deployment and
+#                    the name of the OCIRepository and Kustomization below.
+#   OCI_REPO         required. ghcr.io/<owner>/<repo>, without the oci:// prefix.
+#   OCI_TAG          tag to follow, default main.
+#   RECONCILER_NAME  default APP-reconciler.
+#   REGISTRY_SECRET  default APP-registry: the dockerconfigjson Secret the app
+#                    supplies. Set these two only to adopt objects that already
+#                    exist under another name.
+# A variable left unset renders as an empty string. For APP that makes the names
+# invalid, so the apply is rejected and nothing is pruned; an empty OCI_REPO
+# leaves the OCIRepository failing to fetch.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: ${APP}
+spec:
+  interval: 1m
+  url: oci://${OCI_REPO}
+  ref:
+    tag: ${OCI_TAG:=main}
+  secretRef:
+    name: ${REGISTRY_SECRET:=${APP}-registry}
+  layerSelector:
+    mediaType: application/vnd.cncf.flux.content.v1.tar+gzip
+    operation: extract
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: ${APP}
+spec:
+  interval: 5m
+  retryInterval: 1m
+  timeout: 3m
+  path: ./
+  prune: true
+  # Deleting this Kustomization leaves the app and its data running.
+  deletionPolicy: Orphan
+  wait: false
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: ${APP}
+      namespace: ${APP}
+  serviceAccountName: ${RECONCILER_NAME:=${APP}-reconciler}
+  targetNamespace: ${APP}
+  sourceRef:
+    kind: OCIRepository
+    name: ${APP}

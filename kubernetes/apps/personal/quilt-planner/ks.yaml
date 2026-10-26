@@ -5,6 +5,14 @@ metadata:
 spec:
   interval: 1h
   path: ./kubernetes/apps/personal/quilt-planner/app
+  postBuild:
+    substitute:
+      APP: quilt-planner
+      OCI_REPO: ghcr.io/mihirsamdarshi/quilt-planner-deploy
+      # Names from before the shared component, kept so Flux updates these
+      # objects in place instead of replacing them.
+      RECONCILER_NAME: quilt-reconciler
+      REGISTRY_SECRET: quilt-registry
   prune: true
   sourceRef:
     kind: GitRepository
