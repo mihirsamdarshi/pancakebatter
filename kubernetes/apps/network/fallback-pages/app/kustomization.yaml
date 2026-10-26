@@ -16,9 +16,6 @@ configMapGenerator:
   - name: family-not-found
     files:
       - response.body=family-not-found.html
-  - name: family-landing
-    files:
-      - response.body=family-landing.html
   - name: internal-not-found
     files:
       - response.body=internal-not-found.html

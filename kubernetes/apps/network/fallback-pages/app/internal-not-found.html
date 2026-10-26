@@ -17,6 +17,7 @@ ul{margin:0;padding:0;list-style:none}
 li+li{margin-top:.75rem}
 a{display:block;min-height:3rem;padding:.75rem 1rem;border:1px solid var(--line);border-radius:.75rem;background:var(--card);color:var(--fg);text-decoration:none}
 a:hover,a:focus-visible{border-color:var(--accent);outline:none}
+.home{margin-bottom:1.5rem;border-color:var(--accent)}
 b{display:block;color:var(--accent)}
 small{display:block;color:var(--muted);overflow-wrap:anywhere}
 </style>
@@ -24,7 +25,9 @@ small{display:block;color:var(--muted);overflow-wrap:anywhere}
 <body>
 <main>
 <h1>That address doesn&rsquo;t exist</h1>
-<p>Check the spelling, or try one of these:</p>
+<p>Check the spelling, or start from the home page:</p>
+<a class="home" href="https://home.${SECRET_DOMAIN}"><b>Home</b><small>home.${SECRET_DOMAIN}</small></a>
+<p>Or open an app directly:</p>
 <ul>
 <li><a href="https://grafana.${SECRET_DOMAIN}"><b>Grafana</b><small>grafana.${SECRET_DOMAIN}</small></a></li>
 <li><a href="https://jellyfin.${SECRET_DOMAIN}"><b>Jellyfin</b><small>jellyfin.${SECRET_DOMAIN}</small></a></li>

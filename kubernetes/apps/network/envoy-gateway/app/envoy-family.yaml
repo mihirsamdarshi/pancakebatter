@@ -61,9 +61,11 @@ spec:
           - kind: Secret
             name: family-legacy-production-tls
     # The bare family name (family.<zone>), which the wildcard listener above
-    # does not cover. Its own Certificate and Secret keep the SANs of the two
-    # listeners disjoint: Envoy Gateway flags overlapping SANs, and with h2 a
-    # browser could reuse one connection across both names and get a 404.
+    # does not cover. The family homepage route attaches here. Its own
+    # Certificate and Secret keep the SANs of the two listeners disjoint:
+    # Envoy Gateway flags overlapping SANs, and with h2 a browser going from
+    # the homepage to an app could reuse one connection across both names and
+    # get a 404.
     - name: https-landing
       protocol: HTTPS
       port: 443

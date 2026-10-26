@@ -1,7 +1,6 @@
 ---
-# Friendly pages for hostnames that no app route claims, and a landing page for
-# the bare family name. Specific to this cluster (the page lists its apps), so
-# it is not part of template/.
+# Friendly 404 pages for hostnames that no app route claims. Specific to this
+# cluster (the pages list its apps), so they are not part of template/.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:

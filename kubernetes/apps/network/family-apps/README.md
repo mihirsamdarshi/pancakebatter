@@ -61,7 +61,7 @@ TCP forwarding to the Service times out. Cilium updates roll one agent at a time
   (delivered as a separate change; it must be live before these Certificates
   can be issued).
 - Terraform's separate DNS root manages unproxied A records for
-  `*.family.<zone>`, the bare `family.<zone>` (landing page) and, during the
+  `*.family.<zone>`, the bare `family.<zone>` (homepage) and, during the
   transition, `*.family.local.<zone>`, all pointing at the standalone node's
   Tailscale IPv4. Set `family_gateway_ip` in an ignored local tfvars file after
   provisioning.
@@ -78,44 +78,37 @@ TCP forwarding to the Service times out. Cilium updates roll one agent at a time
   legacy hostname on the `family-not-found` route and each app route's legacy
   hostname.
 
-## Landing page and unknown names
+## Home page and unknown names
 
-The `network/fallback-pages` Kustomization serves small self-contained HTML
-pages straight from Envoy (Envoy Gateway `HTTPRouteFilter` `directResponse`,
-body from a ConfigMap built from the `.html` files in `fallback-pages/app/`):
+`envoy-family` has a third listener, `https-landing`, for the bare
+`${SECRET_FAMILY_DOMAIN}` name that the wildcard listener does not cover. The
+family homepage attaches its HTTPRoute there; this listener has no route of its
+own. It has its own Certificate `family-landing-production`, not a SAN on
+`family-production`: Envoy Gateway flags overlapping certificate SANs between
+listeners, and the shared ClientTrafficPolicy sets ALPN `h2` explicitly, so a
+browser going from the homepage to an app could reuse the connection and get a
+404.
 
-- `family.<zone>` (the bare name) answers 200 with the list of family apps. The
-  wildcard listener does not cover it, so `envoy-family` has a third listener,
-  `https-landing`, with its own Certificate `family-landing-production`. It is
-  not a SAN on `family-production`: Envoy Gateway flags overlapping certificate
-  SANs between listeners, and the shared ClientTrafficPolicy sets ALPN `h2`
-  explicitly, so a browser could reuse a connection across the two names and
-  get a 404.
-- Any other name under `*.family.<zone>` (and the legacy `*.family.local.<zone>`)
-  answers 404 with the same list. The route's hostnames are the listeners'
-  wildcards, so an app's exact hostname is always the more specific match and
-  keeps winning.
-- On the LAN gateway, any other name under `*.local.<zone>` answers 404 with the
-  list of internal apps. The exact routes (Grafana, Jellyfin, Quilts, echo, Flux
-  webhook) win over it.
+The `network/fallback-pages` Kustomization serves small self-contained 404 pages
+straight from Envoy (Envoy Gateway `HTTPRouteFilter` `directResponse`, body from
+a ConfigMap built from the `.html` files in `fallback-pages/app/`):
+
+- Any name under `*.family.<zone>` (and the legacy `*.family.local.<zone>`) that
+  no app route claims answers 404, linking to the family home and the family
+  apps. The route's hostnames are the listeners' wildcards, so an app's exact
+  hostname is always the more specific match and keeps winning.
+- On the LAN gateway, any other name under `*.local.<zone>` answers 404, linking
+  to `home.<internal zone>` and the internal apps. The exact routes (Grafana,
+  Jellyfin, Quilts, echo, Flux webhook, the internal homepage) win over it.
 
 When an app is added, add a link to the pages it belongs on
-(`family-not-found.html` and `family-landing.html` for family apps,
-`internal-not-found.html` for LAN apps). The page body is an Envoy format string:
-keep percent signs out of it. `k8s-gateway` reads HTTPRoute hostnames, so the
-internal wildcard makes it answer unknown `*.local.<zone>` names with the
-`envoy-internal` address (the same address the Terraform wildcard record gives).
-The legacy wildcard likewise yields `envoy-family`'s ClusterIP, like every
-existing legacy name, which is why split DNS must not point `*.family` at it.
-- `family-apps` itself (this Service and its Flux Kustomizations) is specific to
-  this cluster and is not part of `template/`. `template/` has the
-  `envoy-family` Gateway with only the new-name listener, and `family-production`;
-  the legacy listener and Certificate are rendered only here, because for a
-  domain without a `local.` prefix the legacy and new names are identical.
-
-The gateway is a single persistent Tailscale node backed by a standalone proxy
-pod; its Kubernetes state Secret must be preserved. It is not the two-replica
-Services ProxyGroup. Existing Envoy backends retain two replicas.
+(`family-not-found.html` for family apps, `internal-not-found.html` for LAN
+apps). The page body is an Envoy format string: keep percent signs out of it.
+`k8s-gateway` reads HTTPRoute hostnames, so the internal wildcard makes it answer
+unknown `*.local.<zone>` names with the `envoy-internal` address (the same
+address the Terraform wildcard record gives). The legacy wildcard likewise
+yields `envoy-family`'s ClusterIP, like every existing legacy name, which is why
+split DNS must not point `*.family` at it.
 
 ## Device roles
 

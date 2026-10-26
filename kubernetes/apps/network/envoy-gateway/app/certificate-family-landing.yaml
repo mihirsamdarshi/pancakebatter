@@ -1,7 +1,7 @@
 ---
-# The bare family name (family.<zone>) for the https-landing listener. Rendered
-# only in this cluster, not in template/: the landing page lists this cluster's
-# apps. A Certificate of its own, not a SAN on family-production: both
+# The bare family name (family.<zone>) for the https-landing listener, where
+# the family homepage is served. Rendered only in this cluster, not in
+# template/. A Certificate of its own, not a SAN on family-production: both
 # listeners would then present overlapping SANs, which Envoy Gateway flags and
 # which lets h2 browsers coalesce connections across the two names.
 apiVersion: cert-manager.io/v1
