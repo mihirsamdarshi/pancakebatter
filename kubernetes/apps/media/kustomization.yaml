@@ -9,8 +9,8 @@ components:
 resources:
   - ./namespace.yaml
   - ./jellyfin/ks.yaml
+  - ./profilarr/ks.yaml
   - ./prowlarr/ks.yaml
   - ./radarr/ks.yaml
-  - ./recyclarr/ks.yaml
   - ./seerr/ks.yaml
   - ./sonarr/ks.yaml

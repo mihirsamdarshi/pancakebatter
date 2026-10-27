@@ -1,0 +1,131 @@
+---
+# Profilarr: keeps Sonarr and Radarr quality profiles, custom formats, naming,
+# quality sizes and delay profiles in step with a database (here the TRaSH
+# Guides port, Dictionarry-Hub/trash-pcd). Replaces Recyclarr. Internal route
+# only. AUTH=on: the first visitor to /auth/setup creates the admin account, so
+# open it right after the pod is ready (../../README.md).
+#
+# Runs as 568 directly: the image's entrypoint skips its root/su-exec path when
+# it is not uid 0 (it only creates /config subdirectories), so no root and no
+# privilege escalation. PUID/PGID are ignored in that mode; fsGroup handles
+# ownership of the PVC. /config holds copies of the Sonarr and Radarr API keys.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: profilarr
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: profilarr
+  interval: 1h
+  values:
+    defaultPodOptions:
+      # talos-02 had the lowest memory requests when this was written; keeps it
+      # off the GPU/family node (talos-01). The config PV lives on its disk.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - talos-02
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 568
+        runAsGroup: 568
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+    controllers:
+      profilarr:
+        # RWO config PV with a single SQLite writer: never two pods at once.
+        strategy: Recreate
+        containers:
+          app:
+            image:
+              repository: ghcr.io/dictionarry-hub/profilarr
+              tag: 2.3.1@sha256:352e42dec74ecfd68d13bb198fbc6d9346e3a8c55003026e1814e59319a2176d
+            env:
+              TZ: Etc/UTC
+              AUTH: "on"
+              ORIGIN: https://profilarr.${SECRET_DOMAIN_LOCAL}
+              PORT: "6868"
+              # Ignored when not started as root; set for the documented path.
+              PUID: "568"
+              PGID: "568"
+              UMASK: "002"
+              # No passwd entry for 568: give git (database clones) a writable HOME.
+              HOME: /config
+            probes:
+              # With AUTH=on /api/v1/health answers 303 to the setup or login
+              # page, which counts as success for an httpGet probe.
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/v1/health
+                    port: &port 6868
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/v1/health
+                    port: *port
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/v1/health
+                    port: *port
+                  periodSeconds: 5
+                  failureThreshold: 60
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+    service:
+      profilarr:
+        controller: profilarr
+        ports:
+          http:
+            port: *port
+    route:
+      profilarr:
+        hostnames:
+          - profilarr.${SECRET_DOMAIN_LOCAL}
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: profilarr
+                port: *port
+    persistence:
+      config:
+        type: persistentVolumeClaim
+        storageClass: local-retain
+        accessMode: ReadWriteOnce
+        size: 1Gi
+        retain: true
+        advancedMounts:
+          profilarr:
+            app:
+              - path: /config
