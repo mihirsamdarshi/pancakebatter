@@ -21,8 +21,11 @@ spec:
   interval: 1h
   values:
     defaultPodOptions:
-      # The GPU is on talos-01 only, and the state PVC lives on its disk.
-      runtimeClassName: nvidia
+      # The state PVC lives on talos-01's disk. The GPU is also there; the
+      # follow-up PR that enables the internal node adds back
+      # runtimeClassName: nvidia, the nvidia.com/gpu: 1 limit and
+      # NVIDIA_DRIVER_CAPABILITIES (compute,video,utility). The server alone
+      # needs no GPU slice.
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -62,14 +65,13 @@ spec:
               auth: "true"
               openBrowser: "false"
               maxLogSizeMB: "10"
-              NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
             probes:
+              # tcpSocket: GET / serves the whole UI.
               liveness: &probe
                 enabled: true
                 custom: true
                 spec:
-                  httpGet:
-                    path: /
+                  tcpSocket:
                     port: *webPort
                   periodSeconds: 30
                   timeoutSeconds: 5
@@ -79,8 +81,7 @@ spec:
                 enabled: true
                 custom: true
                 spec:
-                  httpGet:
-                    path: /
+                  tcpSocket:
                     port: *webPort
                   periodSeconds: 5
                   failureThreshold: 60
@@ -96,7 +97,6 @@ spec:
               limits:
                 cpu: 4
                 memory: 4Gi
-                nvidia.com/gpu: 1
     service:
       tdarr:
         controller: tdarr

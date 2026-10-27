@@ -7,8 +7,6 @@ spec:
   dependsOn:
     - name: local-path-provisioner
       namespace: storage
-    - name: nvidia-device-plugin
-      namespace: kube-system
   interval: 1h
   path: ./kubernetes/apps/media/tdarr/app
   postBuild:
