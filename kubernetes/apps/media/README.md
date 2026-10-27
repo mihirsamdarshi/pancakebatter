@@ -48,3 +48,14 @@ Radarr API keys, so treat it as secret-bearing.
 5. A sync creates or updates profiles; it does not assign them to existing
    series or movies. It also changes naming, quality sizes and delay profiles.
    Local score tweaks live in Profilarr's database, not in git.
+
+## Trawl (challenge solver for Prowlarr)
+
+Trawl is a FlareSolverr-compatible service for indexers behind Cloudflare
+challenges. It is cluster-internal only (ClusterIP on 8191, no route) and a
+network policy admits Prowlarr alone. In Prowlarr, Settings > Indexers, add an
+Indexer Proxy of type FlareSolverr with host
+`http://trawl.media.svc.cluster.local:8191` and a tag, then give that tag only
+to the indexers that need it.
+Trawl's egress allows only TCP 80 and 443 to the internet, so an indexer on
+another port will not work.
