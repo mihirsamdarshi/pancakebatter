@@ -1,0 +1,138 @@
+---
+# Public keys only; there is nothing to encrypt here. These are the signatures
+# source-controller accepts on the HEAD commit of main (the FluxInstance in
+# helmrelease.yaml patches GitRepository/flux-system with spec.verify.mode: HEAD
+# and this Secret). A revision whose HEAD is not signed by one of these keys is
+# rejected before it becomes an artifact: the last verified revision stays
+# applied and the GitRepository turns Not Ready (SourceVerified=False) until a
+# signed commit lands or this list is updated. `flux get sources git -n
+# flux-system` shows it; see observability/kube-prometheus-stack for the alert.
+#
+# What this stops: a plain `git push` to main made with a stolen GitHub
+# credential but without one of these signing keys. Accepted residual: commits
+# GitHub itself creates for a credential through its UI or API (a pull request
+# merge, the contents or GraphQL commit endpoints) carry the web-flow signature
+# below, so a stolen credential that goes through a pull request still lands.
+# The ruleset on main only adds the pull request and green checks to that
+# path; the owner's own credential bypasses it, and a compromised Renovate
+# token could open and merge its own PR.
+#
+#   owner.asc            GPG key F361E9BEF41F8AA4 (signing subkey 1AC30C411413E9DD),
+#                        the copy GitHub serves, valid to 2030-05-27, reduced to
+#                        one UID. Direct pushes; GitButler and git must keep
+#                        commit signing on.
+#   github-web-flow.asc  GitHub's key B5690EEEBB952194 (no expiry), which signs
+#                        the squash and merge commits GitHub creates for pull
+#                        requests, Renovate's included.
+#
+# Update: curl https://github.com/mihirsamdarshi.gpg (then export only the key
+# with the wanted UID) and https://github.com/web-flow.gpg (export only the
+# current key). Check the list whenever GitHub rotates its key or the owner's
+# key is renewed or replaced.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: flux-git-signing-keys
+  annotations:
+    # Deleting this file must not take the Secret away under the
+    # GitRepository that requires it.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+type: Opaque
+stringData:
+  owner.asc: |
+    -----BEGIN PGP PUBLIC KEY BLOCK-----
+
+    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
+    =dB5R
+    -----END PGP PUBLIC KEY BLOCK-----
+  github-web-flow.asc: |
+    -----BEGIN PGP PUBLIC KEY BLOCK-----
+
+    mQINBGWmxXYBEACyN+4viFQM6QQoKr0A2W0rGdMobTJwOZso2QPpewbyBsuL3rNW
+    5OmHrWwXAhPKNqUIyOzdq8MoSxoTTuqLksoahixEL/X2nyhOBxR9GkYz/oI9R3nY
+    cLRaFQoSJoVfOt61opkLUzbWAehpbgT8EKln8JsENq0+0nDlWQi0h2Q9oGmqlgVz
+    skwmVZ8Leyv4Mg7hN6swyZ7moZfkkpD5+U7Z2XVurCzkSSfg4zb2lMRLJos2eCAc
+    749ECsX0t7OBftF+YqgjIXixXsm2RrUqvU47OkOtZeAhvAYenbC3pr9Fha5NxoBU
+    Ea+11MK9W6OcRhwvxVCUrMUR6FTSZyC//VpXTTtrRlOqpU5wGMbP3zpn9geqOXCl
+    8rF7+1gAPG/o+QFQTBsVEruwi4JWogiQuQyOwAIlFe/7dvaxWZGpv/yW2+L3guL7
+    xaHKFVGsayhlitQQ5Xa+P1iSgKSXDyReCbWotfqAempPySI25LHh3ScXI6NgdHSr
+    SBaFojwAfgxbPTEQ6adIsKHCQofrnLrNa3UOeGDGiOOK0aYV3jiEDGAouatkNf2q
+    85Eosj1f9laCqAH3YLJD7dcSne1iChK5qRTByMvIyeSD0NbNnVMFOGpXySyWtKb2
+    ldpu8AWBQJsJs9FmYBcWAGBA2pp+IxaCn6rBIHIsUVFRN8OVZKsEsBkWywARAQAB
+    tBtHaXRIdWIgPG5vcmVwbHlAZ2l0aHViLmNvbT6JAk4EEwEKADgWIQSWhHmhr/kn
+    430aVmu1aQ7uu5UhlAUCZabFdgIbAwULCQgHAgYVCgkICwIEFgIDAQIeAQIXgAAK
+    CRC1aQ7uu5UhlIMuEAClvVwC+Neoiq0AdixJZsagKHpx1QrMJWrtMRi4eXVTTaeX
+    +P1unhC/AmSO4Xxd3uRoejHvfWh4F0gitUJ8XKgiejnmuGcq7Dbt5OoO1JuXGlW2
+    BQ+MiGoYVw2B0sOhWDNrIBWOO/WL4LykcGnAtrRXwoS0Wx4MCydztXQY5lcnCWaW
+    8rvu7WmduoOikH4HI97rqN5896dc4iBKSx8LZf+46DRCCD/5SfACplBz4hs5zen8
+    TL8zd+zxjFrXbzota0jSDEGK9WGO4z55S2xScC6zv6v3Bj1OR8Bs5aodGtmamHZ7
+    sE9w0RJoCfNx+9cR/rE82SrOaBpVU7urLe4lg7zaaNhqDdNV8ymuXGmIJarDgrme
+    iB5bHS+dLFzLUkTgot4RFlPa9bFiJuJN6Tc9tMu5RJQ9l/zKmxDHIKWsAle5R65u
+    zEq04LugTQBdEorGxfQCsF2ga9ncKTDMiAThWTvZpOP3NJ/athZRmOBpG4B9iR6r
+    pRU8F/+MokG4fIMwnvtOhWQFiEzdTkJ7U5JAkPtTAmT3/mznwtPEU7DrFWSGAdqg
+    IMOlxNCBeGvjwLR0qGH7cB9qHDGNoDLkjaUFpu5tPv4/ivkQaHlHJxjT0ILM6jet
+    CAzKpKh48rm65tmrJX6KVpj0r2kKMscFf7s7XaPlCNCFds/YA+0puPbzJKWKfA==
+    =NRlX
+    -----END PGP PUBLIC KEY BLOCK-----

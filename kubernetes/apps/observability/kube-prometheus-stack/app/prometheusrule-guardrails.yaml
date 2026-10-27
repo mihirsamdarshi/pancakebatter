@@ -64,6 +64,22 @@ spec:
           annotations:
             summary: "Prometheus deleted blocks because of retentionSize (8 GB), not time"
             description: "Effective retention is now shorter than 30 d."
+    - name: guardrails.flux
+      rules:
+        # flux-operator exports flux_resource_info for every Flux object
+        # (its ServiceMonitor). A GitRepository that stays not ready means no
+        # new revision is being applied: a fetch error, or a HEAD commit that
+        # fails spec.verify (unsigned, or signed by a key missing from
+        # flux-system/flux-git-signing-keys). The cluster keeps running the
+        # last good revision, so this is otherwise silent.
+        - alert: FluxGitRepositoryNotReady
+          expr: flux_resource_info{kind="GitRepository", ready!="True"} == 1
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "GitRepository {{ $labels.exported_namespace }}/{{ $labels.name }} has not been ready for 10 minutes"
+            description: "Nothing from that source is applied until it recovers. `flux get sources git -A` shows the reason; SourceVerified=False means the HEAD commit's signature was rejected."
     - name: guardrails.storage
       rules:
         - alert: LocalPathFilling
