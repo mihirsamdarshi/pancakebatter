@@ -1,0 +1,92 @@
+---
+# Unpackerr: polls Sonarr and Radarr queues and extracts RAR'd torrents in
+# place so the *arrs can import them. No Service or route: the web UI/API
+# listener is turned off and it only makes outbound calls to the *arrs.
+# Extracted files are real copies (no hardlink), so a packed release uses about
+# twice the space until qBittorrent removes the torrent.
+#
+# Stateless: the API keys come from the existing sonarr-secret and
+# radarr-secret in this namespace (no new secret).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: unpackerr
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: unpackerr
+  interval: 1h
+  values:
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 568
+        runAsGroup: 568
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+    controllers:
+      unpackerr:
+        containers:
+          app:
+            image:
+              repository: ghcr.io/unpackerr/unpackerr
+              # 0.16.1, not 1.0.0: 1.0.0 shipped with config bugs (Unpackerr/unpackerr#831).
+              tag: 0.16.1@sha256:406586865431b40b29353d899fb75a788f5384743f7f381444db5fe55d206914
+            env:
+              TZ: Etc/UTC
+              # No HTTP server: 0.16 starts one only when metrics are on (off by
+              # default). 1.x adds a web UI; re-check this when moving to 1.x.
+              UN_WEBSERVER_LISTEN_ADDR: ""
+              UN_SONARR_0_URL: http://sonarr.media.svc.cluster.local:8989
+              UN_SONARR_0_API_KEY:
+                valueFrom:
+                  secretKeyRef:
+                    name: sonarr-secret
+                    key: SONARR__AUTH__APIKEY
+              UN_SONARR_0_PATHS_0: /data/downloads/completed
+              # Both spellings: newer Sonarr/Radarr report "TorrentDownloadProtocol".
+              UN_SONARR_0_PROTOCOLS: torrent,TorrentDownloadProtocol
+              UN_RADARR_0_URL: http://radarr.media.svc.cluster.local:7878
+              UN_RADARR_0_API_KEY:
+                valueFrom:
+                  secretKeyRef:
+                    name: radarr-secret
+                    key: RADARR__AUTH__APIKEY
+              UN_RADARR_0_PATHS_0: /data/downloads/completed
+              UN_RADARR_0_PROTOCOLS: torrent,TorrentDownloadProtocol
+            # No probes: there is no listener to probe.
+            probes:
+              liveness:
+                enabled: false
+              readiness:
+                enabled: false
+              startup:
+                enabled: false
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 1Gi
+    persistence:
+      # The whole Media export at the path Sonarr and Radarr report.
+      data:
+        type: persistentVolumeClaim
+        existingClaim: unpackerr-data
+        advancedMounts:
+          unpackerr:
+            app:
+              - path: /data
+      tmp:
+        type: emptyDir
+        sizeLimit: 256Mi
+        advancedMounts:
+          unpackerr:
+            app:
+              - path: /tmp

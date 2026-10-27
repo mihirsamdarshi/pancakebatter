@@ -16,3 +16,4 @@ resources:
   - ./sonarr/ks.yaml
   - ./tdarr/ks.yaml
   - ./trawl/ks.yaml
+  - ./unpackerr/ks.yaml
