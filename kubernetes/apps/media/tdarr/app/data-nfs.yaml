@@ -1,0 +1,39 @@
+---
+# Static PV so the NFS mount options are explicit. Only the Media/tdarr
+# subdirectory is exported to this pod (read-write): during the test phase
+# Tdarr cannot see, let alone change, the real library. The directory
+# (with test-in and test-out) must exist on TrueNAS, owned by apps (568).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: tdarr-data
+spec:
+  capacity:
+    storage: 1Ti
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.2
+    - hard
+    - noatime
+  nfs:
+    server: 192.168.10.75
+    path: /mnt/nasty/Media/tdarr
+  claimRef:
+    namespace: media
+    name: tdarr-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tdarr-data
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: tdarr-data
+  resources:
+    requests:
+      storage: 1Ti

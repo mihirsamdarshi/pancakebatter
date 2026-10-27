@@ -62,6 +62,13 @@
       allowedVersions: "<5",
     },
     {
+      // 3.x is young and moves fast; review every Tdarr update by hand.
+      description: "Tdarr is never automerged",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["ghcr.io/haveagitgat/tdarr"],
+      automerge: false,
+    },
+    {
       matchUpdateTypes: ["major"],
       addLabels: ["type/major"],
     },

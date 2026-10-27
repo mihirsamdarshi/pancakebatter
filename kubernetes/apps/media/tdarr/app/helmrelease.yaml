@@ -1,0 +1,150 @@
+---
+# First deploy: the Tdarr server only, behind no route.
+#  - internalNode=false: no transcoding happens yet. Authentication is on
+#    (auth=true), so every node needs an API key.
+#  - Bootstrap, by the user: `kubectl -n media port-forward svc/tdarr 8265`,
+#    open http://localhost:8265, create the admin account straight away (until
+#    one exists, whoever can reach the UI can claim the server), then create
+#    an API key in the UI.
+#  - The key goes into a SOPS secret in a follow-up PR, which also sets
+#    apiKey and internalNode=true. Do not put the key in this file.
+#  - The transcode window (04:00-10:00) is a node schedule set in the UI;
+#    TZ below makes it local time.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tdarr
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: tdarr
+  interval: 1h
+  values:
+    defaultPodOptions:
+      # The GPU is on talos-01 only, and the state PVC lives on its disk.
+      runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - talos-01
+      # Tdarr 3.01+ runs as any uid: PUID/PGID are ignored and nothing is
+      # chowned. A uid other than 1000 needs group 0 and a /run tmpfs.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 568
+        runAsGroup: 568
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        supplementalGroups:
+          - 0
+    controllers:
+      tdarr:
+        # RWO state volume and (later) one GPU: no overlapping pods.
+        strategy: Recreate
+        containers:
+          app:
+            image:
+              repository: ghcr.io/haveagitgat/tdarr
+              tag: 3.03.00@sha256:2eaa0bf43703f61cb72c63980f4799ece6ead372508891f69e5a1441c110b442
+            env:
+              TZ: America/Los_Angeles
+              UMASK: "002"
+              serverIP: 0.0.0.0
+              serverPort: &serverPort 8266
+              webUIPort: &webPort 8265
+              internalNode: "false"
+              inContainer: "true"
+              auth: "true"
+              openBrowser: "false"
+              maxLogSizeMB: "10"
+              NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+            probes:
+              liveness: &probe
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: *webPort
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness: *probe
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: *webPort
+                  periodSeconds: 5
+                  failureThreshold: 60
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: 500m
+                memory: 1Gi
+              limits:
+                cpu: 4
+                memory: 4Gi
+                nvidia.com/gpu: 1
+    service:
+      tdarr:
+        controller: tdarr
+        ports:
+          http:
+            port: *webPort
+          server:
+            port: *serverPort
+    persistence:
+      # One 2Gi claim with three subPaths: one volume to retain and back up,
+      # and the three directories cannot drift apart.
+      state:
+        type: persistentVolumeClaim
+        storageClass: local-retain
+        accessMode: ReadWriteOnce
+        size: 2Gi
+        retain: true
+        advancedMounts:
+          tdarr:
+            app:
+              - path: /app/server
+                subPath: server
+              - path: /app/configs
+                subPath: configs
+              - path: /app/logs
+                subPath: logs
+      # Test library only: /data/tdarr/test-in (source) and test-out (output).
+      data:
+        type: persistentVolumeClaim
+        existingClaim: tdarr-data
+        advancedMounts:
+          tdarr:
+            app:
+              - path: /data/tdarr
+      run:
+        type: emptyDir
+        medium: Memory
+        advancedMounts:
+          tdarr:
+            app:
+              - path: /run
+      # Transcode scratch on the node's local disk, not on the HDD pool.
+      # talos-01's local-path disk is 69 GB and shares it with Jellyfin's
+      # 20Gi transcode cap; 15Gi leaves room. Exceeding it evicts the pod.
+      temp:
+        type: emptyDir
+        sizeLimit: 15Gi
+        advancedMounts:
+          tdarr:
+            app:
+              - path: /temp
