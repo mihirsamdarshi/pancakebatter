@@ -1,18 +1,25 @@
 ---
-# First deploy: the Tdarr server only, behind no route.
-#  - internalNode=false: no transcoding happens yet. Authentication is on
-#    (auth=true), so every node needs an API key.
-#  - Login: the secret tdarr-secret (SOPS) seeds the admin user at first start:
+# Server plus the internal node (the only node), on talos-01 with one GPU slice.
+#  - Login: the secret tdarr-secret (SOPS) seeded the admin user at first start:
 #    user `admin`, password = the seeded key (seededApiKey, format tapi_...).
-#    The server only creates it while no users exist, so there is no window
-#    to claim the server. Read the key with:
+#    Read the key with:
 #    sops -d --extract '["stringData"]["seededApiKey"]' kubernetes/apps/media/tdarr/app/secret.sops.yaml
-#    Reach the UI with `kubectl -n media port-forward svc/tdarr 8265`.
-#  - The same key is also a valid API key for nodes. The follow-up PR sets
-#    apiKey from tdarr-secret and internalNode=true. Changing the admin
-#    password later does not change the key.
-#  - The transcode window (04:00-10:00) is a node schedule set in the UI;
-#    TZ below makes it local time.
+#  - The internal node authenticates with the same key: env apiKey comes from
+#    tdarr-secret/seededApiKey (docs: a seeded key is valid as a node key; the
+#    env var overrides the node config file). Changing the admin password
+#    later does not change the key.
+#  - Workers are seeded by env on the node's first start (documented env vars
+#    transcodegpuWorkers / transcodecpuWorkers / healthcheckgpuWorkers /
+#    healthcheckcpuWorkers, added in Tdarr 2.21.01): 1 GPU transcode,
+#    0 CPU transcode, 0 GPU health check, 1 CPU health check. They can be
+#    changed later in the UI.
+#  - The 04:00-10:00 transcode window has NO env or file setting: it is the
+#    node schedule in the UI (Nodes tab, the node's Options -> Schedule),
+#    stored in the server database. TZ below makes the pod clock local time;
+#    Tdarr schedules follow the server clock. One-time steps after the node
+#    registers: untick every hour except 04, 05, 06, 07, 08 and 09 on every
+#    day, so workers run only 04:00-10:00. Check the server time on the
+#    dashboard first.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -24,11 +31,9 @@ spec:
   interval: 1h
   values:
     defaultPodOptions:
-      # The state PVC lives on talos-01's disk. The GPU is also there; the
-      # follow-up PR that enables the internal node adds back
-      # runtimeClassName: nvidia, the nvidia.com/gpu: 1 limit and
-      # NVIDIA_DRIVER_CAPABILITIES (compute,video,utility). The server alone
-      # needs no GPU slice.
+      # The state PVC and the GPU are both on talos-01. The GPU is time-sliced
+      # (2 slices): Jellyfin holds one, the internal node the other.
+      runtimeClassName: nvidia
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -50,7 +55,7 @@ spec:
           - 0
     controllers:
       tdarr:
-        # RWO state volume and (later) one GPU: no overlapping pods.
+        # RWO state volume and one GPU slice: no overlapping pods.
         strategy: Recreate
         containers:
           app:
@@ -63,11 +68,22 @@ spec:
               serverIP: 0.0.0.0
               serverPort: &serverPort 8266
               webUIPort: &webPort 8265
-              internalNode: "false"
+              internalNode: "true"
+              nodeName: talos-01-gpu
+              transcodegpuWorkers: "1"
+              transcodecpuWorkers: "0"
+              healthcheckgpuWorkers: "0"
+              healthcheckcpuWorkers: "1"
+              NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
               inContainer: "true"
               auth: "true"
               openBrowser: "false"
               maxLogSizeMB: "10"
+              apiKey:
+                valueFrom:
+                  secretKeyRef:
+                    name: tdarr-secret
+                    key: seededApiKey
             envFrom:
               - secretRef:
                   name: tdarr-secret
@@ -103,6 +119,7 @@ spec:
               limits:
                 cpu: 4
                 memory: 4Gi
+                nvidia.com/gpu: 1
     service:
       tdarr:
         controller: tdarr
