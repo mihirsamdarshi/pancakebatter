@@ -59,3 +59,34 @@ Indexer Proxy of type FlareSolverr with host
 to the indexers that need it.
 Trawl's egress allows only TCP 80 and 443 to the internet, so an indexer on
 another port will not work.
+
+## Backups
+
+Every app here except Trawl (no state) has its config volume backed up each
+night by the `volsync` component: restic to the TrueNAS share
+`Backups/volsync`, 7 daily snapshots plus the component's weekly and monthly
+ones. Apps with SQLite databases also use `sqlite-export`, which writes a
+consistent copy of each database ten minutes before the backup. Only the config
+volumes are backed up, not the TrueNAS Media share they mount. The restore and
+first-backup steps are in `kubernetes/components/volsync/README.md`.
+
+Each app has its own slot, 15 minutes apart, so the movers never overlap. Times
+are UTC (10:00 is 03:00 Pacific in summer). Tdarr is first on purpose: its
+transcode window opens at 04:00 Pacific (11:00 UTC or later) and its database
+is busiest then.
+
+| App           | Namespace     | Export | Backup | Exported databases                  |
+| ------------- | ------------- | ------ | ------ | ----------------------------------- |
+| jellyfin      | media         | 09:50  | 10:00  | `data/jellyfin.db`                  |
+| quilt-planner | quilt-planner | 10:05  | 10:15  | `quilt.db`                          |
+| tdarr         | media         | 10:20  | 10:30  | `server/Tdarr/DB2/SQL/database.db`  |
+| sonarr        | media         | 10:35  | 10:45  | `sonarr.db`, `logs.db`              |
+| radarr        | media         | 10:50  | 11:00  | `radarr.db`, `logs.db`              |
+| prowlarr      | media         | 11:05  | 11:15  | `prowlarr.db`, `logs.db`            |
+| seerr         | media         | 11:20  | 11:30  | `db/db.sqlite3`                     |
+| profilarr     | media         | 11:35  | 11:45  | `data/profilarr.db`                 |
+| qbittorrent   | downloads     | 11:50  | 12:00  | `qBittorrent/torrents.db`           |
+
+The next free slot is export 12:05, backup 12:15. The volume claim for each app
+is named after its release because the chart creates only one PVC per app: if a
+second PVC is ever added, the name changes and `VOLSYNC_CLAIM` must follow.

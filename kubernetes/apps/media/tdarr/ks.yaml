@@ -9,9 +9,23 @@ spec:
       namespace: storage
     - name: nvidia-device-plugin
       namespace: kube-system
+    - name: volsync
+      namespace: volsync-system
   interval: 1h
   path: ./kubernetes/apps/media/tdarr/app
   postBuild:
+    substitute:
+      APP: tdarr
+      # The chart's only PVC, so it is named after the release.
+      VOLSYNC_CLAIM: tdarr
+      VOLSYNC_NAMESPACE: media
+      VOLSYNC_SCHEDULE: "30 10 * * *"
+      # Tdarr's database (queue, library and file records) is SQLite; the volume
+      # root holds server/, configs/ and logs/ (the subPaths of the state claim).
+      # This slot is early on purpose: the transcode window opens at 04:00 Pacific
+      # (11:00 UTC or later), when the database is busiest.
+      SQLITE_DBS: server/Tdarr/DB2/SQL/database.db
+      SQLITE_SCHEDULE: "20 10 * * *"
     substituteFrom:
       - name: cluster-secrets
         kind: Secret

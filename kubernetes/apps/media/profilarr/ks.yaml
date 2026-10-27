@@ -7,9 +7,22 @@ spec:
   dependsOn:
     - name: local-path-provisioner
       namespace: storage
+    - name: volsync
+      namespace: volsync-system
   interval: 1h
   path: ./kubernetes/apps/media/profilarr/app
   postBuild:
+    substitute:
+      APP: profilarr
+      # The chart's only PVC, so it is named after the release.
+      VOLSYNC_CLAIM: profilarr
+      VOLSYNC_NAMESPACE: media
+      VOLSYNC_SCHEDULE: "45 11 * * *"
+      # Profilarr's settings, Arr instances and API keys are in this SQLite file.
+      # Its docs warn that a copy of the live file can catch it halfway through a
+      # write. Its own daily archive in backups/ is in the volume too.
+      SQLITE_DBS: data/profilarr.db
+      SQLITE_SCHEDULE: "35 11 * * *"
     substituteFrom:
       - name: cluster-secrets
         kind: Secret
