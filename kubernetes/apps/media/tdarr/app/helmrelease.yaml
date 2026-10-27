@@ -2,12 +2,15 @@
 # First deploy: the Tdarr server only, behind no route.
 #  - internalNode=false: no transcoding happens yet. Authentication is on
 #    (auth=true), so every node needs an API key.
-#  - Bootstrap, by the user: `kubectl -n media port-forward svc/tdarr 8265`,
-#    open http://localhost:8265, create the admin account straight away (until
-#    one exists, whoever can reach the UI can claim the server), then create
-#    an API key in the UI.
-#  - The key goes into a SOPS secret in a follow-up PR, which also sets
-#    apiKey and internalNode=true. Do not put the key in this file.
+#  - Login: the secret tdarr-secret (SOPS) seeds the admin user at first start:
+#    user `admin`, password = the seeded key (seededApiKey, format tapi_...).
+#    The server only creates it while no users exist, so there is no window
+#    to claim the server. Read the key with:
+#    sops -d --extract '["stringData"]["seededApiKey"]' kubernetes/apps/media/tdarr/app/secret.sops.yaml
+#    Reach the UI with `kubectl -n media port-forward svc/tdarr 8265`.
+#  - The same key is also a valid API key for nodes. The follow-up PR sets
+#    apiKey from tdarr-secret and internalNode=true. Changing the admin
+#    password later does not change the key.
 #  - The transcode window (04:00-10:00) is a node schedule set in the UI;
 #    TZ below makes it local time.
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -65,6 +68,9 @@ spec:
               auth: "true"
               openBrowser: "false"
               maxLogSizeMB: "10"
+            envFrom:
+              - secretRef:
+                  name: tdarr-secret
             probes:
               # tcpSocket: GET / serves the whole UI.
               liveness: &probe

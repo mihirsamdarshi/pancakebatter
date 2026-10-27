@@ -5,3 +5,4 @@ resources:
   - ./helmrelease.yaml
   - ./ocirepository.yaml
   - ./data-nfs.yaml
+  - ./secret.sops.yaml
