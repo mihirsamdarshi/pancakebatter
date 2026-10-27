@@ -1,0 +1,51 @@
+---
+# Selecting the pod turns on default-deny in both directions. Trawl has no
+# authentication, so only Prowlarr may reach it. Replies to allowed
+# connections are stateful and need no egress rule. Egress goes straight to
+# the internet (indexer sites), not through the VPN, the same as Prowlarr.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: trawl
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: trawl
+  ingress:
+    # Prowlarr's FlareSolverr-type indexer proxy.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: media
+            app.kubernetes.io/name: prowlarr
+      toPorts:
+        - ports:
+            - port: "8191"
+              protocol: TCP
+    # Kubelet probes come from the node.
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "8191"
+              protocol: TCP
+  egress:
+    # Cluster DNS.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # The indexer sites being solved.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP
