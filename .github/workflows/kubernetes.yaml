@@ -5,25 +5,19 @@ name: "Kubernetes"
 # Runs scripts/validate-kubernetes.sh. Flux reconciles main right away, so on
 # push to main this is an after-the-fact signal; run `just template configure`
 # (or the script) locally before pushing kubernetes/ changes.
+#
+# No `paths` filter on the triggers: the ruleset on main requires the
+# "Kubernetes - Success" check, and a required check can only be satisfied
+# when the workflow reports on every pull request. The filter job decides
+# whether the validation itself has to run; when nothing relevant changed it
+# is skipped and the gate still passes.
 on:
   pull_request:
     branches:
       - main
-    paths:
-      - kubernetes/**
-      - scripts/validate-kubernetes.sh
-      - .github/workflows/kubernetes.yaml
-      - .mise/config.toml
-      - .mise/mise.lock
   push:
     branches:
       - main
-    paths:
-      - kubernetes/**
-      - scripts/validate-kubernetes.sh
-      - .github/workflows/kubernetes.yaml
-      - .mise/config.toml
-      - .mise/mise.lock
 
 # Every push to main gets its own run; only superseded PR runs are cancelled.
 concurrency:
@@ -33,11 +27,34 @@ concurrency:
 permissions: {}
 
 jobs:
+  filter:
+    name: Kubernetes - Filter
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # list the changed files
+    outputs:
+      changed-files: ${{ steps.changed-files.outputs.changed_files }}
+    steps:
+      - name: Get Changed Files
+        id: changed-files
+        uses: bjw-s-labs/action-changed-files@147be9638332cf68fd60714a610509d7a9360d60 # v0.7.0
+        with:
+          # A deleted manifest is a change too.
+          include_deleted_files: "true"
+          patterns: |-
+            kubernetes/**/*
+            scripts/validate-kubernetes.sh
+            .github/workflows/kubernetes.yaml
+            .mise/config.toml
+            .mise/mise.lock
+
   validate:
+    if: ${{ needs.filter.outputs.changed-files != '[]' }}
+    needs: filter
     name: validate
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: read # checkout
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,3 +70,21 @@ jobs:
 
       - name: Validate manifests
         run: bash scripts/validate-kubernetes.sh
+
+  # The required status check. always(): a cancelled run must not leave the
+  # gate skipped, which GitHub would count as passing. It fails when the
+  # filter or the validation failed or was cancelled and passes when
+  # the validation was skipped.
+  success:
+    if: ${{ always() }}
+    needs: [filter, validate]
+    name: Kubernetes - Success
+    runs-on: ubuntu-latest
+    steps:
+      - name: Any jobs failed or cancelled?
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+
+      - name: All jobs passed or skipped?
+        if: ${{ !(contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+        run: echo "All jobs passed or skipped"

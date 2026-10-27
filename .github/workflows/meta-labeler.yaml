@@ -6,15 +6,22 @@ on:
   pull_request:
     branches: ["main"]
 
-permissions:
-  checks: write
-  contents: read
-  pull-requests: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
 
 jobs:
   labeler:
     name: Labeler
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # read .github/labeler.yaml
+      # The token is read-only for pull requests from forks (pull_request, not
+      # pull_request_target), so those stay unlabelled rather than this
+      # workflow running with write access on untrusted input.
+      pull-requests: write # apply the area labels
     steps:
       - name: Labeler
         uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0

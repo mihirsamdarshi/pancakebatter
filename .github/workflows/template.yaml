@@ -4,42 +4,58 @@ name: "Template"
 
 # Upstream's template-e2e workflow only runs in onedr0p/cluster-template, and
 # rendering here needs the age key, so this covers the validator only.
+#
+# No `paths` filter on the triggers: the ruleset on main requires the
+# "Template - Success" check, and a required check can only be satisfied when
+# the workflow reports on every pull request. The filter job decides whether
+# the tests themselves have to run; when nothing relevant changed they are
+# skipped and the gate still passes.
 on:
   pull_request:
     branches:
       - main
-    paths:
-      - template/**
-      - .github/template-tests/**
-      - .github/workflows/template.yaml
-      - cluster.sample.toml
-      - cluster.schema.json
-      - pyproject.toml
-      - uv.lock
   push:
     branches:
       - main
-    paths:
-      - template/**
-      - .github/template-tests/**
-      - .github/workflows/template.yaml
-      - cluster.sample.toml
-      - cluster.schema.json
-      - pyproject.toml
-      - uv.lock
 
+# Every push to main gets its own run; only superseded PR runs are cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
 
 jobs:
+  filter:
+    name: Template - Filter
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # list the changed files
+    outputs:
+      changed-files: ${{ steps.changed-files.outputs.changed_files }}
+    steps:
+      - name: Get Changed Files
+        id: changed-files
+        uses: bjw-s-labs/action-changed-files@147be9638332cf68fd60714a610509d7a9360d60 # v0.7.0
+        with:
+          # A deleted file is a change too.
+          include_deleted_files: "true"
+          patterns: |-
+            template/**/*
+            .github/template-tests/**/*
+            .github/workflows/template.yaml
+            cluster.sample.toml
+            cluster.schema.json
+            pyproject.toml
+            uv.lock
+
   validator-tests:
+    if: ${{ needs.filter.outputs.changed-files != '[]' }}
+    needs: filter
     name: validator-tests
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: read # checkout
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,3 +76,21 @@ jobs:
         run: |
           uv run --quiet --locked --no-dev ./template/scripts/validate.py --schema > /tmp/schema.json
           python3 -c 'import json,sys; a,b=(json.load(open(p)) for p in sys.argv[1:]); sys.exit(a!=b)' /tmp/schema.json cluster.schema.json
+
+  # The required status check. always(): a cancelled run must not leave the
+  # gate skipped, which GitHub would count as passing. It fails when the
+  # filter or the tests failed or were cancelled and passes when the tests
+  # were skipped.
+  success:
+    if: ${{ always() }}
+    needs: [filter, validator-tests]
+    name: Template - Success
+    runs-on: ubuntu-latest
+    steps:
+      - name: Any jobs failed or cancelled?
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+
+      - name: All jobs passed or skipped?
+        if: ${{ !(contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+        run: echo "All jobs passed or skipped"
