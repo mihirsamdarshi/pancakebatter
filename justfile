@@ -23,6 +23,11 @@ mod? dns 'terraform/dns'
 [group('tailscale')]
 mod? tailscale 'kubernetes/apps/tailscale'
 
+[doc('Check the local agent notes in docs/agents (front matter, freshness, links)')]
+[group('docs')]
+docs-check *args:
+    if [[ -x docs/agents/scripts/docs-check.py ]]; then docs/agents/scripts/docs-check.py {{ args }}; else echo "docs/agents is not present in this checkout" >&2; fi
+
 [private]
 log lvl msg *args:
     gum log -t rfc3339 -s -l "{{ lvl }}" "{{ msg }}" {{ args }}
