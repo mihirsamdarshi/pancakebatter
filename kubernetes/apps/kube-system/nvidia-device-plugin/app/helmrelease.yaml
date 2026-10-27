@@ -22,6 +22,35 @@ spec:
               kind: DaemonSet
               metadata:
                 name: nvidia-device-plugin-mps-control-daemon
+          # The chart has no values key for the config-manager containers
+          # that time-slicing adds, so set their resources here.
+          - target:
+              kind: DaemonSet
+              name: nvidia-device-plugin
+            patch: |
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata:
+                name: nvidia-device-plugin
+              spec:
+                template:
+                  spec:
+                    initContainers:
+                      - name: nvidia-device-plugin-init
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 16Mi
+                          limits:
+                            memory: 64Mi
+                    containers:
+                      - name: nvidia-device-plugin-sidecar
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 16Mi
+                          limits:
+                            memory: 64Mi
   values:
     runtimeClassName: nvidia
     # Replaces the chart's NFD-label affinity, which matches nothing here.
@@ -33,7 +62,21 @@ spec:
             - matchExpressions:
                 - key: extensions.talos.dev/nvidia-container-toolkit-lts
                   operator: Exists
-    # One GPU, one consumer: no time-slicing or sharing config.
+    # Time-slicing: the one GPU is advertised as two, so Jellyfin and Tdarr
+    # can both use it. There is no VRAM isolation (4 GB is shared). A request
+    # for more than one slice fails instead of silently getting one.
+    config:
+      default: ts
+      map:
+        ts: |-
+          version: v1
+          sharing:
+            timeSlicing:
+              failRequestsGreaterThanOne: true
+              renameByDefault: false
+              resources:
+                - name: nvidia.com/gpu
+                  replicas: 2
     gfd:
       enabled: false
     nfd:
