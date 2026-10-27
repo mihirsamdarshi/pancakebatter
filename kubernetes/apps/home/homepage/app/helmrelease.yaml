@@ -218,6 +218,11 @@ spec:
                     href: https://radarr.${SECRET_DOMAIN_LOCAL}
                     siteMonitor: https://radarr.${SECRET_DOMAIN_LOCAL}
                     description: Movies
+                - Profilarr:
+                    icon: profilarr.png
+                    href: https://profilarr.${SECRET_DOMAIN_LOCAL}
+                    siteMonitor: https://profilarr.${SECRET_DOMAIN_LOCAL}
+                    description: Quality profiles
                 - Prowlarr:
                     icon: prowlarr.png
                     href: https://prowlarr.${SECRET_DOMAIN_LOCAL}

@@ -10,7 +10,7 @@
 #    in front of Seerr), set the application URL to the internal hostname.
 #  - Settings > Services: add Sonarr (http://sonarr.media.svc.cluster.local:8989)
 #    and Radarr (http://radarr.media.svc.cluster.local:7878) with their API
-#    keys, and the quality profiles Recyclarr created.
+#    keys, and the quality profiles Profilarr synced.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
