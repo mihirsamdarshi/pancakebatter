@@ -5,3 +5,10 @@ metadata:
   name: kube-system
   annotations:
     kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # Pod Security. Cilium, the device plugin, Spegel and the static control
+    # plane pods need host namespaces, hostPath and privileged, so this stays
+    # privileged on purpose (explicit, no longer by omission).
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+    pod-security.kubernetes.io/audit: privileged

@@ -5,3 +5,8 @@ metadata:
   name: cert-manager
   annotations:
     kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # Pod Security. The Talos config drops the cluster-wide default, so only
+    # these labels apply. A server-side dry run on October 27, 2026 found no
+    # pod here outside the restricted profile.
+    pod-security.kubernetes.io/enforce: restricted

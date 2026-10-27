@@ -134,3 +134,22 @@ spec:
             target:
               kind: Deployment
               name: kustomize-controller
+          - # Only apply revisions whose HEAD commit is signed by a key in
+            # git-signing-keys.yaml. The operator renders the sync
+            # GitRepository into the same kustomization as the controllers,
+            # so this patch reaches it. An unsigned push leaves the last
+            # verified revision applied and marks the GitRepository Not
+            # Ready until a signed commit lands.
+            patch: |-
+              apiVersion: source.toolkit.fluxcd.io/v1
+              kind: GitRepository
+              metadata:
+                name: flux-system
+              spec:
+                verify:
+                  mode: HEAD
+                  secretRef:
+                    name: flux-git-signing-keys
+            target:
+              kind: GitRepository
+              name: flux-system

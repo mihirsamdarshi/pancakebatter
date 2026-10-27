@@ -88,6 +88,16 @@ apps-secrets:
             just log fatal "Failed to apply secret" resource "$name"
         fi
     done
+    # Public keys for commit verification: plain YAML, nothing to decrypt. The
+    # flux-instance values (applied by apps-helm) patch GitRepository/flux-system
+    # to require this Secret, so it has to exist before Flux can fetch the
+    # repository that holds it.
+    if kubectl --namespace flux-system apply --server-side \
+            --filename "{{ kubernetes_dir }}/apps/flux-system/flux-instance/app/git-signing-keys.yaml" &>/dev/null; then
+        just log info "Secret applied" resource "flux-git-signing-keys"
+    else
+        just log fatal "Failed to apply secret" resource "flux-git-signing-keys"
+    fi
 
 # Wait until nodes register as Ready=False. They only become Ready=True once the CNI is healthy.
 [private]

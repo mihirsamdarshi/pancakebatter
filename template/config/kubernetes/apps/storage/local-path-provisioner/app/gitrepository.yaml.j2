@@ -1,5 +1,11 @@
 ---
-# Upstream publishes the chart only in its Git repository.
+# Upstream publishes the chart only in its Git repository. Pinned to the
+# commit behind the release tag rather than the tag itself: a tag can be moved
+# to other content, a commit cannot. Renovate does not track this; to update,
+# look up the new tag's commit with
+#   git ls-remote --tags https://github.com/rancher/local-path-provisioner 'refs/tags/<tag>*'
+# (use the peeled `^{}` line when there is one) and change the comment and
+# the SHA together.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
@@ -8,7 +14,8 @@ spec:
   interval: 1h
   url: https://github.com/rancher/local-path-provisioner
   ref:
-    tag: v0.0.37
+    # v0.0.37
+    commit: 49b2be8e26d6d34c9afaa21fa33108d2e82f8955
   ignore: |
     /*
     !/deploy/chart/local-path-provisioner
