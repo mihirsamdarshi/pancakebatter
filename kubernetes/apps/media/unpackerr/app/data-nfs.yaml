@@ -1,0 +1,39 @@
+---
+# Static PV so the NFS mount options are explicit. The whole Media export is
+# mounted at /data (downloads/ and media/ side by side), the same path
+# qBittorrent and the *arrs use, so the paths they report exist in this pod.
+# Read-write: Unpackerr extracts archives next to the download.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: unpackerr-data
+spec:
+  capacity:
+    storage: 1Ti
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.2
+    - hard
+    - noatime
+  nfs:
+    server: 192.168.10.75
+    path: /mnt/nasty/Media
+  claimRef:
+    namespace: media
+    name: unpackerr-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: unpackerr-data
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: unpackerr-data
+  resources:
+    requests:
+      storage: 1Ti
