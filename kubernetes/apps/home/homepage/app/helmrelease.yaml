@@ -223,6 +223,11 @@ spec:
                     href: https://profilarr.${SECRET_DOMAIN_LOCAL}
                     siteMonitor: https://profilarr.${SECRET_DOMAIN_LOCAL}
                     description: Quality profiles
+                - Tdarr:
+                    icon: tdarr.png
+                    href: https://tdarr.${SECRET_DOMAIN_LOCAL}
+                    siteMonitor: https://tdarr.${SECRET_DOMAIN_LOCAL}
+                    description: Transcoding
                 - Prowlarr:
                     icon: prowlarr.png
                     href: https://prowlarr.${SECRET_DOMAIN_LOCAL}

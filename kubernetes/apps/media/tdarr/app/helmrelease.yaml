@@ -4,6 +4,7 @@
 #    user `admin`, password = the seeded key (seededApiKey, format tapi_...).
 #    Read the key with:
 #    sops -d --extract '["stringData"]["seededApiKey"]' kubernetes/apps/media/tdarr/app/secret.sops.yaml
+#    The UI is at tdarr.${SECRET_DOMAIN_LOCAL} (internal gateway only).
 #  - The internal node authenticates with the same key: env apiKey comes from
 #    tdarr-secret/seededApiKey (docs: a seeded key is valid as a node key; the
 #    env var overrides the node config file). Changing the admin password
@@ -128,6 +129,18 @@ spec:
             port: *webPort
           server:
             port: *serverPort
+    route:
+      tdarr:
+        hostnames:
+          - tdarr.${SECRET_DOMAIN_LOCAL}
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: tdarr
+                port: *webPort
     persistence:
       # One 2Gi claim with three subPaths: one volume to retain and back up,
       # and the three directories cannot drift apart.
