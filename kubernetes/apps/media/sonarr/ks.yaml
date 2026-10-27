@@ -7,9 +7,22 @@ spec:
   dependsOn:
     - name: local-path-provisioner
       namespace: storage
+    - name: volsync
+      namespace: volsync-system
   interval: 1h
   path: ./kubernetes/apps/media/sonarr/app
   postBuild:
+    substitute:
+      APP: sonarr
+      # The chart's only PVC, so it is named after the release.
+      VOLSYNC_CLAIM: sonarr
+      VOLSYNC_NAMESPACE: media
+      VOLSYNC_SCHEDULE: "45 10 * * *"
+      # Sonarr's WAL-mode databases. The Servarr wiki says to stop the app before
+      # copying them, so the live files are not trusted. logs.db is exported too:
+      # a torn copy of it can stop Sonarr from starting after a restore.
+      SQLITE_DBS: sonarr.db logs.db
+      SQLITE_SCHEDULE: "35 10 * * *"
     substituteFrom:
       - name: cluster-secrets
         kind: Secret

@@ -7,9 +7,25 @@ spec:
   dependsOn:
     - name: local-path-provisioner
       namespace: storage
+    - name: volsync
+      namespace: volsync-system
   interval: 1h
   path: ./kubernetes/apps/media/seerr/app
   postBuild:
+    substitute:
+      APP: seerr
+      # The chart's only PVC, so it is named after the release.
+      VOLSYNC_CLAIM: seerr
+      VOLSYNC_NAMESPACE: media
+      VOLSYNC_SCHEDULE: "30 11 * * *"
+      APP_UID: "1000"
+      APP_GID: "1000"
+      # Seerr runs as its `node` user (1000), so the export and the backup mover do
+      # too. Its docs say to copy the folder only when the backup uses filesystem
+      # snapshots. local-path has none (copyMethod Direct), so the export runs the
+      # `sqlite3 db/db.sqlite3 .backup` they give for the other case.
+      SQLITE_DBS: db/db.sqlite3
+      SQLITE_SCHEDULE: "20 11 * * *"
     substituteFrom:
       - name: cluster-secrets
         kind: Secret

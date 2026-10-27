@@ -7,9 +7,22 @@ spec:
   dependsOn:
     - name: local-path-provisioner
       namespace: storage
+    - name: volsync
+      namespace: volsync-system
   interval: 1h
   path: ./kubernetes/apps/downloads/qbittorrent/app
   postBuild:
+    substitute:
+      APP: qbittorrent
+      # The chart's only PVC, so it is named after the release.
+      VOLSYNC_CLAIM: qbittorrent
+      VOLSYNC_NAMESPACE: downloads
+      VOLSYNC_SCHEDULE: "0 12 * * *"
+      # Resume data and torrent metadata are in this SQLite file
+      # (Session\ResumeDataStorageType=SQLite). The settings and categories are
+      # plain files that qBittorrent replaces atomically.
+      SQLITE_DBS: qBittorrent/torrents.db
+      SQLITE_SCHEDULE: "50 11 * * *"
     substituteFrom:
       - name: cluster-secrets
         kind: Secret
