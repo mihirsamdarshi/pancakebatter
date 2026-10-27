@@ -30,10 +30,12 @@ spec:
           app:
             image:
               repository: ghcr.io/unpackerr/unpackerr
-              tag: 1.0.0@sha256:21c6bfa4f4c86ab2dd0232da0dfb3ed4c5d929e42e09894e7b4d2154d0c144f6
+              # 0.16.1, not 1.0.0: 1.0.0 shipped with config bugs (Unpackerr/unpackerr#831).
+              tag: 0.16.1@sha256:406586865431b40b29353d899fb75a788f5384743f7f381444db5fe55d206914
             env:
               TZ: Etc/UTC
-              # Empty disables the HTTP server (UI/metrics/API); nothing needs it.
+              # No HTTP server: 0.16 starts one only when metrics are on (off by
+              # default). 1.x adds a web UI; re-check this when moving to 1.x.
               UN_WEBSERVER_LISTEN_ADDR: ""
               UN_SONARR_0_URL: http://sonarr.media.svc.cluster.local:8989
               UN_SONARR_0_API_KEY:

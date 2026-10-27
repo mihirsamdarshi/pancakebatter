@@ -69,6 +69,15 @@
       automerge: false,
     },
     {
+      // 1.0.0 shipped with config bugs (Unpackerr/unpackerr#831). Skip it and
+      // review every 1.x update by hand.
+      description: "Unpackerr skips 1.0.0 and is never automerged",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["ghcr.io/unpackerr/unpackerr"],
+      allowedVersions: "!/^v?1\\.0\\.0$/",
+      automerge: false,
+    },
+    {
       matchUpdateTypes: ["major"],
       addLabels: ["type/major"],
     },
