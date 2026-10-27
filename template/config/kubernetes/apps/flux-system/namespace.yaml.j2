@@ -1,12 +1,11 @@
 ---
+# Pod Security is not set here: the flux-operator renders this Namespace with
+# kustomize.toolkit.fluxcd.io/ssa: Ignore, so Flux never applies this file's
+# labels. The enforce level lives in flux-instance/app/helmrelease.yaml as a
+# FluxInstance kustomize patch; the operator already sets warn: restricted.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: flux-system
   annotations:
     kustomize.toolkit.fluxcd.io/prune: disabled
-  labels:
-    # Pod Security. The Talos config drops the cluster-wide default, so only
-    # these labels apply. A server-side dry run on October 27, 2026 found no
-    # pod here outside the restricted profile.
-    pod-security.kubernetes.io/enforce: restricted

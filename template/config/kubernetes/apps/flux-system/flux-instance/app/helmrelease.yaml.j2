@@ -134,6 +134,21 @@ spec:
             target:
               kind: Deployment
               name: kustomize-controller
+          - # Pod Security for flux-system. The operator renders this Namespace
+            # with kustomize.toolkit.fluxcd.io/ssa: Ignore, so the label cannot
+            # come from kubernetes/apps/flux-system/namespace.yaml; it has to be
+            # set here. A server-side dry run on October 27, 2026 found every
+            # pod in the namespace within the restricted profile.
+            patch: |-
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: flux-system
+                labels:
+                  pod-security.kubernetes.io/enforce: restricted
+            target:
+              kind: Namespace
+              name: flux-system
           - # Only apply revisions whose HEAD commit is signed by a key in
             # git-signing-keys.yaml. The operator renders the sync
             # GitRepository into the same kustomization as the controllers,
