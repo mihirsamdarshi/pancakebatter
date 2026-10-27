@@ -49,6 +49,8 @@ spec:
     configMaps:
       seed:
         data:
+          # Quote any value that contains ';': QSettings reads an unquoted
+          # ';' as the start of a comment and drops the rest of the line.
           qBittorrent.conf: |
             [AutoRun]
             enabled=false
@@ -92,7 +94,7 @@ spec:
             Port=8080
             ReverseProxySupportEnabled=true
             SecureCookie=true
-            ServerDomains=qbittorrent.${SECRET_DOMAIN_LOCAL};qbittorrent.downloads.svc.cluster.local
+            ServerDomains="qbittorrent.${SECRET_DOMAIN_LOCAL};qbittorrent.downloads.svc.cluster.local"
             TrustedReverseProxiesList=127.0.0.2/32
             UseUPnP=false
     controllers:
