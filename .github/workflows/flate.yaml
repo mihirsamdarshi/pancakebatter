@@ -25,7 +25,11 @@ jobs:
         id: changed-files
         uses: bjw-s-labs/action-changed-files@147be9638332cf68fd60714a610509d7a9360d60 # v0.7.0
         with:
-          patterns: kubernetes/**/*
+          # A deleted manifest is a change too.
+          include_deleted_files: "true"
+          patterns: |-
+            kubernetes/**/*
+            .github/workflows/flate.yaml
 
   flate:
     if: ${{ needs.filter.outputs.changed-files != '[]' }}
@@ -49,16 +53,23 @@ jobs:
         # validates manifest schemas and exact OCI source references.
         run: flate test all -p ./kubernetes/flux/cluster --allow-missing-secrets
 
+  # The required status check. always(): a cancelled run must not leave the
+  # gate skipped, which GitHub would count as passing. It fails when the
+  # filter or Flate failed or was cancelled and passes when Flate was skipped.
   success:
-    if: ${{ !cancelled() }}
-    needs: flate
+    if: ${{ always() }}
+    needs: [filter, flate]
     name: Flate - Success
     runs-on: ubuntu-latest
     steps:
-      - name: Any jobs failed?
-        if: ${{ contains(needs.*.result, 'failure') }}
+      - name: Any jobs failed or cancelled?
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
         run: exit 1
 
       - name: All jobs passed or skipped?
-        if: ${{ !(contains(needs.*.result, 'failure')) }}
-        run: echo "All jobs passed or skipped" && echo "${{ toJSON(needs.*.result) }}"
+        if: ${{ !(contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+        # Through the environment, not inline in the script (zizmor
+        # template-injection).
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: echo "All jobs passed or skipped" && echo "$RESULTS"

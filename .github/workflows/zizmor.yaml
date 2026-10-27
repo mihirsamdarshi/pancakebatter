@@ -1,0 +1,57 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: "Zizmor"
+
+# Static analysis of the workflows themselves. zizmor is pinned in
+# .mise/config.toml, so Renovate bumps it with the other tools. The token
+# turns on the online audits, which catch action versions with known
+# vulnerabilities and pinned SHAs that do not belong to the action's own
+# repository.
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/**
+      - .mise/config.toml
+      - .mise/mise.lock
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/**
+      - .mise/config.toml
+      - .mise/mise.lock
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup mise
+        uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        with:
+          install_args: --locked zizmor
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Run zizmor
+        env:
+          GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        # The regular persona: every finding fails the run. The auditor persona
+        # (pedantic audits) is what `zizmor --persona=auditor .github/workflows`
+        # runs locally; keep that clean too.
+        run: zizmor --format=github .github/workflows

@@ -7,16 +7,25 @@ on:
     branches: ["main"]
     paths: [".github/labels.yaml"]
 
+# One run at a time; two syncs at once would race on the label set.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions: {}
+
 jobs:
   labels:
     name: Sync Labels
     runs-on: ubuntu-latest
     permissions:
-      issues: write
-
+      contents: read # read .github/labels.yaml
+      issues: write # create, update and delete the repository labels
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Sync Labels
         uses: EndBug/label-sync@52074158190acb45f3077f9099fea818aa43f97a # v2.3.3
