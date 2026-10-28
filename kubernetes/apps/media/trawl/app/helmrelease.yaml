@@ -79,7 +79,7 @@ spec:
             resources:
               requests:
                 cpu: 100m
-                memory: 512Mi
+                memory: 1Gi
               limits:
                 # 1536Mi was OOMKilled 8 times in a day while solving challenges.
                 memory: 3Gi
