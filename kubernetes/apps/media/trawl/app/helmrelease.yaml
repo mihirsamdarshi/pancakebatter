@@ -81,7 +81,8 @@ spec:
                 cpu: 100m
                 memory: 512Mi
               limits:
-                memory: 1536Mi
+                # 1536Mi was OOMKilled 8 times in a day while solving challenges.
+                memory: 3Gi
     service:
       trawl:
         controller: trawl
@@ -90,7 +91,7 @@ spec:
             port: *port
     persistence:
       # Firefox needs shared memory; the container default of 64Mi crashes it.
-      # Memory-backed, so it counts against the 1536Mi container limit.
+      # Memory-backed, so it counts against the 3Gi container limit.
       shm:
         type: emptyDir
         medium: Memory
