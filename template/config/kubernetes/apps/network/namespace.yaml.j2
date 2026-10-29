@@ -7,11 +7,10 @@ metadata:
     kustomize.toolkit.fluxcd.io/prune: disabled
   labels:
     # Pod Security. The Talos config drops the cluster-wide default, so only
-    # these labels apply. baseline is enforced: a server-side dry run on
-    # October 27, 2026 found every pod within it, and only k8s-gateway outside
-    # restricted (allowPrivilegeEscalation, capabilities, runAsNonRoot,
-    # seccompProfile). warn/audit stay at restricted so that gap stays visible;
-    # move enforce up once k8s-gateway's securityContext is set.
-    pod-security.kubernetes.io/enforce: baseline
+    # these labels apply. restricted since October 28, 2026: k8s-gateway was
+    # the last pod outside it (fixed in its HelmRelease), and a server-side dry
+    # run found no violation. The Envoy Gateway controller and proxies were
+    # already within it.
+    pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/audit: restricted
