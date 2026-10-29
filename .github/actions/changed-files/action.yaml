@@ -1,0 +1,76 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-action.json
+name: Changed files
+description: >-
+  Lists the files a pull request or push changed, filtered by glob patterns,
+  through the GitHub API (no third-party action: the one this replaced was
+  archived in September 2026). Deleted files and both names of a rename count.
+  Needs `contents: read` on the job; the token is the job's GITHUB_TOKEN.
+
+inputs:
+  patterns:
+    description: >-
+      Glob patterns, one per line, matched against the repository-relative path
+      with bash pattern matching, where `*` also crosses `/` (so `kubernetes/*`
+      and `kubernetes/**/*` are the same). Empty lines are ignored.
+    required: true
+  token:
+    description: Token for the GitHub API
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  changed_files:
+    description: JSON array of the matching paths (`[]` when none)
+    value: ${{ steps.list.outputs.changed_files }}
+
+runs:
+  using: composite
+  steps:
+    - name: List and filter
+      id: list
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PATTERNS: ${{ inputs.patterns }}
+        EVENT_NAME: ${{ github.event_name }}
+        REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        BEFORE: ${{ github.event.before }}
+        AFTER: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        case "$EVENT_NAME" in
+          pull_request)
+            gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
+              --jq '.[] | .filename, (.previous_filename // empty)'
+            ;;
+          push)
+            if [[ "$BEFORE" =~ ^0+$ ]]; then
+              # First push of a branch: no previous commit to compare with.
+              gh api "repos/$REPOSITORY/commits/$AFTER" --jq '.files[] | .filename, (.previous_filename // empty)'
+            else
+              gh api "repos/$REPOSITORY/compare/$BEFORE...$AFTER" --jq '.files[] | .filename, (.previous_filename // empty)'
+            fi
+            ;;
+          *)
+            echo "::error::changed-files supports pull_request and push events, not $EVENT_NAME" >&2
+            exit 1
+            ;;
+        esac | sort -u > "$RUNNER_TEMP/changed-all.txt"
+
+        mapfile -t patterns < <(printf '%s\n' "$PATTERNS" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$')
+        : > "$RUNNER_TEMP/changed-matched.txt"
+        while IFS= read -r path; do
+          for pattern in "${patterns[@]}"; do
+            # shellcheck disable=SC2053 # the pattern must stay unquoted to glob
+            if [[ "$path" == $pattern ]]; then
+              printf '%s\n' "$path" >> "$RUNNER_TEMP/changed-matched.txt"
+              break
+            fi
+          done
+        done < "$RUNNER_TEMP/changed-all.txt"
+
+        changed_files="$(jq -R . "$RUNNER_TEMP/changed-matched.txt" | jq -s -c .)"
+        echo "changed_files=$changed_files" >> "$GITHUB_OUTPUT"
+        echo "all: $(wc -l < "$RUNNER_TEMP/changed-all.txt") file(s); matched: $changed_files"
