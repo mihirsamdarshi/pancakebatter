@@ -30,20 +30,22 @@ jobs:
     name: Template - Filter
     runs-on: ubuntu-latest
     permissions:
-      contents: read # list the changed files
+      contents: read # compare commits
+      pull-requests: read # list the pull request's files
     outputs:
       changed-files: ${{ steps.changed-files.outputs.changed_files }}
     steps:
       - name: Get Changed Files
         id: changed-files
-        uses: bjw-s-labs/action-changed-files@147be9638332cf68fd60714a610509d7a9360d60 # v0.7.0
+        # Self-repository form: resolved from this workflow's own commit, so no
+        # checkout, and GitHub counts it as pinned.
+        uses: $/.github/actions/changed-files
         with:
-          # A deleted file is a change too.
-          include_deleted_files: "true"
           patterns: |-
             template/**/*
             .github/template-tests/**/*
             .github/workflows/template.yaml
+            .github/actions/changed-files/*
             cluster.sample.toml
             cluster.schema.json
             pyproject.toml
