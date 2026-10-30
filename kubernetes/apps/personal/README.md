@@ -34,7 +34,11 @@ app. There are two ways to run one:
   `app-platform/app`. The Alert covers Flux events only. The PrometheusRule
   `app-platform` (`observability/kube-prometheus-stack/app`) alerts when an
   `app-*` Kustomization, an entry or either ResourceSet is not Ready for 10
-  minutes, or when an app's Deployment has unavailable replicas.
+  minutes, or when an app's Deployment has unavailable replicas. flux-operator
+  exports ResourceSets and entries under their own metric names
+  (`flux_resourceset_info`, `flux_resourcesetinputprovider_info`), not
+  `flux_resource_info`; `promtool test rules` checks the expressions against
+  those series.
 
 **Adding an app is one entry file plus one tiny Namespace folder in the same
 PR. Updating an app is a merge in the `apps` repo. Changing its settings,
@@ -270,8 +274,9 @@ scripts/validate-apps.sh --self-test  # the fixtures under scripts/validate-apps
 ```
 
 The validator needs `flux-operator` (its version must equal the operator chart
-tag), `flux`, `kustomize`, `kubeconform`, `yq`, `jq` and `gitleaks`; `mise
-install` provides them. The ResourceSets render offline with
+tag), `flux`, `kustomize`, `kubeconform`, `yq`, `jq`, `gitleaks` and `promtool`;
+`mise install` provides them. It also unit-tests the alert rules
+(`promtool test rules`, with the metric names flux-operator really exports). The ResourceSets render offline with
 `flux-operator build rset -f <resourceset> --inputs-from-provider <static RSIP>`;
 the CLI only takes `Static` providers, so the validator rewrites the type and
 injects a fake `digest`. The CLI exits 1 with "no objects were generated" when

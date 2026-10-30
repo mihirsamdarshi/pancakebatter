@@ -4,8 +4,15 @@
 # (a Kustomization that stays unready between events, a Deployment that dies
 # after Flux reported Ready) and are the gate for deploying an app at all.
 #
-# flux-operator exports flux_resource_info for every Flux object, ResourceSets
-# and ResourceSetInputProviders included (its ServiceMonitor).
+# flux-operator exports one series per object through its ServiceMonitor, under
+# three metric names (internal/reporter/metrics.go): flux_resource_info for the
+# Flux toolkit kinds (Kustomization, GitRepository, ...), flux_resourceset_info
+# for ResourceSets and flux_resourcesetinputprovider_info for
+# ResourceSetInputProviders. They share the labels name, exported_namespace,
+# ready and suspended. flux_resource_info has no ResourceSet series, so an
+# expression that selects kind="ResourceSet" there can never fire. The unit
+# tests in scripts/validate-apps/prometheusrule-app-platform.test.yaml use the
+# operator's real names; scripts/validate-apps.sh runs them with promtool.
 #
 # Not covered: a provider that succeeds with zero inputs (harmless under
 # deletionPolicy Orphan, and no metric exposes the count).
@@ -31,7 +38,7 @@ spec:
             summary: "Kustomization flux-system/{{ $labels.name }} has not been ready for 10 minutes"
             description: "A release is not rolled out, or the platform cannot render. `flux get ks -n flux-system {{ $labels.name }}` shows the reason. `Recreate` has already removed the old pod when a bad release fails, so the app may be down: `pin` the previous digest in its entry."
         - alert: AppPlatformInputProviderNotReady
-          expr: flux_resource_info{kind="ResourceSetInputProvider", exported_namespace="flux-system", name=~"app-.+", ready!="True"} == 1
+          expr: flux_resourcesetinputprovider_info{exported_namespace="flux-system", name=~"app-.+", ready!="True"} == 1
           for: 10m
           labels:
             severity: warning
@@ -39,7 +46,7 @@ spec:
             summary: "ResourceSetInputProvider flux-system/{{ $labels.name }} has not been ready for 10 minutes"
             description: "New images of that app are not noticed. Usually the registry token ghcr-apps-read has expired or lost read:packages, or the package does not exist yet."
         - alert: AppPlatformResourceSetNotReady
-          expr: flux_resource_info{kind="ResourceSet", exported_namespace="flux-system", name=~"apps|apps-pull", ready!="True"} == 1
+          expr: flux_resourceset_info{exported_namespace="flux-system", name=~"apps|apps-pull", ready!="True"} == 1
           for: 10m
           labels:
             severity: critical

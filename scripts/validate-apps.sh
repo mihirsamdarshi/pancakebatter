@@ -37,7 +37,8 @@
 #   7. the pull Secret that `apps-pull` renders;
 #   8. the Namespace folder under kubernetes/apps/personal, and renames;
 #   9. the flux-operator CLI version equals the operator chart tag; the
-#      PrometheusRule app-platform exists and names every entry's namespace.
+#      PrometheusRule app-platform exists, names every entry's namespace and
+#      passes promtool check and its unit tests.
 
 set -euo pipefail
 
@@ -82,7 +83,7 @@ fail() {
 
 require_tools() {
     local tool missing=()
-    for tool in flux-operator flux kustomize kubeconform yq jq gitleaks git; do
+    for tool in flux-operator flux kustomize kubeconform yq jq gitleaks promtool git; do
         command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
     done
     ((${#missing[@]} == 0)) || die "missing tools: ${missing[*]} (run via 'mise exec --' or 'mise install')"
@@ -596,6 +597,23 @@ check_alert_namespaces() {
     echo "--- alerts: every entry namespace is in AppPlatformDeploymentUnavailable"
 }
 
+# The alert rules, syntax and behaviour. `promtool check rules` passed a rule
+# on a metric that does not exist, so the unit tests feed series under the names
+# and labels flux-operator exports and expect the alerts to fire.
+check_rules() {
+    local rule="kubernetes/apps/observability/kube-prometheus-stack/app/prometheusrule-app-platform.yaml"
+    local test_file="$script_dir/validate-apps/prometheusrule-app-platform.test.yaml"
+    [[ -f "$test_file" ]] || die "$test_file is missing"
+    mkdir -p "$tmp/rules"
+    yq '.spec' "$rule" >"$tmp/rules/app-platform-rules.yaml"
+    cp "$test_file" "$tmp/rules/"
+    promtool check rules "$tmp/rules/app-platform-rules.yaml" >"$tmp/rules.out" 2>&1 \
+        || die "promtool check rules failed: $(cat "$tmp/rules.out")"
+    (cd "$tmp/rules" && promtool test rules "$(basename "$test_file")") >"$tmp/rules.out" 2>&1 \
+        || die "promtool test rules failed: $(cat "$tmp/rules.out")"
+    echo "--- alerts: promtool check and unit tests pass"
+}
+
 # --- 6. gitleaks -------------------------------------------------------------
 
 scan_secrets() {
@@ -701,6 +719,7 @@ main() {
     done
     check_cross_entry
     check_alert_namespaces
+    check_rules
     scan_secrets
     if [[ -n "${APPS_BASE_REF:-}" ]]; then
         check_renames
