@@ -1,12 +1,290 @@
 # Personal apps
 
 Apps the owner writes and ships from their own repositories, one namespace per
-app. An app's CI publishes an image and a private OCI bundle that holds its
-Kubernetes manifests. Flux pulls the bundle and applies it as a service account
-that can only change objects in that namespace. This folder holds the wiring,
-not the manifests. `quilt-planner/` is the working example.
+app. There are two ways to run one:
 
-## How it fits together
+- **Platform apps** (the default): the code lives in the private `apps`
+  monorepo, CI publishes `ghcr.io/<owner>/apps/<app>`, and this repo generates
+  the manifests from one shared template and a few settings. `hello` is the
+  throwaway proof app. Everything below up to "Bundle apps" is about them.
+- **Bundle apps**: the older way, where an app's CI also publishes a private OCI
+  bundle with its manifests and a scoped service account applies it. Quilt
+  Planner still runs this way until it moves onto the platform; see "Bundle
+  apps" at the end.
+
+## Platform apps
+
+### How it fits together
+
+- `kubernetes/apps/flux-system/app-platform/apps/<app>.yaml`: the **entry**, a
+  `ResourceSetInputProvider` (RSIP) that watches the `main` tag of the app's
+  image every 2 minutes and carries the app's settings.
+- The `ResourceSet` `apps` (`app-platform/app/resourceset.yaml`) renders one Flux
+  Kustomization `app-<name>` in `flux-system` per entry. It applies
+  `kubernetes/components/app-platform/base` (PVC, Service, Deployment) plus the
+  parts the entry lists, with the image digest and the settings in
+  `postBuild.substitute`. It has `wait: true`, `deletionPolicy: Orphan` and SOPS
+  decryption.
+- The `ResourceSet` `apps-pull` (`resourceset-pull.yaml`) copies the registry
+  Secret `flux-system/ghcr-apps-read` into each app's namespace as `apps-ghcr`.
+  It is a separate ResourceSet so that its failures never block `apps`.
+- `kubernetes/apps/personal/<namespace>/`: the app's Namespace, Git-defined,
+  Pod Security `restricted`, prune-disabled. Only the Namespace lives here.
+- Failures go to Discord through the Flux `Provider` and `Alert` in
+  `app-platform/app`. The Alert covers Flux events only. The PrometheusRule
+  `app-platform` (`observability/kube-prometheus-stack/app`) alerts when an
+  `app-*` Kustomization, an entry or either ResourceSet is not Ready for 10
+  minutes, or when an app's Deployment has unavailable replicas.
+
+**Adding an app is one entry file plus one tiny Namespace folder in the same
+PR. Updating an app is a merge in the `apps` repo. Changing its settings,
+exposure or backups is a PR here.** Merging a PR that adds an entry deploys the
+app, so it needs the owner's approval.
+
+### Add an app
+
+`<name>` matches `^[a-z][a-z0-9-]*$`. It is the Deployment, Service, image name,
+default namespace and default host.
+
+1. Create `app-platform/apps/<name>.yaml` (the file name is the app name; the
+   object is named `app-<name>`) and add `- ./<name>.yaml` to
+   `app-platform/apps/kustomization.yaml`:
+
+    ```yaml
+    apiVersion: fluxcd.controlplane.io/v1
+    kind: ResourceSetInputProvider
+    metadata:
+        name: app-<name>
+        namespace: flux-system
+        labels:
+            platform/apps: "true"
+        annotations:
+            fluxcd.controlplane.io/reconcileEvery: 2m
+    spec:
+        type: OCIArtifactTag
+        url: oci://ghcr.io/<owner>/apps/<name>
+        secretRef:
+            name: ghcr-apps-read
+        filter:
+            includeTag: "^main$"
+            limit: 1
+        defaultValues:
+            name: <name>
+            parts: [pullsecret, internal-route, backup, backup-sqlite]
+            vars:
+                SQLITE_DBS: <name>.db
+                VOLSYNC_SCHEDULE: "<UTC cron>"
+                SQLITE_SCHEDULE: "<UTC cron, ten minutes before the backup>"
+    ```
+
+2. Create `personal/<namespace>/kustomization.yaml` and add `- ./<namespace>` to
+   `personal/kustomization.yaml`. The namespace is the app name unless the entry
+   sets `namespace`:
+
+    ```yaml
+    apiVersion: kustomize.config.k8s.io/v1beta1
+    kind: Kustomization
+    namespace: <namespace>
+    components:
+        - ../../../components/personal-namespace
+    ```
+
+3. Pick the next free backup slot (the schedule table in
+   `kubernetes/components/volsync/README.md`) and add the app to it. Every entry
+   with `backup` or `backup-sqlite` names its schedules explicitly, and no two
+   entries share one.
+4. Add the namespace to the `namespace=~"..."` list of the alert
+   `AppPlatformDeploymentUnavailable` in
+   `observability/kube-prometheus-stack/app/prometheusrule-app-platform.yaml`
+   (kube-state-metrics exports no namespace labels; the validator checks that
+   the list is complete). Do not deploy an app without alerts.
+5. Add a link to the app on `network/fallback-pages/app/internal-not-found.html`
+   (and `family-not-found.html` for a family app), as the family-apps README
+   requires. A throwaway such as `hello` is not linked.
+6. Run `scripts/validate-kubernetes.sh` (it runs `scripts/validate-apps.sh`; run
+   that alone while you iterate). In the PR description say what merging does
+   live (pods, route, backup) and that it needs the owner's approval. An entry
+   without an image yet is harmless: the RSIP exports nothing, so nothing
+   renders.
+
+The Namespace folder must be in the same PR. A ResourceSet applies none of its
+objects when one fails the API server's dry run, so one Secret copy whose
+namespace does not exist yet would delay every app's copy in `apps-pull`, and
+one Kustomization the API server rejects would block every app in `apps`.
+
+### Settings
+
+Everything under `defaultValues`. The validator rejects unknown keys. Everything
+under `vars` becomes an uppercase substitution variable.
+
+| Key                                             | Default                                | Meaning                                                                                                     |
+| ----------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `name`                                          | required                               | Deployment, Service, image name, default namespace and host                                                 |
+| `namespace`                                     | `name`                                 | The app's namespace. The folder `personal/<namespace>/` must exist and carry the same name                  |
+| `parts`                                         | `[pullsecret, internal-route, backup]` | Pieces to add (below). `namespace` is not a part                                                            |
+| `netpol`                                        | `true`                                 | The default-deny network policy. `false` needs a `netpolReason`                                             |
+| `netpolReason`                                  | none                                   | Free text, required with `netpol: false`. The validator prints every exemption with its reason              |
+| `egress`                                        | `none`                                 | `none` (DNS and the own namespace only) or `internet` (public addresses on all ports, never private ranges) |
+| `pin`                                           | none                                   | A `sha256:` digest that wins over the registry's: the rollback and migration lever                          |
+| `env`                                           | none                                   | Plain extra environment. Keys uppercase and not `N`, `Y`, `ON`, `OFF`. A literal `$` is written `$$`        |
+| `path`                                          | the base                               | The escape hatch (below). No trailing slash                                                                 |
+| `vars.CLAIM`                                    | `<name>-data`                          | PVC name                                                                                                    |
+| `vars.STORAGE`, `vars.STORAGE_CLASS`            | `1Gi`, `local-retain`                  | PVC size and class. The class must have reclaim policy `Retain`                                             |
+| `vars.HEALTH_PATH`                              | `/healthz`                             | Probe path                                                                                                  |
+| `vars.APP_UID`, `vars.APP_GID`                  | `1000`, `1000`                         | Pod, VolSync mover and SQLite export identity. `0` is rejected                                              |
+| `vars.DATA_PATH`                                | `/data`                                | Mount path and `DATA_DIR`                                                                                   |
+| `vars.CPU`, `vars.MEMORY`, `vars.MEMORY_LIMIT`  | `50m`, `128Mi`, `512Mi`                | Requests and the memory limit                                                                               |
+| `vars.IMAGE`                                    | `ghcr.io/<owner>/apps/<name>`          | Override only while adopting a differently named image                                                      |
+| `vars.PULL_SECRET`                              | `apps-ghcr`                            | The Secret name the Deployment references. The copied Secret is always `apps-ghcr`                          |
+| `vars.HOST`                                     | `name`                                 | `<HOST>.${SECRET_DOMAIN_LOCAL}`                                                                             |
+| `vars.FAMILY_HOST`                              | none                                   | With `family-route`: `<FAMILY_HOST>.${SECRET_FAMILY_DOMAIN}`                                                |
+| `vars.SQLITE_DBS`                               | none                                   | Space-separated database paths for `backup-sqlite`                                                          |
+| `vars.VOLSYNC_SCHEDULE`, `vars.SQLITE_SCHEDULE` | none                                   | Explicit UTC cron strings, required with `backup` / `backup-sqlite`                                         |
+
+Parts (`kubernetes/components/app-platform/`): `pullsecret` (a name only: the
+Secret is rendered by `apps-pull`), `internal-route` (`<HOST>.${SECRET_DOMAIN_LOCAL}`
+on `envoy-internal`, no retries for writes), `family-route` (only on request;
+see `network/family-apps/README.md`; needs `vars.FAMILY_HOST`),
+`family-route-legacy` (the transitional `family.${SECRET_DOMAIN_LOCAL}` name;
+list it after `family-route`), `backup` (the `volsync` component) and
+`backup-sqlite` (the `sqlite-export` component, with no service-account token).
+The `netpol` and `egress` keys add the `netpol` and `netpol-egress-internet`
+components after the parts, so an explicit `parts: []` still gets the policy.
+
+### The container contract
+
+The generated Deployment assumes it; the `apps` template enforces it.
+
+- Listens on port 3000 and reads `$PORT`; serves `GET <HEALTH_PATH>` with 200
+  when ready. The port is fixed on purpose: Flux substitution turns a numeric
+  value into an integer, which the API rejects for an environment value.
+- Writes only under `$DATA_DIR` (the PVC) and `/tmp` (a 128 Mi `emptyDir`). The
+  root filesystem is read-only. Runs as a non-root uid, all capabilities dropped,
+  `linux/amd64`, one replica with strategy `Recreate` (SQLite is single-writer).
+- **Receives no Secrets**: no `valueFrom`, `secretKeyRef`, `envFrom` of a Secret
+  or Secret volume, and `automountServiceAccountToken` is false on every pod. The
+  only Secret a pod references is the `apps-ghcr` image pull Secret.
+- **Takes its own pre-migration copy** into `$DATA_DIR/backups/`. Pinning an old
+  digest does not roll data back.
+- Reaches the network only as the policy allows (below).
+
+### Network policy
+
+Every app namespace is default-deny, for **all** its pods: the app, export jobs,
+VolSync movers and any pod of a custom folder (the policy selects the whole
+namespace with an empty `endpointSelector`). Ingress comes only from the pods of
+the namespace, the two Envoy gateways on port 3000 and the kubelet (probes).
+Egress goes only to cluster DNS and the namespace's own pods. `egress: internet`
+adds public addresses on every port, never the private ranges (LAN, VLANs,
+Tailscale, cluster). Nothing reaches the Kubernetes API, the NAS or other
+namespaces. DNS remains a tunnelling channel for a compromised app. Prometheus
+cannot scrape an app; that would be a reviewed addition.
+
+Hubble is off in this cluster. To see drops, run `cilium-dbg monitor --type drop`
+in the node's Cilium agent pod. Do not widen a policy to fix a drop without a
+reviewed reason: use `egress: internet` for public services, and redesign for
+anything private.
+
+### Escape hatch
+
+1. A new `vars` key or a new `components/app-platform/<part>` (a PR here).
+2. `env`: plain extra environment through a generated patch.
+3. `path: ./kubernetes/apps/personal/<name>/app`: the same Kustomization applies
+   the app's own folder instead of the base. Plain manifests only: Deployment,
+   StatefulSet, Job, CronJob, Service, ConfigMap, PersistentVolumeClaim. The
+   validator rejects `HelmRelease`, any network policy, `Role`, `RoleBinding`,
+   `ClusterRole*`, `ServiceAccount`, `ExternalSecret`, `SealedSecret`, `Secret`
+   and `secretGenerator`. The folder needs a `kustomization.yaml` and is never
+   the Namespace folder itself.
+4. Out of the platform: no entry, a normal app under `kubernetes/apps/<ns>/`.
+
+Postgres or any service that needs a credential is deferred; apps hold none.
+
+### Creating ghcr-apps-read
+
+The one registry credential: a classic GitHub token with only `read:packages`,
+created by the owner with a one-year expiry (set a calendar reminder a month
+before). It can read every private package of the account. Never paste it into
+chat, a log or Git. `scripts/validate-apps.sh` fails until
+`app-platform/app/ghcr-apps-read.sops.yaml` exists, is encrypted and carries the
+label `reconcile.fluxcd.io/watch: Enabled` (without it a rotated token reaches
+the copies only at the ResourceSet's next interval of 60 minutes). Create it in
+one pipeline from the environment, from the repo root, with `GHCR_READ_TOKEN`
+and optionally `GHCR_READ_USER` (default `mihirsamdarshi`) set:
+
+```sh
+kubectl create secret docker-registry ghcr-apps-read --namespace flux-system --docker-server=ghcr.io --docker-username="${GHCR_READ_USER:-mihirsamdarshi}" --docker-password="${GHCR_READ_TOKEN:?set GHCR_READ_TOKEN}" --dry-run=client -o yaml | yq '.stringData[".dockerconfigjson"] = (.data[".dockerconfigjson"] | @base64d) | del(.data) | .metadata.labels["reconcile.fluxcd.io/watch"] = "Enabled"' > kubernetes/apps/flux-system/app-platform/app/ghcr-apps-read.sops.yaml && sops encrypt --in-place kubernetes/apps/flux-system/app-platform/app/ghcr-apps-read.sops.yaml
+```
+
+The credential goes under `stringData`, like every other SOPS Secret here:
+`flux build ks` cannot mask an encrypted value under `data`.
+The `.sops.yaml` rule for `kubernetes/` encrypts `data` and `stringData` only, so
+the label stays readable. Check only the shape, never the values:
+`sops decrypt kubernetes/apps/flux-system/app-platform/app/ghcr-apps-read.sops.yaml | yq '.stringData | keys'`
+prints `.dockerconfigjson`. Never put a bogus `ghcr.io` credential in it (every
+RSIP uses it) and never delete it while any entry has `pullsecret`. Do not add
+Talos registry credentials for `ghcr.io`: a stale token would break every
+`ghcr.io` pull on every node.
+
+**Rotation:** check `apps-pull` is Ready, re-encrypt `ghcr-apps-read`, check
+`apps-pull` is Ready again and that a copy's `resourceVersion` changed. Update
+the expiry reminder. **An expired token** makes new pulls of private `apps`
+images fail (`ImagePullBackOff`, reported by the Alert as a failed health check)
+and the RSIPs fail; running pods keep running and public `ghcr.io` images are
+unaffected.
+
+### Rules that keep a platform app safe
+
+- Never rename or change the namespace of an existing entry: it starts a new,
+  empty app. The validator compares with `main` on pull requests.
+- **Never delete or recreate an owner Kustomization before the Git object that
+  renders it is gone.** A handoff (an app adopted from a hand-written
+  Kustomization, as in the Quilt migration) goes: suspend the old owner with
+  `flux suspend` (never `kubectl patch`), add the entry, check that the live
+  objects kept their UIDs, and only then remove the old Kustomization.
+- Never set `fluxcd.controlplane.io/force` on a ResourceSet or what it renders.
+  Never render a Namespace from a ResourceSet. Never rename `app-platform`,
+  `apps` or `apps-pull`; to retire the whole platform, suspend the ResourceSets
+  first (`flux-operator suspend resourceset <name> -n flux-system`).
+- Never remove `fluxcd.controlplane.io/prune: disabled` from the `apps-pull`
+  Secret template: a stale copy is harmless, a missing one during an outage is
+  not.
+- Never give an app a Secret, and never set `netpol: false` without a stated
+  reason. Never add a `world` entity or a bare `0.0.0.0/0` rule to a policy.
+- Do not add any CI-to-tailnet path (Receiver, `tag:ci`, an OAuth client) until
+  the tailnet policy has been narrowed in its own project. Deploys poll every 2
+  minutes meanwhile.
+- Retire an app: delete its entry and its line in `apps/kustomization.yaml`. The
+  workload keeps running without updates; delete its objects by hand, including
+  the prune-disabled `apps-ghcr` Secret. The PVC, PV, Namespace folder and the
+  NAS restic directory stay on purpose.
+- A rollback is `pin: sha256:…` in the entry (the digest of `main`'s manifest),
+  or a revert in `apps`. It does not roll data back.
+
+### Validate
+
+```sh
+scripts/validate-kubernetes.sh        # everything, including the next line
+scripts/validate-apps.sh              # the entries, both ResourceSets, what they render
+scripts/validate-apps.sh --self-test  # the fixtures under scripts/validate-apps/fixtures
+```
+
+The validator needs `flux-operator` (its version must equal the operator chart
+tag), `flux`, `kustomize`, `kubeconform`, `yq`, `jq` and `gitleaks`; `mise
+install` provides them. The ResourceSets render offline with
+`flux-operator build rset -f <resourceset> --inputs-from-provider <static RSIP>`;
+the CLI only takes `Static` providers, so the validator rewrites the type and
+injects a fake `digest`. The CLI exits 1 with "no objects were generated" when
+an input renders nothing; the controller accepts that.
+
+## Bundle apps (Quilt Planner, until it moves)
+
+An app's CI publishes an image and a private OCI bundle that holds its
+Kubernetes manifests. Flux pulls the bundle and applies it as a service account
+that can only change objects in that namespace. `quilt-planner/` is the working
+example. New apps use the platform above instead.
+
+### How it fits together
 
 - `kubernetes/components/personal-namespace`: the Namespace, with the
   `restricted` Pod Security level and pruning disabled. The app's
@@ -28,7 +306,7 @@ Secrets. The bundle's Kustomization has
 and the OCIRepository are also `prune: disabled`, so Flux never deletes them
 for you.
 
-## Add an app
+### Add an app
 
 `<app>` is the app name. It is also the namespace, and the bundle's Deployment
 must use it as its name (the health check waits for it).
@@ -130,7 +408,7 @@ patches:
 After the merge, `flux get ks -n <app>` shows `<app>-bootstrap` and `<app>`
 Ready, and `kubectl -n <app> get ocirepository` shows the bundle revision.
 
-## Storage
+### Storage
 
 The app's PVC belongs to its bundle. For data that matters, use the shared
 `local-retain` class (`storage/local-path-provisioner`): node-local, and a
@@ -139,7 +417,7 @@ Also give that PVC the annotation `kustomize.toolkit.fluxcd.io/prune: disabled`,
 as Quilt's `quilt-data` has. Quilt predates the shared class and has its own
 `quilt-local-retain` in `quilt-planner/app/storage-class.yaml`; do not copy it.
 
-## Reach it from the tailnet or from family
+### Reach it from the tailnet or from family
 
 Each is a separate Flux Kustomization that applies a small folder into the app's
 namespace. Copy the Quilt version and change the names. Whether and how to
@@ -178,7 +456,7 @@ to `envoy-internal` or `envoy-family` without any other change. Restricting
   keepalive and timeouts from the gateway-wide policy. Copy the pair for any
   app whose writes are not idempotent.
 
-## Backups
+### Backups
 
 Nightly restic backups of an app's volume use the `volsync` component
 (`kubernetes/components/volsync`), and apps with SQLite databases add the
@@ -213,7 +491,7 @@ From `personal/<app>/backup/` the component paths are
 `quilt-planner/backup` is a working example. The volsync component's README has
 the rest, including the first backup and restore.
 
-## Rules that keep a move safe
+### Rules that keep a move safe
 
 - Never rename a Flux Kustomization or change its namespace. Flux sees a new
   object, and prunes the old one together with what it applied. Change only its
