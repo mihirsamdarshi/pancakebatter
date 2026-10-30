@@ -195,7 +195,7 @@ check_templates_in_sync() {
 
 read -r -d '' entry_jq <<'JQ' || true
 def isstr: type == "string";
-def secretish: test("TOKEN|SECRET|PASSWORD|PASSWD|KEY|CREDENTIAL|AUTH"; "i");
+def secretish: test("TOKEN|SECRET|PASSWORD|PASSWD|PASS|PWD|KEY|CREDENTIAL|AUTH|PRIVATE|CERT"; "i");
 def cron: isstr and test("^[^ ]+( [^ ]+){4}$");
 def lbl: isstr and test("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$");
 def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+)?(m|k|M|G|T|Ki|Mi|Gi|Ti)?$"));
@@ -220,6 +220,13 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
      else empty end),
     (if $name != $stem then "file name \($stem).yaml must equal defaultValues.name \($name)" else empty end),
     (if $e.metadata.name != "app-" + $name then "metadata.name must be app-\($name), not \($e.metadata.name)" else empty end),
+    ($e | keys - ["apiVersion", "kind", "metadata", "spec"] | .[] | "unknown top-level key \(.)"),
+    (($e.metadata // {}) | keys - ["name", "namespace", "labels", "annotations"] | .[] | "unknown metadata key \(.)"),
+    (($e.metadata.labels // {}) | keys - ["platform/apps"] | .[] | "unknown label \(.) (only platform/apps)"),
+    (($e.metadata.annotations // {}) | keys - ["fluxcd.controlplane.io/reconcileEvery"] | .[] | "unknown annotation \(.) (only fluxcd.controlplane.io/reconcileEvery)"),
+    (($e.spec // {}) | keys - ["type", "url", "secretRef", "filter", "defaultValues"] | .[] | "unknown spec key \(.) (allowed: type, url, secretRef, filter, defaultValues)"),
+    (($e.spec.secretRef // {}) | keys - ["name"] | .[] | "unknown spec.secretRef key \(.)"),
+    (($e.spec.filter // {}) | keys - ["includeTag", "limit"] | .[] | "unknown spec.filter key \(.) (allowed: includeTag, limit)"),
     (if $e.spec.type != "OCIArtifactTag" then "spec.type must be OCIArtifactTag" else empty end),
     (if (($e.spec.url // "") | startswith("oci://ghcr.io/") | not) then "spec.url must be an oci://ghcr.io/ URL" else empty end),
     (if $e.spec.secretRef.name != "ghcr-apps-read" then "spec.secretRef.name must be ghcr-apps-read" else empty end),
@@ -313,7 +320,9 @@ def pods:
       ($s | [.. | objects | keys[] | select(IN("valueFrom", "secretKeyRef", "secretRef"))] | unique | .[] | "\($id): \(.) is forbidden (apps receive no Secrets, env values are plain)"),
       (($s.volumes // [])[] | select(has("secret")) | "\($id): secret volume \(.name) is forbidden"),
       (($s.volumes // [])[] | select((.projected.sources // []) | any(has("secret") or has("serviceAccountToken"))) | "\($id): projected volume \(.name) with a Secret or serviceAccountToken source is forbidden"),
-      (($s.volumes // [])[] | select(has("hostPath")) | "\($id): hostPath volume \(.name) is forbidden"),
+      (($s.volumes // [])[] | (keys - ["name", "persistentVolumeClaim", "emptyDir", "configMap"]) as $bad | select(($bad | length) > 0) | "\($id): volume \(.name) of type \($bad | join(",")) is not allowed (persistentVolumeClaim, emptyDir and configMap only)"),
+      (if ($s.serviceAccountName != null or $s.serviceAccount != null) then "\($id): serviceAccountName is forbidden (no ServiceAccount; apps use none)" else empty end),
+      (if $s.securityContext.runAsUser == 0 then "\($id): runAsUser 0 is forbidden" else empty end),
       (($s.imagePullSecrets // [])[] | .name | select(IN($pull[]) | not) | "\($id): imagePullSecret \(.) is not the platform's"),
       (if ($s.hostNetwork == true or $s.hostPID == true or $s.hostIPC == true) then "\($id): host namespaces are forbidden" else empty end),
       (if ($s.securityContext.runAsNonRoot == true) or ($s | containers | all(.securityContext.runAsNonRoot == true)) then empty else "\($id): runAsNonRoot must be true" end),
@@ -322,6 +331,9 @@ def pods:
         | (if $c.securityContext.allowPrivilegeEscalation != false then "\($id)/\($c.name): allowPrivilegeEscalation must be false" else empty end),
           (if (($c.securityContext.capabilities.drop // []) | index("ALL")) == null then "\($id)/\($c.name): capabilities must drop ALL" else empty end),
           (if $c.securityContext.privileged == true then "\($id)/\($c.name): privileged is forbidden" else empty end),
+          (if $c.securityContext.runAsUser == 0 then "\($id)/\($c.name): runAsUser 0 is forbidden" else empty end),
+          (($c.ports // [])[] | select(has("hostPort")) | "\($id)/\($c.name): hostPort is forbidden"),
+          (if ((($c.securityContext.capabilities.add // []) - ["NET_BIND_SERVICE"]) | length) > 0 then "\($id)/\($c.name): capabilities.add beyond NET_BIND_SERVICE is forbidden" else empty end),
           (if $c.securityContext.readOnlyRootFilesystem != true then "\($id)/\($c.name): readOnlyRootFilesystem must be true (writes go to the data volume and /tmp)" else empty end))
     )
 ]
@@ -418,6 +430,8 @@ check_custom_path() {
     kinds="$(yq -o=json -N '.' "$tmp/custom.yaml" | jq -s -r --argjson ok "$custom_kinds" \
         '[.[] | select(type == "object") | .kind | select(IN($ok[]) | not)] | unique | join(", ")')"
     [[ -z "$kinds" ]] || fail "custom path $dir holds kinds that are not allowed: $kinds (allowed: Deployment, StatefulSet, Job, CronJob, Service, ConfigMap, PersistentVolumeClaim)"
+    kinds="$(yq -o=json -N '.' "$tmp/custom.yaml" | jq -s -r '[.[] | select(type == "object" and .kind == "Service" and (((.spec.type // "ClusterIP") != "ClusterIP") or (.spec | has("externalIPs") or has("loadBalancerIP")))) | .metadata.name] | join(", ")')"
+    [[ -z "$kinds" ]] || fail "custom path $dir: Service $kinds must be a plain ClusterIP Service (no NodePort, LoadBalancer, ExternalName or externalIPs)"
     yq -o=json -N '.' "$tmp/custom.yaml" | jq -s -r --arg ns "" --argjson pull '["apps-ghcr"]' "$pods_jq" >"$tmp/custom.errs"
     [[ ! -s "$tmp/custom.errs" ]] || fail "custom path $dir: $(tr '\n' ';' <"$tmp/custom.errs")"
     echo "    custom path $dir: plain workload kinds, no credentials"
@@ -524,11 +538,14 @@ validate_entry() {
     conform <"$tmp/ks.yaml" >"$tmp/conform.out" 2>&1 || fail "kubeconform (rendered Kustomization): $(cat "$tmp/conform.out")"
     conform <"$tmp/build.yaml" >"$tmp/conform.out" 2>&1 || fail "kubeconform (built objects): $(cat "$tmp/conform.out")"
     ! grep -qF 'fluxcd.controlplane.io/force' "$tmp/build.yaml" || fail "the build sets fluxcd.controlplane.io/force"
-    # shellcheck disable=SC2016  # a literal dollar-brace
-    ! grep -qF '${' "$tmp/build.yaml" || fail "the build has an unsubstituted \${...}: $(grep -F '${' "$tmp/build.yaml" | tr '\n' ' ')"
 
     # 4-6. Restricted pods, no credentials, the network policy and the routes.
     yq -o=json -N '.' "$tmp/build.yaml" | jq -s '[.[] | select(type == "object")]' >"$tmp/build.json"
+    # A variable left in the build would be a typo. Only container env values
+    # may hold a literal ${...}: that is what the documented $${...} escape in
+    # `env` becomes after substitution.
+    errs="$(jq -r '[.[] | walk(if type == "object" and has("env") then del(.env) else . end) | .. | strings | select(contains("${"))] | unique | join(" ")' "$tmp/build.json")"
+    [[ -z "$errs" ]] || fail "the build has an unsubstituted \${...} outside container env: $errs"
     errs="$(jq -r --arg ns "$ns" --argjson pull "$pull_json" "$pods_jq" "$tmp/build.json")"
     [[ -z "$errs" ]] || fail "pods: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
     errs="$(jq -r --arg ns "$ns" --arg name "$name" --argjson netpol "$netpol" --arg egress "$egress" \

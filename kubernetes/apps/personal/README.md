@@ -118,32 +118,34 @@ one Kustomization the API server rejects would block every app in `apps`.
 
 ### Settings
 
-Everything under `defaultValues`. The validator rejects unknown keys. Everything
-under `vars` becomes an uppercase substitution variable.
+Everything under `defaultValues`. The validator rejects unknown keys, here and
+in the entry's `spec` (only `type`, `url`, `secretRef`, `filter` and
+`defaultValues`). Everything under `vars` becomes an uppercase substitution
+variable.
 
-| Key                                             | Default                                | Meaning                                                                                                     |
-| ----------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `name`                                          | required                               | Deployment, Service, image name, default namespace and host                                                 |
-| `namespace`                                     | `name`                                 | The app's namespace. The folder `personal/<namespace>/` must exist and carry the same name                  |
-| `parts`                                         | `[pullsecret, internal-route, backup]` | Pieces to add (below). `namespace` is not a part                                                            |
-| `netpol`                                        | `true`                                 | The default-deny network policy. `false` needs a `netpolReason`                                             |
-| `netpolReason`                                  | none                                   | Free text, required with `netpol: false`. The validator prints every exemption with its reason              |
-| `egress`                                        | `none`                                 | `none` (DNS and the own namespace only) or `internet` (public addresses on all ports, never private ranges) |
-| `pin`                                           | none                                   | A `sha256:` digest that wins over the registry's: the rollback and migration lever                          |
-| `env`                                           | none                                   | Plain extra environment. Keys uppercase and not `N`, `Y`, `ON`, `OFF`. A literal `$` is written `$$`        |
-| `path`                                          | the base                               | The escape hatch (below). No trailing slash                                                                 |
-| `vars.CLAIM`                                    | `<name>-data`                          | PVC name                                                                                                    |
-| `vars.STORAGE`, `vars.STORAGE_CLASS`            | `1Gi`, `local-retain`                  | PVC size and class. The class must have reclaim policy `Retain`                                             |
-| `vars.HEALTH_PATH`                              | `/healthz`                             | Probe path                                                                                                  |
-| `vars.APP_UID`, `vars.APP_GID`                  | `1000`, `1000`                         | Pod, VolSync mover and SQLite export identity. `0` is rejected                                              |
-| `vars.DATA_PATH`                                | `/data`                                | Mount path and `DATA_DIR`                                                                                   |
-| `vars.CPU`, `vars.MEMORY`, `vars.MEMORY_LIMIT`  | `50m`, `128Mi`, `512Mi`                | Requests and the memory limit                                                                               |
-| `vars.IMAGE`                                    | `ghcr.io/<owner>/apps/<name>`          | Override only while adopting a differently named image                                                      |
-| `vars.PULL_SECRET`                              | `apps-ghcr`                            | The Secret name the Deployment references. The copied Secret is always `apps-ghcr`                          |
-| `vars.HOST`                                     | `name`                                 | `<HOST>.${SECRET_DOMAIN_LOCAL}`                                                                             |
-| `vars.FAMILY_HOST`                              | none                                   | With `family-route`: `<FAMILY_HOST>.${SECRET_FAMILY_DOMAIN}`                                                |
-| `vars.SQLITE_DBS`                               | none                                   | Space-separated database paths for `backup-sqlite`                                                          |
-| `vars.VOLSYNC_SCHEDULE`, `vars.SQLITE_SCHEDULE` | none                                   | Explicit UTC cron strings, required with `backup` / `backup-sqlite`                                         |
+| Key                                             | Default                                | Meaning                                                                                                                                                                                                                               |
+| ----------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                                          | required                               | Deployment, Service, image name, default namespace and host                                                                                                                                                                           |
+| `namespace`                                     | `name`                                 | The app's namespace. The folder `personal/<namespace>/` must exist and carry the same name                                                                                                                                            |
+| `parts`                                         | `[pullsecret, internal-route, backup]` | Pieces to add (below). `namespace` is not a part                                                                                                                                                                                      |
+| `netpol`                                        | `true`                                 | The default-deny network policy. `false` needs a `netpolReason`                                                                                                                                                                       |
+| `netpolReason`                                  | none                                   | Free text, required with `netpol: false`. The validator prints every exemption with its reason                                                                                                                                        |
+| `egress`                                        | `none`                                 | `none` (DNS and the own namespace only) or `internet` (public addresses on all ports, never private ranges)                                                                                                                           |
+| `pin`                                           | none                                   | A `sha256:` digest that wins over the registry's: the rollback and migration lever                                                                                                                                                    |
+| `env`                                           | none                                   | Plain extra environment. Keys uppercase, not `N`, `Y`, `ON`, `OFF`, and not credential-like (`TOKEN`, `SECRET`, `PASS`, `PWD`, `KEY`, `AUTH`, `PRIVATE`, `CERT`, ...). A literal `$` is written `$$` (`$${X}` gives a literal `${X}`) |
+| `path`                                          | the base                               | The escape hatch (below). No trailing slash                                                                                                                                                                                           |
+| `vars.CLAIM`                                    | `<name>-data`                          | PVC name                                                                                                                                                                                                                              |
+| `vars.STORAGE`, `vars.STORAGE_CLASS`            | `1Gi`, `local-retain`                  | PVC size and class. The class must have reclaim policy `Retain`                                                                                                                                                                       |
+| `vars.HEALTH_PATH`                              | `/healthz`                             | Probe path                                                                                                                                                                                                                            |
+| `vars.APP_UID`, `vars.APP_GID`                  | `1000`, `1000`                         | Pod, VolSync mover and SQLite export identity. `0` is rejected                                                                                                                                                                        |
+| `vars.DATA_PATH`                                | `/data`                                | Mount path and `DATA_DIR`                                                                                                                                                                                                             |
+| `vars.CPU`, `vars.MEMORY`, `vars.MEMORY_LIMIT`  | `50m`, `128Mi`, `512Mi`                | Requests and the memory limit                                                                                                                                                                                                         |
+| `vars.IMAGE`                                    | `ghcr.io/<owner>/apps/<name>`          | Override only while adopting a differently named image                                                                                                                                                                                |
+| `vars.PULL_SECRET`                              | `apps-ghcr`                            | The Secret name the Deployment references. The copied Secret is always `apps-ghcr`                                                                                                                                                    |
+| `vars.HOST`                                     | `name`                                 | `<HOST>.${SECRET_DOMAIN_LOCAL}`                                                                                                                                                                                                       |
+| `vars.FAMILY_HOST`                              | none                                   | With `family-route`: `<FAMILY_HOST>.${SECRET_FAMILY_DOMAIN}`                                                                                                                                                                          |
+| `vars.SQLITE_DBS`                               | none                                   | Space-separated database paths for `backup-sqlite`                                                                                                                                                                                    |
+| `vars.VOLSYNC_SCHEDULE`, `vars.SQLITE_SCHEDULE` | none                                   | Explicit UTC cron strings, required with `backup` / `backup-sqlite`                                                                                                                                                                   |
 
 Parts (`kubernetes/components/app-platform/`): `pullsecret` (a name only: the
 Secret is rendered by `apps-pull`), `internal-route` (`<HOST>.${SECRET_DOMAIN_LOCAL}`
@@ -198,8 +200,12 @@ anything private.
    StatefulSet, Job, CronJob, Service, ConfigMap, PersistentVolumeClaim. The
    validator rejects `HelmRelease`, any network policy, `Role`, `RoleBinding`,
    `ClusterRole*`, `ServiceAccount`, `ExternalSecret`, `SealedSecret`, `Secret`
-   and `secretGenerator`. The folder needs a `kustomization.yaml` and is never
-   the Namespace folder itself.
+   and `secretGenerator`. Its pods get the same rules as the base: Pod Security
+   `restricted` fields, a read-only root filesystem, no `hostPort`, no host
+   namespaces, no `privileged`, no `runAsUser: 0`, no `serviceAccountName`, and
+   only `persistentVolumeClaim`, `emptyDir` and `configMap` volumes (no `nfs`,
+   `hostPath` or Secret); Services are plain ClusterIP. The folder needs a
+   `kustomization.yaml` and is never the Namespace folder itself.
 4. Out of the platform: no entry, a normal app under `kubernetes/apps/<ns>/`.
 
 Postgres or any service that needs a credential is deferred; apps hold none.
