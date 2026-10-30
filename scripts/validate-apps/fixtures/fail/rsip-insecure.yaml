@@ -21,5 +21,4 @@ spec:
   insecure: true
   defaultValues:
     name: rsip-insecure
-    namespace: quilt-planner
     parts: [pullsecret, internal-route]

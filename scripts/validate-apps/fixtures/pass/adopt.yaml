@@ -19,7 +19,6 @@ spec:
     limit: 1
   defaultValues:
     name: adopt
-    namespace: quilt-planner
     parts: []
     pin: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
     vars:

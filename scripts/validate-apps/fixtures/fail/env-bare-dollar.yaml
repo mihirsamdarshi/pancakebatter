@@ -20,6 +20,5 @@ spec:
     limit: 1
   defaultValues:
     name: env-bare-dollar
-    namespace: quilt-planner
     env:
       MSG: "cost $5"

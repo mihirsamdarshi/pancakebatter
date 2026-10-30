@@ -81,14 +81,13 @@ default namespace and default host.
                 SQLITE_SCHEDULE: "<UTC cron, ten minutes before the backup>"
     ```
 
-2. Create `personal/<namespace>/kustomization.yaml` and add `- ./<namespace>` to
-   `personal/kustomization.yaml`. The namespace is the app name unless the entry
-   sets `namespace`:
+2. Create `personal/<name>/kustomization.yaml` and add `- ./<name>` to
+   `personal/kustomization.yaml`. The namespace is the app name:
 
     ```yaml
     apiVersion: kustomize.config.k8s.io/v1beta1
     kind: Kustomization
-    namespace: <namespace>
+    namespace: <name>
     components:
         - ../../../components/personal-namespace
     ```
@@ -111,6 +110,14 @@ default namespace and default host.
    without an image yet is harmless: the RSIP exports nothing, so nothing
    renders.
 
+The folders `app-platform/`, `app-platform/app/` and `app-platform/apps/` are
+applied by a cluster-admin Kustomization, so their shape is fixed and checked:
+`apps/` holds `kustomization.yaml` and one top-level `<name>.yaml` per entry,
+each a single `ResourceSetInputProvider`, and its `kustomization.yaml` lists
+exactly those files (no subfolder, no other resource, no generator, patch or
+component); `app/` holds only the known objects (the two ResourceSets, the
+Provider, the Alert and the two Secrets). Anything else fails the validator.
+
 The Namespace folder must be in the same PR. A ResourceSet applies none of its
 objects when one fails the API server's dry run, so one Secret copy whose
 namespace does not exist yet would delay every app's copy in `apps-pull`, and
@@ -126,7 +133,7 @@ variable.
 | Key                                             | Default                                | Meaning                                                                                                                                                                                                                               |
 | ----------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`                                          | required                               | Deployment, Service, image name, default namespace and host                                                                                                                                                                           |
-| `namespace`                                     | `name`                                 | The app's namespace. The folder `personal/<namespace>/` must exist and carry the same name                                                                                                                                            |
+| `namespace`                                     | `name`                                 | Must equal `name`: an app lives in the namespace of its own name (its network policy is namespace-wide and would default-deny another app's pods). The folder `personal/<name>/` must exist                                           |
 | `parts`                                         | `[pullsecret, internal-route, backup]` | Pieces to add (below). `namespace` is not a part                                                                                                                                                                                      |
 | `netpol`                                        | `true`                                 | The default-deny network policy. `false` needs a `netpolReason`                                                                                                                                                                       |
 | `netpolReason`                                  | none                                   | Free text, required with `netpol: false`. The validator prints every exemption with its reason                                                                                                                                        |

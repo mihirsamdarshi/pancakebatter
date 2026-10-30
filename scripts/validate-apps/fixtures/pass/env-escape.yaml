@@ -19,7 +19,6 @@ spec:
     limit: 1
   defaultValues:
     name: env-escape
-    namespace: quilt-planner
     parts: [pullsecret, internal-route]
     env:
       LITERAL: "price $${X} and $$HOME"

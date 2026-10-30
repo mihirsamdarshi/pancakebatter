@@ -20,5 +20,4 @@ spec:
     limit: 1
   defaultValues:
     name: netpol-false-no-reason
-    namespace: quilt-planner
     netpol: false

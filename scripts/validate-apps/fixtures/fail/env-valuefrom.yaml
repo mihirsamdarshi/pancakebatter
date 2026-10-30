@@ -20,7 +20,6 @@ spec:
     limit: 1
   defaultValues:
     name: env-valuefrom
-    namespace: quilt-planner
     env:
       TOKEN_X:
         valueFrom:

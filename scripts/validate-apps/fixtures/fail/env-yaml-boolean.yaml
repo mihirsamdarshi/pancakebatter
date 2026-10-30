@@ -20,6 +20,5 @@ spec:
     limit: 1
   defaultValues:
     name: env-yaml-boolean
-    namespace: quilt-planner
     env:
       ON: "1"

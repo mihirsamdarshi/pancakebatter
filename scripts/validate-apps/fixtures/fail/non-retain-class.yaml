@@ -20,7 +20,6 @@ spec:
     limit: 1
   defaultValues:
     name: non-retain-class
-    namespace: quilt-planner
     parts: [pullsecret, internal-route]
     vars:
       STORAGE_CLASS: local-path

@@ -1,5 +1,6 @@
 ---
-# expect: kubernetes/apps/personal/no-such-folder/kustomization.yaml is missing
+# expect: namespace-folder-missing/kustomization.yaml is missing
+# no-namespace-folder
 # Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSetInputProvider
@@ -20,5 +21,4 @@ spec:
     limit: 1
   defaultValues:
     name: namespace-folder-missing
-    namespace: no-such-folder
     parts: [pullsecret, internal-route]

@@ -6,6 +6,7 @@
 #   validate-apps.sh [ROOT]        validate every entry under ROOT (default: repo root)
 #   validate-apps.sh --entry FILE  validate one entry file (also used for the fixtures)
 #   validate-apps.sh --self-test   run the fixtures: scripts/validate-apps/fixtures
+#   validate-apps.sh --structure ROOT   only check the shape of the app-platform folders
 #
 # scripts/validate-kubernetes.sh calls it, so the Kubernetes workflow and
 # `just template configure` run it too. A tree without the app platform is
@@ -21,7 +22,11 @@
 # Checks, in order (the numbers follow docs: app platform design 5.6):
 #   0. the registry credential flux-system/ghcr-apps-read (SOPS file exists,
 #      encrypted, labelled for the operator's watch). Fails first with a clear
-#      message, because it is created by the owner, never by an agent;
+#      message, because it is created by the owner, never by an agent; then the
+#      shape of the folders that the cluster-admin Kustomization app-platform
+#      applies (apps/ holds only entry files, each a single
+#      ResourceSetInputProvider, and its kustomization.yaml lists exactly them;
+#      app/ holds only the known objects);
 #   1. the entry: only schema keys, names, parts, netpol/egress rules, env and
 #      vars rules, retain-class storage, unique schedules and namespaces;
 #   2. `flux-operator build rset` for both ResourceSets (the CLI only takes
@@ -157,6 +162,87 @@ check_credential() {
     echo "--- pull credential: $credential is encrypted and labelled"
 }
 
+# --- The folders a cluster-admin Kustomization applies ----------------------
+
+# app-platform is applied by kustomize-controller as cluster-admin, and applies
+# whatever app-platform/kustomization.yaml, app/ and apps/ list. A reviewer
+# reading a diff is the only other guard, so the shape is fixed here: apps/ holds
+# kustomization.yaml and one top-level <name>.yaml per entry, each a single
+# ResourceSetInputProvider, and kustomization.yaml lists exactly those files (no
+# subfolder, no other resource, no generator, patch or component); app/ holds only
+# the known objects. Works on the tree it runs in, so the self-test can feed it
+# broken copies (--structure ROOT).
+check_structure() {
+    local f name entry_files=() expected_json kinds item expected rel
+    # The platform folder itself.
+    while IFS= read -r -d '' f; do
+        name="$(basename "$f")"
+        case "$name" in
+            ks.yaml | kustomization.yaml | retired.txt) [[ -f "$f" && ! -L "$f" ]] || die "$f must be a regular file" ;;
+            app | apps) [[ -d "$f" && ! -L "$f" ]] || die "$f must be a folder" ;;
+            *) die "$f is not allowed in $platform_dir (ks.yaml, kustomization.yaml, retired.txt, app/, apps/ only)" ;;
+        esac
+    done < <(find "$platform_dir" -mindepth 1 -maxdepth 1 -print0)
+    yq -o=json '.' "$platform_dir/kustomization.yaml" \
+        | jq -e '(keys == ["apiVersion", "kind", "resources"]) and .apiVersion == "kustomize.config.k8s.io/v1beta1" and .kind == "Kustomization" and (.resources == ["./app", "./apps"])' >/dev/null \
+        || die "$platform_dir/kustomization.yaml must be a Kustomization that lists exactly ./app and ./apps, with no other key"
+    yq -o=json -N '.' "$platform_dir/ks.yaml" \
+        | jq -s -e 'length == 1 and (.[0] | .kind == "Kustomization" and .metadata.name == "app-platform"
+            and .spec.path == "./kubernetes/apps/flux-system/app-platform"
+            and ((.spec | keys) - ["dependsOn", "decryption", "interval", "path", "prune", "sourceRef", "targetNamespace", "wait"] == []))' >/dev/null \
+        || die "$platform_dir/ks.yaml must be the Kustomization app-platform for $platform_dir, with no postBuild, patches, components, kubeConfig or serviceAccountName"
+
+    # apps/: entries only.
+    while IFS= read -r -d '' f; do
+        name="$(basename "$f")"
+        if [[ -d "$f" || -L "$f" ]]; then
+            die "$f is a folder or a link: $apps_dir holds only kustomization.yaml and top-level <name>.yaml files"
+        fi
+        if [[ "$name" == kustomization.yaml ]]; then continue; fi
+        [[ "$name" =~ ^[a-z][a-z0-9-]*\.yaml$ ]] \
+            || die "$f is not allowed in $apps_dir (only kustomization.yaml and top-level <name>.yaml entry files)"
+        [[ "$(yq ea '[.] | length' "$f")" == "1" ]] || die "$f must hold exactly one document"
+        kinds="$(yq -N '.apiVersion + " " + .kind' "$f")"
+        [[ "$kinds" == "fluxcd.controlplane.io/v1 ResourceSetInputProvider" ]] \
+            || die "$f is not a single fluxcd.controlplane.io/v1 ResourceSetInputProvider (found: $kinds)"
+        entry_files+=("./$name")
+    done < <(find "$apps_dir" -mindepth 1 -maxdepth 1 -print0)
+    [[ -f "$apps_dir/kustomization.yaml" ]] || die "$apps_dir/kustomization.yaml is missing"
+    expected_json="$(printf '%s\n' ${entry_files[@]+"${entry_files[@]}"} | jq -R . | jq -s 'map(select(. != "")) | sort')"
+    yq -o=json '.' "$apps_dir/kustomization.yaml" \
+        | jq -e --argjson want "$expected_json" '(keys == ["apiVersion", "kind", "resources"]) and .apiVersion == "kustomize.config.k8s.io/v1beta1" and .kind == "Kustomization" and ((.resources | sort) == $want) and ((.resources | length) == ($want | length))' >/dev/null \
+        || die "$apps_dir/kustomization.yaml must be a Kustomization with only apiVersion, kind and resources, and its resources must be exactly the entry files here (${entry_files[*]:-none}): no subfolder, no other resource, no generator, patch or component"
+
+    # app/: the known objects only.
+    while IFS= read -r -d '' f; do
+        name="$(basename "$f")"
+        if [[ -d "$f" || -L "$f" ]]; then die "$f is a folder or a link: $app_dir holds only the known files"; fi
+        case "$name" in
+            kustomization.yaml | alert.yaml | provider.yaml | resourceset.yaml | resourceset-pull.yaml | discord-webhook.sops.yaml | ghcr-apps-read.sops.yaml) ;;
+            *) die "$f is not one of the known files of $app_dir (alert, provider, the two ResourceSets, the two Secrets)" ;;
+        esac
+        [[ "$name" != kustomization.yaml ]] || continue
+        case "$name" in
+            alert.yaml) expected="notification.toolkit.fluxcd.io/v1beta3 Alert/apps" ;;
+            provider.yaml) expected="notification.toolkit.fluxcd.io/v1beta3 Provider/discord" ;;
+            resourceset.yaml) expected="fluxcd.controlplane.io/v1 ResourceSet/apps" ;;
+            resourceset-pull.yaml) expected="fluxcd.controlplane.io/v1 ResourceSet/apps-pull" ;;
+            discord-webhook.sops.yaml) expected="v1 Secret/discord-webhook" ;;
+            ghcr-apps-read.sops.yaml) expected="v1 Secret/ghcr-apps-read" ;;
+        esac
+        [[ "$(yq ea '[.] | length' "$f")" == "1" ]] || die "$f must hold exactly one document"
+        item="$(yq -N '.apiVersion + " " + .kind + "/" + .metadata.name' "$f")"
+        [[ "$item" == "$expected" ]] || die "$f must be $expected, not $item"
+    done < <(find "$app_dir" -mindepth 1 -maxdepth 1 -print0)
+    [[ -f "$app_dir/kustomization.yaml" ]] || die "$app_dir/kustomization.yaml is missing"
+    yq -o=json '.' "$app_dir/kustomization.yaml" \
+        | jq -e '(keys == ["apiVersion", "kind", "resources"]) and .apiVersion == "kustomize.config.k8s.io/v1beta1" and .kind == "Kustomization"
+            and ((.resources | sort) == ["./alert.yaml", "./discord-webhook.sops.yaml", "./ghcr-apps-read.sops.yaml", "./provider.yaml", "./resourceset-pull.yaml", "./resourceset.yaml"])' >/dev/null \
+        || die "$app_dir/kustomization.yaml must list exactly alert, discord-webhook, ghcr-apps-read, provider, resourceset-pull and resourceset, with no other key"
+    rel="$platform_dir"
+    echo "--- structure: $rel holds only the known files, each of the known kind, and the entries are listed exactly"
+}
+
 # --- 9. Tooling and the two templates ---------------------------------------
 
 check_tooling() {
@@ -234,7 +320,9 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
     (if $e.spec.filter.limit != 1 then "spec.filter.limit must be 1" else empty end),
     (if ($e.metadata.annotations["fluxcd.controlplane.io/reconcileEvery"] // "") == "" then "annotation fluxcd.controlplane.io/reconcileEvery is required (2m)" else empty end),
     (($d | keys) - $topkeys | .[] | "unknown setting \(.) (allowed: \($topkeys | join(", ")))"),
-    (if ($d | has("namespace")) and ($d.namespace | lbl | not) then "namespace \($d.namespace) must be a lowercase DNS label" else empty end),
+    (if ($d | has("namespace")) and ($d.namespace | lbl | not) then "namespace \($d.namespace) must be a lowercase DNS label"
+     elif ($d | has("namespace")) and $d.namespace != $name then "namespace \($d.namespace) differs from name \($name): an app lives in the namespace of its own name (its network policy is namespace-wide and would default-deny another app's pods)"
+     else empty end),
     # parts
     (if ($d | has("parts")) and ($d.parts | type) != "array" then "parts must be a list" else empty end),
     ($parts | map(select(isstr | not)) | if length > 0 then "parts must be strings" else empty end),
@@ -439,7 +527,7 @@ check_custom_path() {
 
 validate_entry() {
     local file="$1" stem fx=false errs name ns path parts_json pull_json host famhost netpol egress
-    local sub_ok count secret_pull n nsdir
+    local sub_ok count secret_pull n nsdir nsroot
     stem="$(basename "$file" .yaml)"
     entry_label="$stem"
     case "$file" in "$fixtures_dir"/*) fx=true ;; esac
@@ -471,17 +559,19 @@ validate_entry() {
         echo "    NETWORK POLICY OFF for $name: $(yq '.spec.defaultValues.netpolReason' "$file")"
     fi
 
-    # 8. The Namespace folder (Git-defined, same PR as the entry). The fixtures
-    # use the folder of quilt-planner, which always exists.
-    nsdir="kubernetes/apps/personal/$ns"
+    # 8. The Namespace folder (Git-defined, same PR as the entry). For a fixture
+    # the self-test makes a folder per sample under a temporary root.
+    nsroot="kubernetes/apps/personal"
+    if [[ "$fx" == true && -n "${VALIDATE_APPS_NS_ROOT:-}" ]]; then nsroot="$VALIDATE_APPS_NS_ROOT"; fi
+    nsdir="$nsroot/$ns"
     [[ -f "$nsdir/kustomization.yaml" ]] \
-        || fail "the Namespace folder $nsdir/kustomization.yaml is missing; add it (and its line in kubernetes/apps/personal/kustomization.yaml) in the same PR"
+        || fail "the Namespace folder $nsdir/kustomization.yaml is missing; add it (and its line in $nsroot/kustomization.yaml) in the same PR"
     [[ "$(yq '.namespace' "$nsdir/kustomization.yaml")" == "$ns" ]] \
         || fail "$nsdir/kustomization.yaml: namespace must be $ns"
     yq -e '.components[] | select(. == "../../../components/personal-namespace")' "$nsdir/kustomization.yaml" >/dev/null 2>&1 \
         || fail "$nsdir/kustomization.yaml must use ../../../components/personal-namespace"
-    yq -e ".resources[] | select(. == \"./$ns\")" kubernetes/apps/personal/kustomization.yaml >/dev/null 2>&1 \
-        || fail "kubernetes/apps/personal/kustomization.yaml does not list ./$ns"
+    yq -e ".resources[] | select(. == \"./$ns\")" "$nsroot/kustomization.yaml" >/dev/null 2>&1 \
+        || fail "$nsroot/kustomization.yaml does not list ./$ns"
 
     # 6a. A custom folder, on its own.
     [[ -z "$path" || "$path" == "$base_path" ]] || check_custom_path "${path#./}"
@@ -672,7 +762,21 @@ scan_secrets() {
 # pass/hello-default.yaml is a copy of the hello entry, so that the tests do not
 # depend on whether the live entry is in the tree.
 run_self_test() {
-    local f expect out rc passed=0 failed=0
+    local f expect out rc passed=0 failed=0 nsroot="$tmp/fixture-ns" c root name
+    # An entry lives in the namespace of its own name, so each sample gets a
+    # Namespace folder of that name under a temporary root (a sample marked
+    # `# no-namespace-folder` gets none).
+    mkdir -p "$nsroot"
+    printf -- '---\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n' >"$nsroot/kustomization.yaml"
+    for f in "$fixtures_dir"/pass/*.yaml "$fixtures_dir"/fail/*.yaml; do
+        [[ -f "$f" ]] || continue
+        if grep -q '^# no-namespace-folder' "$f"; then continue; fi
+        name="$(yq '.spec.defaultValues.name' "$f")"
+        mkdir -p "$nsroot/$name"
+        printf -- '---\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nnamespace: %s\ncomponents:\n  - ../../../components/personal-namespace\n' "$name" >"$nsroot/$name/kustomization.yaml"
+        yq -i ".resources += [\"./$name\"]" "$nsroot/kustomization.yaml"
+    done
+    export VALIDATE_APPS_NS_ROOT="$nsroot"
     for f in "$fixtures_dir"/pass/*.yaml; do
         [[ -f "$f" ]] || continue
         if out="$("$script_path" --entry "$f" 2>&1)"; then
@@ -699,6 +803,48 @@ run_self_test() {
             failed=$((failed + 1))
         fi
     done
+    # The folders the cluster-admin Kustomization applies: a copy of the real
+    # platform folder with the entries removed, with each broken sample laid over
+    # it (structure/<case>/overlay, resources to append in structure/<case>/append
+    # as "<folder> <resource>" lines, the expected text in structure/<case>/expect).
+    # Without overlay the copy itself must pass.
+    for c in "" "$fixtures_dir"/structure/*/; do
+        if [[ -n "$c" ]]; then
+            [[ -d "$c" ]] || continue
+            name="$(basename "$c")"
+            expect="$(<"$c/expect")"
+        else
+            name="baseline"
+            expect=""
+        fi
+        root="$tmp/structure/$name"
+        mkdir -p "$root/$(dirname "$platform_dir")"
+        cp -R "$platform_dir" "$root/$platform_dir"
+        find "$root/$apps_dir" -type f ! -name kustomization.yaml -delete
+        printf -- '---\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n' >"$root/$apps_dir/kustomization.yaml"
+        if [[ -n "$c" ]]; then
+            if [[ -d "$c/overlay" ]]; then cp -R "$c/overlay/." "$root/$platform_dir/"; fi
+            if [[ -f "$c/append" ]]; then
+                while read -r folder resource; do
+                    [[ -n "$folder" ]] || continue
+                    yq -i ".resources += [\"$resource\"]" "$root/$platform_dir/$folder/kustomization.yaml"
+                done <"$c/append"
+            fi
+        fi
+        rc=0
+        out="$("$script_path" --structure "$root" 2>&1)" || rc=$?
+        if [[ -z "$expect" ]] && ((rc == 0)); then
+            echo "pass  structure/$name (the platform folder without entries)"
+            passed=$((passed + 1))
+        elif [[ -n "$expect" ]] && ((rc != 0)) && [[ "$out" == *"$expect"* ]]; then
+            echo "reject structure/$name ($expect)"
+            passed=$((passed + 1))
+        else
+            echo "FAIL  structure/$name (expected: ${expect:-valid}; exit $rc):" >&2
+            printf '%s\n' "$out" >&2
+            failed=$((failed + 1))
+        fi
+    done
     echo "self-test: $passed ok, $failed failed"
     ((failed == 0)) || exit 1
 }
@@ -710,6 +856,7 @@ main() {
     while (($# > 0)); do
         case "$1" in
             --self-test) mode=selftest ;;
+            --structure) mode=structure ;;
             --entry) mode=entry; entry="${2:?--entry needs a file}"; shift ;;
             -h | --help) sed -n '2,12p' "$script_path"; exit 0 ;;
             *) root="$1" ;;
@@ -732,6 +879,7 @@ main() {
 
     case "$mode" in
         selftest) run_self_test; return ;;
+        structure) check_structure; return ;;
         entry)
             collect_git_facts
             validate_entry "$entry"
@@ -743,6 +891,7 @@ main() {
     # The credential first: it is the one input an agent cannot create, so a
     # missing file must be the first thing the log shows.
     check_credential
+    check_structure
     collect_git_facts
     check_tooling
     check_templates_in_sync

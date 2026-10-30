@@ -19,7 +19,6 @@ spec:
     limit: 1
   defaultValues:
     name: egress-internet
-    namespace: quilt-planner
     egress: internet
     parts: [pullsecret, internal-route]
     env:

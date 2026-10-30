@@ -20,7 +20,6 @@ spec:
     limit: 1
   defaultValues:
     name: env-private-name
-    namespace: quilt-planner
     parts: [pullsecret, internal-route]
     env:
       PRIVATE_THING: x

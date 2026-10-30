@@ -20,6 +20,5 @@ spec:
     limit: 1
   defaultValues:
     name: reserved-var
-    namespace: quilt-planner
     vars:
       APP: other

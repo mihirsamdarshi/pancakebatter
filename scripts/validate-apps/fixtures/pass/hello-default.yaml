@@ -1,6 +1,6 @@
 ---
 # Test fixture for scripts/validate-apps.sh: the hello entry (default parts, SQLite
-# backup), in an existing namespace. Never applied to a cluster.
+# backup), under another name. Never applied to a cluster.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSetInputProvider
 metadata:
@@ -20,7 +20,6 @@ spec:
     limit: 1
   defaultValues:
     name: hello-default
-    namespace: quilt-planner
     parts: [pullsecret, internal-route, backup, backup-sqlite]
     vars:
       SQLITE_DBS: hello.db

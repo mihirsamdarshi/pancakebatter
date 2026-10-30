@@ -20,6 +20,5 @@ spec:
     limit: 1
   defaultValues:
     name: uid-zero
-    namespace: quilt-planner
     vars:
       APP_UID: "0"

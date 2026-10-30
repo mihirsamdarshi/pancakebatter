@@ -20,5 +20,4 @@ spec:
     limit: 1
   defaultValues:
     name: custom-trailing-slash
-    namespace: quilt-planner
     path: ./kubernetes/apps/personal/hello/app/

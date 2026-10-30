@@ -19,7 +19,6 @@ spec:
     limit: 1
   defaultValues:
     name: family
-    namespace: quilt-planner
     parts: [pullsecret, internal-route, family-route, family-route-legacy, backup, backup-sqlite]
     vars:
       FAMILY_HOST: fam
