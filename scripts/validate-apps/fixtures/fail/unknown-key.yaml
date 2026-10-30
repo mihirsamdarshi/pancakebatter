@@ -20,5 +20,5 @@ spec:
     limit: 1
   defaultValues:
     name: unknown-key
-    namespace: hello
+    namespace: quilt-planner
     replicas: 2

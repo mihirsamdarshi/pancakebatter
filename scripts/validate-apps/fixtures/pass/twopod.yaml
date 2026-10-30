@@ -19,6 +19,6 @@ spec:
     limit: 1
   defaultValues:
     name: twopod
-    namespace: hello
+    namespace: quilt-planner
     parts: [pullsecret, internal-route]
     path: ./scripts/validate-apps/fixtures/custom/twopod

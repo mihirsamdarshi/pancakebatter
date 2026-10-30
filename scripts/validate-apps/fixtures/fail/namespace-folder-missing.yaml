@@ -1,0 +1,24 @@
+---
+# expect: kubernetes/apps/personal/no-such-folder/kustomization.yaml is missing
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-namespace-folder-missing
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/namespace-folder-missing
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: namespace-folder-missing
+    namespace: no-such-folder
+    parts: [pullsecret, internal-route]

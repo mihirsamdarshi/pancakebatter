@@ -19,7 +19,7 @@ spec:
     limit: 1
   defaultValues:
     name: netpol-false
-    namespace: hello
+    namespace: quilt-planner
     netpol: false
     netpolReason: "fixture: shows the exemption and its reason"
     parts: [pullsecret, internal-route]

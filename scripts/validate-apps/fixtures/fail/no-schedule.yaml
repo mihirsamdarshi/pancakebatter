@@ -20,5 +20,5 @@ spec:
     limit: 1
   defaultValues:
     name: no-schedule
-    namespace: hello
+    namespace: quilt-planner
     parts: [pullsecret, internal-route, backup]

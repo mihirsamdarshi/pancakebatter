@@ -458,7 +458,7 @@ validate_entry() {
     fi
 
     # 8. The Namespace folder (Git-defined, same PR as the entry). The fixtures
-    # use the namespace of hello.
+    # use the folder of quilt-planner, which always exists.
     nsdir="kubernetes/apps/personal/$ns"
     [[ -f "$nsdir/kustomization.yaml" ]] \
         || fail "the Namespace folder $nsdir/kustomization.yaml is missing; add it (and its line in kubernetes/apps/personal/kustomization.yaml) in the same PR"
@@ -652,10 +652,11 @@ scan_secrets() {
 
 # Throwaway samples under scripts/validate-apps/fixtures. pass/ must validate;
 # every file in fail/ must be rejected, with the text on its `# expect:` line.
-# The live hello entry is the "hello default" case.
+# pass/hello-default.yaml is a copy of the hello entry, so that the tests do not
+# depend on whether the live entry is in the tree.
 run_self_test() {
-    local f expect out rc passed=0 failed=0 hello="$apps_dir/hello.yaml"
-    for f in "$hello" "$fixtures_dir"/pass/*.yaml; do
+    local f expect out rc passed=0 failed=0
+    for f in "$fixtures_dir"/pass/*.yaml; do
         [[ -f "$f" ]] || continue
         if out="$("$script_path" --entry "$f" 2>&1)"; then
             echo "pass  $f"
@@ -701,10 +702,11 @@ main() {
     root="${root:-$(git -C "$script_dir" rev-parse --show-toplevel)}"
     cd "$root"
 
-    if [[ ! -d "$apps_dir" ]]; then
+    if [[ ! -d "$platform_dir" ]]; then
         echo "validate-apps: no app platform in $root, skipped"
         return 0
     fi
+    [[ -d "$apps_dir" ]] || die "$apps_dir is missing (an empty entries folder still has its kustomization.yaml)"
 
     require_tools
     setup_cache

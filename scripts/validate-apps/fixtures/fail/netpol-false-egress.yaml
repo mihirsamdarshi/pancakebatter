@@ -20,7 +20,7 @@ spec:
     limit: 1
   defaultValues:
     name: netpol-false-egress
-    namespace: hello
+    namespace: quilt-planner
     netpol: false
     netpolReason: "fixture"
     egress: internet

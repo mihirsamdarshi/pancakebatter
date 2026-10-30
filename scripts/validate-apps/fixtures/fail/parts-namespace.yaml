@@ -20,5 +20,5 @@ spec:
     limit: 1
   defaultValues:
     name: parts-namespace
-    namespace: hello
+    namespace: quilt-planner
     parts: [namespace]

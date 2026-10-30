@@ -20,4 +20,4 @@ spec:
     limit: 1
   defaultValues:
     name: Bad_Name
-    namespace: hello
+    namespace: quilt-planner
