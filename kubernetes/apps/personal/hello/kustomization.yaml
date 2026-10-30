@@ -1,0 +1,10 @@
+---
+# The Namespace of the platform app hello: Git-defined, Pod Security
+# `restricted`, prune-disabled. Everything inside it comes from the entry
+# kubernetes/apps/flux-system/app-platform/apps/hello.yaml, not from this
+# folder. A custom `path` folder would be hello/app/, never this folder.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: hello
+components:
+  - ../../../components/personal-namespace

@@ -1,0 +1,29 @@
+---
+# hello: the throwaway proof app of the personal app platform. The file name
+# is the metadata.name; the app name is `hello`. Delete this entry (and its
+# line in kustomization.yaml) to stop updating it; the workload keeps running
+# until it is removed by hand.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-hello
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/hello
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: hello
+    parts: [pullsecret, internal-route, backup, backup-sqlite]
+    vars:
+      SQLITE_DBS: hello.db
+      VOLSYNC_SCHEDULE: "15 12 * * *"
+      SQLITE_SCHEDULE: "5 12 * * *"
