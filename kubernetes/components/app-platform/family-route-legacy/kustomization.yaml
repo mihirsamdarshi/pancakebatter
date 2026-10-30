@@ -1,0 +1,15 @@
+---
+# Transitional: also list <FAMILY_HOST>.family.${SECRET_DOMAIN_LOCAL}, the
+# previous family name. Use together with family-route (it patches that
+# component's route) and retire it with the https-legacy listener (see
+# network/family-apps/README.md).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target:
+      kind: HTTPRoute
+      name: "[$][{]APP[}]-family"
+    patch: |-
+      - op: add
+        path: /spec/hostnames/-
+        value: ${FAMILY_HOST}.family.${SECRET_DOMAIN_LOCAL}

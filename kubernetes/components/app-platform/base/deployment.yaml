@@ -1,0 +1,89 @@
+---
+# One replica with Recreate: the data volume is a node-local RWO volume and
+# SQLite is single-writer. The image is pinned by digest (the registry's, or
+# `pin`), so every release is a real rollout.
+#
+# The port is a literal on purpose: Flux substitution turns a numeric value in
+# a quoted scalar into an integer, which the API server rejects for an env
+# value. runAsUser and fsGroup are integers on purpose for the same reason.
+#
+# Pod Security `restricted` (the namespace enforces it), no service-account
+# token, and no Secret except the image pull Secret.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${APP}
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 180
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${APP}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${APP}
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${PULL_SECRET:=apps-ghcr}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: ${APP_UID:=1000}
+        runAsGroup: ${APP_GID:=1000}
+        fsGroup: ${APP_GID:=1000}
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: ${IMAGE:=ghcr.io/mihirsamdarshi/apps/${APP}}@${IMAGE_DIGEST}
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: DATA_DIR
+              value: "${DATA_PATH:=/data}"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: ${CPU:=50m}
+              memory: ${MEMORY:=128Mi}
+            limits:
+              memory: ${MEMORY_LIMIT:=512Mi}
+          startupProbe:
+            httpGet:
+              path: "${HEALTH_PATH:=/healthz}"
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: "${HEALTH_PATH:=/healthz}"
+              port: http
+          livenessProbe:
+            httpGet:
+              path: "${HEALTH_PATH:=/healthz}"
+              port: http
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: "${DATA_PATH:=/data}"
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ${CLAIM:=${APP}-data}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi

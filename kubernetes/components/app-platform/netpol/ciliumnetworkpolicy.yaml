@@ -1,0 +1,71 @@
+---
+# Selecting every pod turns on default-deny in both directions for the app, its
+# sibling pods, the sqlite-export jobs, the VolSync movers and any pod a custom
+# folder adds. The empty endpointSelector is namespace-wide on purpose: a
+# label-based selector would silently select nothing for pods created by Helm
+# or by a custom folder. Replies to allowed connections are stateful and need
+# no rule.
+#
+# Same conventions as the qbittorrent and trawl policies: gateway pods matched
+# by owning-gateway name and namespace, kubelet probes via fromEntities host,
+# DNS to the k8s-app kube-dns pods on 53 without toPorts.rules.dns. No world
+# entity and no toFQDNs. APP_NAMESPACE is substituted because kustomize cannot
+# rewrite a label value from targetNamespace.
+#
+# The sqlite-export and VolSync mover pods are selected too and need no network
+# beyond this: the export reads the node-local PVC, and the mover's repository
+# is an NFS volume that the kubelet mounts, which is outside pod policy.
+# Prometheus scraping is not allowed (apps expose no metrics); an app that
+# needs it needs a reviewed addition.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ${APP}
+spec:
+  endpointSelector: {}
+  ingress:
+    # Pods of the same namespace (multi-pod apps).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ${APP_NAMESPACE}
+    # Only the Envoy Gateway proxy pods of the two gateways.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-namespace: network
+          matchExpressions:
+            - key: gateway.envoyproxy.io/owning-gateway-name
+              operator: In
+              values:
+                - envoy-internal
+                - envoy-family
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    # Kubelet probes come from the node. This also admits any host-network pod
+    # or host process on the same node to port 3000; accepted.
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+  egress:
+    # Pods of the same namespace.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ${APP_NAMESPACE}
+    # Cluster DNS. CoreDNS forwards to upstream resolvers, so DNS remains a
+    # tunnelling channel for a compromised app; that is inherent without a DNS
+    # proxy.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP

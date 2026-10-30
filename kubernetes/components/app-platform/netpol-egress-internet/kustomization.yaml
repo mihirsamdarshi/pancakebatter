@@ -1,0 +1,34 @@
+---
+# `egress: internet`: public addresses on every port, never private ranges.
+# Must come after `netpol`, which creates the policy this patches.
+#
+# A CIDR set with the private ranges excepted, not the world entity: world
+# would also match LAN addresses that Cilium does not manage and the Tailscale
+# range. In this cluster CIDR rules do not match pods or nodes (default
+# policy-cidr-match-mode), so in-cluster destinations stay denied by the
+# absence of a rule, and the except list protects the non-Cilium hosts. The
+# home's own WAN address is public, so a hairpin to a port forward is allowed.
+# The cluster is IPv4-only; if IPv6 is ever enabled, add fc00::/7 and fe80::/10
+# to the except list in the same PR.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target:
+      group: cilium.io
+      kind: CiliumNetworkPolicy
+      name: "[$][{]APP[}]"
+    patch: |-
+      - op: add
+        path: /spec/egress/-
+        value:
+          toCIDRSet:
+            - cidr: 0.0.0.0/0
+              except:
+                - 10.0.0.0/8 # cluster pod and service ranges, VLAN 10
+                - 172.16.0.0/12
+                - 192.168.0.0/16 # LAN: TrueNAS, UCG, Proxmox, the Talos nodes, the API VIP
+                - 100.64.0.0/10 # Tailscale
+                - 169.254.0.0/16 # link-local
+                - 192.0.0.0/24 # IETF protocol assignments
+                - 198.18.0.0/15 # benchmarking
+                - 224.0.0.0/3 # multicast and reserved

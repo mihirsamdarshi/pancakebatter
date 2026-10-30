@@ -1,0 +1,10 @@
+---
+# The LAN and tailnet address <HOST>.${SECRET_DOMAIN_LOCAL} on envoy-internal
+# (the tailnet reaches it through the subnet route). The default for every app.
+# The route lives in the app's namespace with local backendRefs; the Flux
+# Kustomization that applies it runs in flux-system, which has cluster-secrets.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - ./httproute.yaml
+  - ./backendtrafficpolicy.yaml
