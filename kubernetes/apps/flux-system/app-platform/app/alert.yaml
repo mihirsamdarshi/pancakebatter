@@ -1,7 +1,9 @@
 ---
 # Errors from the app platform go to Discord: the generated app-* Kustomizations
-# (they carry the ResourceSet's name label), the providers that watch the
-# registry, and both ResourceSets. ResourceSet and ResourceSetInputProvider are
+# (they carry the ResourceSet's name label), app-platform itself (the
+# Kustomization that applies the ResourceSets, the SOPS Secrets and the entries,
+# so a bad SOPS file or a CRD problem shows up here), the providers that watch
+# the registry, and both ResourceSets. ResourceSet and ResourceSetInputProvider are
 # valid event sources because flux-operator patches the Flux CRDs at install.
 #
 # The Alert covers Flux objects only. A pod that crash-loops after Flux
@@ -24,6 +26,9 @@ spec:
       namespace: flux-system
       matchLabels:
         resourceset.fluxcd.controlplane.io/name: apps
+    - kind: Kustomization
+      name: app-platform
+      namespace: flux-system
     - kind: ResourceSetInputProvider
       name: "*"
       namespace: flux-system
