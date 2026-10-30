@@ -420,6 +420,35 @@ aube = { path = "locks/oxfmt/0.73.0", digest = "sha256:e42eeebedd060ec6393c40caa
 backend = "npm:oxfmt"
 specifiers = ["0.73.0"]
 
+[[tools.promtool]]
+version = "3.15.1"
+backend = "aqua:prometheus/prometheus"
+specifiers = ["3.15.1"]
+
+[tools.promtool."platforms.linux-arm64"]
+checksum = "sha256:ceb6d21493c37ca0b4513b147642797c68cf39a0f50a444d50e1e80c74f21b26"
+checksum_source = "mise-versions"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/662697891"
+
+[tools.promtool."platforms.linux-x64"]
+checksum = "sha256:6a726885328ad9efebbf36e876ce2fb6225468a71fd1e7ce3ba666d5f4d97a84"
+checksum_source = "mise-versions"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/662697731"
+
+[tools.promtool."platforms.macos-arm64"]
+checksum = "sha256:0d4d3d9837d27e4fcd0bd16d115b1b8d6732a4bf3e69107f1190d9ef653ae471"
+checksum_source = "mise-versions"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.darwin-arm64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/662695921"
+
+[tools.promtool."platforms.macos-x64"]
+checksum = "sha256:c89fcb30045d8c394c9d93e96cbbee3aaf2448a48326b417e811eb4e528edf88"
+checksum_source = "mise-versions"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.darwin-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/662695728"
+
 [[tools.sd]]
 version = "1.1.0"
 backend = "aqua:chmln/sd"
