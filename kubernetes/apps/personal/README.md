@@ -213,17 +213,23 @@ chat, a log or Git. `scripts/validate-apps.sh` fails until
 `app-platform/app/ghcr-apps-read.sops.yaml` exists, is encrypted and carries the
 label `reconcile.fluxcd.io/watch: Enabled` (without it a rotated token reaches
 the copies only at the ResourceSet's next interval of 60 minutes). Create it in
-one pipeline from the environment, from the repo root, with `GHCR_READ_TOKEN`
-and optionally `GHCR_READ_USER` (default `mihirsamdarshi`) set:
+one pipeline from the repo root, in bash or zsh, with `GHCR_READ_TOKEN` (and
+optionally `GHCR_READ_USER`, default `mihirsamdarshi`) exported. The pipeline
+never writes the plaintext token to a file: `sops encrypt` reads it from the
+pipe and only its output reaches the repo path. If a step fails, the file is
+left empty, which the validator rejects (never redirect the plaintext into the
+file first, and check the file holds `ENC[` before you `git add` it):
 
 ```sh
-kubectl create secret docker-registry ghcr-apps-read --namespace flux-system --docker-server=ghcr.io --docker-username="${GHCR_READ_USER:-mihirsamdarshi}" --docker-password="${GHCR_READ_TOKEN:?set GHCR_READ_TOKEN}" --dry-run=client -o yaml | yq '.stringData[".dockerconfigjson"] = (.data[".dockerconfigjson"] | @base64d) | del(.data) | .metadata.labels["reconcile.fluxcd.io/watch"] = "Enabled"' > kubernetes/apps/flux-system/app-platform/app/ghcr-apps-read.sops.yaml && sops encrypt --in-place kubernetes/apps/flux-system/app-platform/app/ghcr-apps-read.sops.yaml
+kubectl create secret docker-registry ghcr-apps-read --namespace flux-system --docker-server=ghcr.io --docker-username="${GHCR_READ_USER:-mihirsamdarshi}" --docker-password="${GHCR_READ_TOKEN:?set GHCR_READ_TOKEN}" --dry-run=client -o yaml | yq '.stringData[".dockerconfigjson"] = (.data[".dockerconfigjson"] | @base64d) | del(.data) | .metadata.labels["reconcile.fluxcd.io/watch"] = "Enabled"' | sops encrypt --filename-override kubernetes/apps/flux-system/app-platform/app/ghcr-apps-read.sops.yaml --input-type yaml --output-type yaml /dev/stdin > kubernetes/apps/flux-system/app-platform/app/ghcr-apps-read.sops.yaml
 ```
 
-The credential goes under `stringData`, like every other SOPS Secret here:
-`flux build ks` cannot mask an encrypted value under `data`.
-The `.sops.yaml` rule for `kubernetes/` encrypts `data` and `stringData` only, so
-the label stays readable. Check only the shape, never the values:
+`--filename-override` makes sops apply the `.sops.yaml` rule for that path. The
+credential goes under `stringData`, like every other SOPS Secret here:
+`flux build ks` cannot mask an encrypted value under `data`. The rule encrypts
+`data` and `stringData` only, so the label stays readable. Prefer reading the
+token with `op read` inside the same pipeline over an exported variable. Check
+only the shape, never the values:
 `sops decrypt kubernetes/apps/flux-system/app-platform/app/ghcr-apps-read.sops.yaml | yq '.stringData | keys'`
 prints `.dockerconfigjson`. Never put a bogus `ghcr.io` credential in it (every
 RSIP uses it) and never delete it while any entry has `pullsecret`. Do not add
