@@ -246,7 +246,8 @@ unaffected.
 ### Rules that keep a platform app safe
 
 - Never rename or change the namespace of an existing entry: it starts a new,
-  empty app. The validator compares with `main` on pull requests.
+  empty app. The validator compares with `main` on pull requests, and a deleted
+  or renamed entry file fails unless it is listed in `retired.txt`.
 - **Never delete or recreate an owner Kustomization before the Git object that
   renders it is gone.** A handoff (an app adopted from a hand-written
   Kustomization, as in the Quilt migration) goes: suspend the old owner with
@@ -264,10 +265,13 @@ unaffected.
 - Do not add any CI-to-tailnet path (Receiver, `tag:ci`, an OAuth client) until
   the tailnet policy has been narrowed in its own project. Deploys poll every 2
   minutes meanwhile.
-- Retire an app: delete its entry and its line in `apps/kustomization.yaml`. The
-  workload keeps running without updates; delete its objects by hand, including
-  the prune-disabled `apps-ghcr` Secret. The PVC, PV, Namespace folder and the
-  NAS restic directory stay on purpose.
+- Retire an app: delete its entry and its line in `apps/kustomization.yaml`, and
+  list its name in `app-platform/retired.txt` in the same PR. The validator
+  fails on a pull request when an entry file that exists on `main` is gone and
+  not listed, which also catches a rename (a delete plus an add). The workload
+  keeps running without updates; delete its objects by hand, including the
+  prune-disabled `apps-ghcr` Secret. The PVC, PV, Namespace folder and the NAS
+  restic directory stay on purpose.
 - A rollback is `pin: sha256:…` in the entry (the digest of `main`'s manifest),
   or a revert in `apps`. It does not roll data back.
 

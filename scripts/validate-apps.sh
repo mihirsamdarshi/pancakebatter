@@ -51,6 +51,7 @@ app_dir="$platform_dir/app"
 rs_apps="$app_dir/resourceset.yaml"
 rs_pull="$app_dir/resourceset-pull.yaml"
 credential="$app_dir/ghcr-apps-read.sops.yaml"
+retired_file="$platform_dir/retired.txt"
 fixtures_dir="scripts/validate-apps/fixtures"
 base_path="./kubernetes/components/app-platform/base"
 # Not real: only so that the rendered hostnames can be checked.
@@ -566,19 +567,40 @@ check_cross_entry() {
     done <"$tmp/entry.sqlite"
 }
 
+# The names in retired.txt: valid, and without an entry file.
+check_retired_list() {
+    local name
+    : >"$tmp/retired.list"
+    [[ -f "$retired_file" ]] || die "$retired_file is missing"
+    sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' "$retired_file" | grep -v '^$' >"$tmp/retired.list" || true
+    while IFS= read -r name; do
+        [[ "$name" =~ ^[a-z][a-z0-9-]*$ ]] || die "$retired_file: '$name' is not an app name"
+        [[ ! -f "$apps_dir/$name.yaml" ]] \
+            || die "$retired_file lists $name, but $apps_dir/$name.yaml exists (a retired app has no entry)"
+    done <"$tmp/retired.list"
+}
+
 # An existing entry keeps its name and namespace: either change starts a new,
-# empty app (the old one is orphaned).
+# empty app (the old one is orphaned). A rename is a new file name, so an
+# in-place comparison cannot see it: any entry file that exists on the base
+# branch and is gone now must be listed in retired.txt, which turns a rename
+# into an explicit retire plus add.
 check_renames() {
-    local ref="$APPS_BASE_REF" f was now
+    local ref="$APPS_BASE_REF" f was now name
     git rev-parse --verify -q "$ref^{commit}" >/dev/null || die "APPS_BASE_REF $ref is not a commit here (fetch it)"
     while IFS= read -r f; do
         [[ "$(basename "$f")" != kustomization.yaml ]] || continue
-        [[ -f "$f" ]] || continue
+        if [[ ! -f "$f" ]]; then
+            name="$(basename "$f" .yaml)"
+            grep -qxF "$name" "$tmp/retired.list" \
+                || die "$f was deleted (or renamed) since $ref: a deleted entry orphans the app and a rename starts a new, empty one. If that is intended, list '$name' in $retired_file in the same PR"
+            continue
+        fi
         was="$(git show "$ref:$f" | yq '(.spec.defaultValues.name // "") + " " + (.spec.defaultValues.namespace // .spec.defaultValues.name // "")')"
         now="$(yq '(.spec.defaultValues.name // "") + " " + (.spec.defaultValues.namespace // .spec.defaultValues.name // "")' "$f")"
         [[ "$was" == "$now" ]] || die "$f: name/namespace changed from '$was' to '$now' (never rename an existing entry: it starts a new empty app)"
     done < <(git ls-tree -r --name-only "$ref" -- "$apps_dir")
-    echo "--- renames: existing entries keep their name and namespace (against $ref)"
+    echo "--- renames: no entry deleted or renamed against $ref (retired: $(tr '\n' ' ' <"$tmp/retired.list"))"
 }
 
 # The Deployment alert lists the namespaces of the platform apps (kube-state-metrics
@@ -718,6 +740,7 @@ main() {
             || die "$apps_dir/kustomization.yaml does not list ./$(basename "$f")"
     done
     check_cross_entry
+    check_retired_list
     check_alert_namespaces
     check_rules
     scan_secrets
