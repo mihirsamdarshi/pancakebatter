@@ -1,0 +1,26 @@
+---
+# expect: is not a StorageClass with reclaimPolicy Retain
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-non-retain-class
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/non-retain-class
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: non-retain-class
+    namespace: hello
+    parts: [pullsecret, internal-route]
+    vars:
+      STORAGE_CLASS: local-path

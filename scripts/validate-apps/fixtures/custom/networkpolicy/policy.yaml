@@ -1,0 +1,11 @@
+---
+# Rejected: policies are additive and would widen the platform's.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ${APP}-extra
+spec:
+  endpointSelector: {}
+  egress:
+    - toEntities:
+        - world

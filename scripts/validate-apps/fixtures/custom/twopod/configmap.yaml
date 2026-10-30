@@ -1,0 +1,7 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${APP}-config
+data:
+  WORKER_URL: http://${APP}-worker:9000

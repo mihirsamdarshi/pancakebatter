@@ -1,0 +1,32 @@
+---
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-adopt
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/adopt
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: adopt
+    namespace: hello
+    parts: []
+    pin: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    vars:
+      IMAGE: ghcr.io/mihirsamdarshi/quilt-planner
+      PULL_SECRET: quilt-registry
+      STORAGE_CLASS: quilt-local-retain
+      CLAIM: quilt-data
+      HEALTH_PATH: /api/health
+      APP_UID: "1000"
+      STORAGE: 5Gi

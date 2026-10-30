@@ -1,0 +1,38 @@
+---
+# A second pod without the app.kubernetes.io/name label: the namespace-wide
+# network policy still covers it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${APP}-worker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      example.test/role: worker
+  template:
+    metadata:
+      labels:
+        example.test/role: worker
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: apps-ghcr
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: ghcr.io/mihirsamdarshi/apps/${APP}@${IMAGE_DIGEST}
+          command: ["/app/worker"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
