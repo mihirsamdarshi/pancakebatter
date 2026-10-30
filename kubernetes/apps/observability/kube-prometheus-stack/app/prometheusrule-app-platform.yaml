@@ -1,0 +1,60 @@
+---
+# The personal app platform (kubernetes/apps/flux-system/app-platform). The
+# Flux Alert to Discord covers Flux events; these rules cover what it cannot see
+# (a Kustomization that stays unready between events, a Deployment that dies
+# after Flux reported Ready) and are the gate for deploying an app at all.
+#
+# flux-operator exports flux_resource_info for every Flux object, ResourceSets
+# and ResourceSetInputProviders included (its ServiceMonitor).
+#
+# Not covered: a provider that succeeds with zero inputs (harmless under
+# deletionPolicy Orphan, and no metric exposes the count).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: app-platform
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  groups:
+    - name: app-platform.flux
+      rules:
+        # app-<name>, the generated Kustomization of each app, and app-platform
+        # itself. wait: true makes a Deployment that never became Ready a
+        # failed Kustomization.
+        - alert: AppPlatformKustomizationNotReady
+          expr: flux_resource_info{kind="Kustomization", exported_namespace="flux-system", name=~"app-.+", ready!="True"} == 1
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Kustomization flux-system/{{ $labels.name }} has not been ready for 10 minutes"
+            description: "A release is not rolled out, or the platform cannot render. `flux get ks -n flux-system {{ $labels.name }}` shows the reason. `Recreate` has already removed the old pod when a bad release fails, so the app may be down: `pin` the previous digest in its entry."
+        - alert: AppPlatformInputProviderNotReady
+          expr: flux_resource_info{kind="ResourceSetInputProvider", exported_namespace="flux-system", name=~"app-.+", ready!="True"} == 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ResourceSetInputProvider flux-system/{{ $labels.name }} has not been ready for 10 minutes"
+            description: "New images of that app are not noticed. Usually the registry token ghcr-apps-read has expired or lost read:packages, or the package does not exist yet."
+        - alert: AppPlatformResourceSetNotReady
+          expr: flux_resource_info{kind="ResourceSet", exported_namespace="flux-system", name=~"apps|apps-pull", ready!="True"} == 1
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ResourceSet flux-system/{{ $labels.name }} has not been ready for 10 minutes"
+            description: "A ResourceSet applies none of its objects when one fails the dry run, so this blocks every app: `apps` its Kustomizations, `apps-pull` the copies of the pull Secret (a namespace missing, or ghcr-apps-read gone). `kubectl -n flux-system describe resourceset {{ $labels.name }}`."
+    - name: app-platform.workloads
+      rules:
+        # Add each platform app's namespace to the list with its entry;
+        # scripts/validate-apps.sh checks that none is missing.
+        - alert: AppPlatformDeploymentUnavailable
+          expr: kube_deployment_status_replicas_unavailable{namespace=~"hello"} > 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has had unavailable replicas for 10 minutes"
+            description: "Flux reported Ready earlier, so its alert will not fire. `kubectl -n {{ $labels.namespace }} describe pod` shows why; roll back with `pin` in the entry."
