@@ -1,0 +1,8 @@
+---
+# What the Flux Kustomization app-platform (ks.yaml) applies: the generator and
+# its credentials (app/) and the per-app entries (apps/).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./app
+  - ./apps
