@@ -1,0 +1,35 @@
+---
+# Errors from the app platform go to Discord: the generated app-* Kustomizations
+# (they carry the ResourceSet's name label), the providers that watch the
+# registry, and both ResourceSets. ResourceSet and ResourceSetInputProvider are
+# valid event sources because flux-operator patches the Flux CRDs at install.
+#
+# The Alert covers Flux objects only. A pod that crash-loops after Flux
+# reported Ready, or a provider that succeeds with zero inputs (harmless under
+# Orphan), is for the Alertmanager rules (observability/kube-prometheus-stack).
+# `Recreate` has already removed the old pod when a bad release fails, so this
+# alert is the main signal.
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  providerRef:
+    name: discord
+  eventSeverity: error
+  eventSources:
+    - kind: Kustomization
+      name: "*"
+      namespace: flux-system
+      matchLabels:
+        resourceset.fluxcd.controlplane.io/name: apps
+    - kind: ResourceSetInputProvider
+      name: "*"
+      namespace: flux-system
+    - kind: ResourceSet
+      name: apps
+      namespace: flux-system
+    - kind: ResourceSet
+      name: apps-pull
+      namespace: flux-system

@@ -1,0 +1,45 @@
+---
+# The image pull Secret of each personal app: a copy of flux-system/ghcr-apps-read
+# named apps-ghcr in the app's namespace, for every input whose `parts` contain
+# `pullsecret`. A separate ResourceSet from `apps` so that its failures never
+# block the app Kustomizations (a ResourceSet applies nothing when one of its
+# objects fails the dry run, e.g. a Secret whose namespace does not exist yet).
+#
+# The copy is prune-disabled: a stale copy is harmless, a missing one during an
+# outage is not, so an empty input set or a removed entry never deletes it.
+# Never remove fluxcd.controlplane.io/prune: disabled from the template, never
+# delete ghcr-apps-read while an entry has `pullsecret`, never rename this
+# ResourceSet. Its `parts` default and namespace expression must equal
+# resourceset.yaml's. vars.PULL_SECRET changes only the name the Deployment
+# references, never this Secret.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: apps-pull
+  namespace: flux-system
+spec:
+  dependsOn:
+    - apiVersion: v1
+      kind: Secret
+      name: ghcr-apps-read
+      namespace: flux-system
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      selector:
+        matchLabels:
+          platform/apps: "true"
+  resourcesTemplate: |
+    <<- $parts := list "pullsecret" "internal-route" "backup" >>
+    <<- if hasKey inputs "parts" >><<- $parts = inputs.parts >><<- end >>
+    <<- if has "pullsecret" $parts >>
+    ---
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: apps-ghcr
+      namespace: << get inputs "namespace" | default inputs.name >>
+      annotations:
+        fluxcd.controlplane.io/copyFrom: flux-system/ghcr-apps-read
+        fluxcd.controlplane.io/prune: disabled
+    type: kubernetes.io/dockerconfigjson
+    <<- end >>
