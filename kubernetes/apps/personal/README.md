@@ -225,16 +225,25 @@ before). It can read every private package of the account. Never paste it into
 chat, a log or Git. `scripts/validate-apps.sh` fails until
 `app-platform/app/ghcr-apps-read.sops.yaml` exists, is encrypted and carries the
 label `reconcile.fluxcd.io/watch: Enabled` (without it a rotated token reaches
-the copies only at the ResourceSet's next interval of 60 minutes). Create it in
-one pipeline from the repo root, in bash or zsh, with `GHCR_READ_TOKEN` (and
-optionally `GHCR_READ_USER`, default `mihirsamdarshi`) exported. The pipeline
-never writes the plaintext token to a file: `sops encrypt` reads it from the
-pipe and only its output reaches the repo path. If a step fails, the file is
-left empty, which the validator rejects (never redirect the plaintext into the
-file first, and check the file holds `ENC[` before you `git add` it):
+the copies only at the ResourceSet's next interval of 60 minutes).
+
+Create it from the repo root, in bash or zsh, with `GHCR_READ_TOKEN` (and optionally `GHCR_READ_USER`, default
+`mihirsamdarshi`) exported. The plaintext token is never written to a file:
+`sops encrypt` reads it from the pipe, and its output goes to `<path>.tmp` first.
+Only when every stage succeeded (`pipefail`) and the output holds `ENC[` does
+`mv` put it in place, so a failure (an unset token, a missing age recipient, a
+sops error) leaves no new file and keeps an existing one, which matters when you
+rotate. Without `pipefail` an unset token would still produce a validly
+encrypted file with a null value (the validator rejects it). The subshell keeps
+`pipefail` out of your interactive shell:
 
 ```sh
-kubectl create secret docker-registry ghcr-apps-read --namespace flux-system --docker-server=ghcr.io --docker-username="${GHCR_READ_USER:-mihirsamdarshi}" --docker-password="${GHCR_READ_TOKEN:?set GHCR_READ_TOKEN}" --dry-run=client -o yaml | yq '.stringData[".dockerconfigjson"] = (.data[".dockerconfigjson"] | @base64d) | del(.data) | .metadata.labels["reconcile.fluxcd.io/watch"] = "Enabled"' | sops encrypt --filename-override kubernetes/apps/flux-system/app-platform/app/ghcr-apps-read.sops.yaml --input-type yaml --output-type yaml /dev/stdin > kubernetes/apps/flux-system/app-platform/app/ghcr-apps-read.sops.yaml
+( set -o pipefail
+  f=kubernetes/apps/flux-system/app-platform/app/ghcr-apps-read.sops.yaml
+  kubectl create secret docker-registry ghcr-apps-read --namespace flux-system --docker-server=ghcr.io --docker-username="${GHCR_READ_USER:-mihirsamdarshi}" --docker-password="${GHCR_READ_TOKEN:?set GHCR_READ_TOKEN}" --dry-run=client -o yaml \
+    | yq '.stringData[".dockerconfigjson"] = (.data[".dockerconfigjson"] | @base64d) | del(.data) | .metadata.labels["reconcile.fluxcd.io/watch"] = "Enabled"' \
+    | sops encrypt --filename-override "$f" --input-type yaml --output-type yaml /dev/stdin > "$f.tmp" \
+    && grep -q 'ENC\[' "$f.tmp" && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
 ```
 
 `--filename-override` makes sops apply the `.sops.yaml` rule for that path. The
