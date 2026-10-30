@@ -3,6 +3,16 @@
 # authentication, so only Prowlarr may reach it. Replies to allowed
 # connections are stateful and need no egress rule. Egress goes straight to
 # the internet (indexer sites), not through the VPN, the same as Prowlarr.
+#
+# The internet rule is a CIDR rule, not `toEntities: world`. Cilium's `world`
+# is every address outside the cluster (the same as 0.0.0.0/0), so it includes
+# the LAN: TrueNAS, the UCG, Proxmox, the VLAN 10 nodes, the LoadBalancer pool
+# and Tailscale. The `except` list removes the private, CGNAT, link-local,
+# benchmark and multicast/reserved ranges, which leaves public addresses only.
+# Each `except` entry must lie inside its `cidr`, and all of these do. CIDR
+# rules do not match in-cluster identities (pods, nodes) unless Cilium runs
+# with policy-cidr-match-mode set, and it does not, so this rule cannot
+# allow traffic to pods or nodes by accident.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -40,9 +50,18 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
-    # The indexer sites being solved.
-    - toEntities:
-        - world
+    # The indexer sites being solved: public addresses only.
+    - toCIDRSet:
+        - cidr: 0.0.0.0/0
+          except:
+            - 10.0.0.0/8 # RFC 1918
+            - 172.16.0.0/12 # RFC 1918
+            - 192.168.0.0/16 # RFC 1918: the LAN and VLAN 10
+            - 100.64.0.0/10 # CGNAT: Tailscale
+            - 169.254.0.0/16 # link-local
+            - 192.0.0.0/24 # IETF protocol assignments
+            - 198.18.0.0/15 # benchmarking
+            - 224.0.0.0/3 # multicast and reserved
       toPorts:
         - ports:
             - port: "443"
