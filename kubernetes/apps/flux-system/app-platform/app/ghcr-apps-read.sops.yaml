@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ghcr-apps-read
+  namespace: flux-system
+  labels:
+    reconcile.fluxcd.io/watch: Enabled
+type: kubernetes.io/dockerconfigjson
+stringData:
+  .dockerconfigjson: ENC[AES256_GCM,data:ieugesJ1CtoJn2Ga1+7PM6Lp+gQXStDbHCjyCswfH6EclTG9rkJVN1XDNKtCJ7/Tk/c45u8kXLxthJxDrc/dLDXf9rYtUVolGrBdRMiGM19PUKLf6n8C1xPnGC1bMpV5fux+Tm1dXsVnfdbVGv8xMPfafV7iROK7bVA7mwQJBHmNHaRf4+0UIWV/bVnBN8WA1t1QjzOip45tGUTWq1g0NARBExUCGosR7kvqRryNv09IiiLRu1cyYucY7AwzJzk=,iv:PmmiNn30Y3jVkbotcYf9XOaBZvsRxKHe8T7G2BsYIDw=,tag:sWFwNXr6SEA7MwYXXF9drA==,type:str]
+sops:
+  age:
+    - enc: |
+        -----BEGIN AGE ENCRYPTED FILE-----
+        YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSAzYmRENGxRUTlIMjh2SWx5
+        L1c1WEhFcnJka0ZXbmFJanFNbFk0RlpRSVJjCm55NWp6NkR5aDd2TllFRXpGSjIz
+        Z1JIbkwySkFmd29ab1oyVldtL25HRHMKLS0tIFIrNjVUb2FCUFJPSjZZQ003MEVN
+        MFJtcndQelpYOFFSb3BPUS9Ob2xvSkkKE+xAQ4Q7PTQ2Y0XO2fApIm7xWlpCsefQ
+        ZLnE6LJu3P4aU56CY7zbvTrlW+pVHVCuHhhyncxwUvNgI6IazU/7Kg==
+        -----END AGE ENCRYPTED FILE-----
+      recipient: age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf
+  encrypted_regex: ^(data|stringData)$
+  lastmodified: "2026-10-30T20:33:12Z"
+  mac: ENC[AES256_GCM,data:JtJS2a903mMrQ2W1GPZSqQHlIO73KiJb0scMAIACJgfNfEz9VfGlAynaAVHhZdV9W/I2VhlAGQj0R5faKWnarLvfEzXcqHikAryca8LfjhwvpJNDf0mUPRANPK/r3hiO+JNQh8w9gZAUDXdB126cyR5APGa+T/j7F6EqFhLieLQ=,iv:mRHArJKyPBc6lqvKxdcUeSIvtsLc/ifqZzlN8OXE22s=,tag:gNHA5Yn30bqjx1VzOhulgw==,type:str]
+  mac_only_encrypted: true
+  version: 3.13.3
