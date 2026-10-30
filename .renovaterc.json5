@@ -50,6 +50,11 @@
       groupName: "flux-operator",
       matchDatasources: ["docker", "github-releases", "github-tags"],
       matchPackageNames: ["/flux-operator/", "/flux-instance/"],
+      // The same delay as the "Mise Tools Group" rule above, which would
+      // otherwise hold only the CLI back: the charts and the CLI must be
+      // proposed together, or the chart PR fails validate-apps.sh until the
+      // CLI update ripens.
+      minimumReleaseAge: "3 days",
       group: {
         commitMessageTopic: "{{{groupName}}} group",
       },
