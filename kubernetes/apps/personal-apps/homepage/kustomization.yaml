@@ -1,0 +1,11 @@
+---
+# The Namespace of both Homepage releases (homepage and homepage-family): Git
+# defined, Pod Security `restricted`, prune-disabled. Unlike hello, nothing
+# here comes from the app platform; the Flux Kustomizations are ks.yaml in this
+# folder and ../homepage-family, listed by ../kustomization.yaml (not here:
+# `namespace:` below would move them out of the `home` Flux namespace).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: homepage
+components:
+  - ../../../components/personal-namespace

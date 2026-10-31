@@ -6,5 +6,5 @@
 # fails when an entry file that exists on the base branch is gone, unless its
 # name is listed here. Add the name in the same PR that deletes the entry, after
 # deciding what happens to the workload, its PVC and its backups (see
-# kubernetes/apps/personal/README.md, "Retire an app"). A listed name must not
+# kubernetes/apps/personal-apps/README.md, "Retire an app"). A listed name must not
 # have an entry file; keep the line afterwards as the record.

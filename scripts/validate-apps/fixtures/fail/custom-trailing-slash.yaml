@@ -20,4 +20,4 @@ spec:
     limit: 1
   defaultValues:
     name: custom-trailing-slash
-    path: ./kubernetes/apps/personal/hello/app/
+    path: ./kubernetes/apps/personal-apps/hello/app/

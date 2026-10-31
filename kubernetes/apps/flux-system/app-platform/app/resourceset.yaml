@@ -4,7 +4,7 @@
 # provider exports the digest of the app's `main` image and the app's settings;
 # the Kustomization app-<name> applies the shared base and the parts the entry
 # lists, with the digest and settings in postBuild.substitute. Settings,
-# defaults and rules: kubernetes/apps/personal/README.md.
+# defaults and rules: kubernetes/apps/personal-apps/README.md.
 #
 # Fixed safety properties: deletionPolicy Orphan (garbage collection deletes
 # only the Kustomization; the workload keeps running), wait true with a

@@ -141,7 +141,7 @@ validate_tree() {
 
     (
         cd "$root"
-        local file dir name namespace path index src_kind src_name src_ns ref rc tmp
+        local file dir name missing extra namespace path index src_kind src_name src_ns ref rc tmp
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
 
@@ -156,6 +156,42 @@ validate_tree() {
             | sort -z >"$tmp/kustomizations"
         find kubernetes/flux kubernetes/apps -type f -name '*.yaml' \
             ! -name kustomization.yaml ! -name '*.sops.yaml' -print0 | sort -z >"$tmp/manifests"
+
+        echo "=== kubernetes/apps/kustomization.yaml lists every app folder ==="
+        # cluster-apps has prune: true, and Flux uses kubernetes/apps/kustomization.yaml
+        # as-is (it only generates one when absent). A folder missing from the list
+        # would be pruned, with the live Kustomizations it defines; an entry for a
+        # missing folder would fail the whole build. Candidates: each directory with
+        # a kustomization.yaml that lists ks.yaml files and that no other
+        # kustomization.yaml in kubernetes/apps includes as a folder (network/tailscale
+        # is listed here, not by network/, whose namespace: would override it).
+        yq '.resources[]' kubernetes/apps/kustomization.yaml | sort >"$tmp/apps.listed"
+        find kubernetes/apps -mindepth 2 -type f -name kustomization.yaml -print0 | sort -z >"$tmp/apps.kfiles"
+        : >"$tmp/apps.nested"
+        while IFS= read -r -d '' file; do
+            yq '(.resources // [])[] | select(test("\\.ya?ml$") | not)' "$file" \
+                | while IFS= read -r ref; do
+                    [[ -n "$ref" ]] || continue
+                    (cd "$(dirname "$file")" && cd "$ref" 2>/dev/null && pwd -P) || true
+                done >>"$tmp/apps.nested"
+        done <"$tmp/apps.kfiles"
+        : >"$tmp/apps.expected"
+        while IFS= read -r -d '' file; do
+            dir="$(dirname "$file")"
+            [[ "$(dirname "$dir")" == kubernetes/apps ]] && { echo "./$(basename "$dir")" >>"$tmp/apps.expected"; continue; }
+            # Only folders that list Flux Kustomization files (ks.yaml): an app's
+            # app/, config/ ... folders are reached through spec.path instead.
+            [[ "$(yq '[(.resources // [])[] | select(test("(^|/)ks\\.yaml$"))] | length' "$file")" != 0 ]] || continue
+            grep -qxF "$(cd "$dir" && pwd -P)" "$tmp/apps.nested" || echo "./${dir#kubernetes/apps/}" >>"$tmp/apps.expected"
+        done <"$tmp/apps.kfiles"
+        for f in kubernetes/apps/*/kustomization.yaml; do echo "./$(basename "$(dirname "$f")")" >>"$tmp/apps.expected"; done
+        sort -u "$tmp/apps.expected" -o "$tmp/apps.expected"
+        missing="$(comm -13 "$tmp/apps.listed" "$tmp/apps.expected")"
+        [[ -z "$missing" ]] \
+            || die "kubernetes/apps/kustomization.yaml does not list: ${missing//$'\n'/ } (cluster-apps has prune: true, so Flux would prune what they define)"
+        extra="$(comm -23 "$tmp/apps.listed" "$tmp/apps.expected")"
+        [[ -z "$extra" ]] \
+            || die "kubernetes/apps/kustomization.yaml lists folders without a kustomization.yaml that no other one includes: ${extra//$'\n'/ }"
 
         echo "=== kubeconform: standalone manifests in kubernetes/flux ==="
         while IFS= read -r -d '' file; do

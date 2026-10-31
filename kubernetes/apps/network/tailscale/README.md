@@ -5,7 +5,7 @@
 Use this as shared infrastructure for the family's applications: Jellyfin, Seerr,
 Quilt Planner and future apps. Family members keep their own accounts and stay
 connected to their own tailnets. Share the standalone
-[family-apps gateway](../network/family-apps/README.md) with each person once.
+[family-apps gateway](../family-apps/README.md) with each person once.
 Keep the existing broad access policy; no per-app guest restrictions are needed.
 
 The operator and Services ProxyGroup were deployed by #704. Services are usable
@@ -43,7 +43,7 @@ port-mapping remains disabled with `TS_DISABLE_PORTMAPPER=true`.
 1. For family access, share the `family-apps` machine from the Machines page.
    Recipients accept the device share into their own tailnets; do not invite
    them to join this tailnet or ask them to switch networks. Follow the
-   [gateway setup and verification](../network/family-apps/README.md).
+   [gateway setup and verification](../family-apps/README.md).
 2. Enable MagicDNS and HTTPS certificates (HTTPS is already confirmed by the user).
 3. Merge these entries into the existing policy, preserving its grants and any
    unrelated tagOwners, autoApprovers, SSH or other settings:

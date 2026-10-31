@@ -64,6 +64,9 @@ apps-namespaces:
     just log info "Applying namespaces for apps" stage "{{ recipe_name() }}"
     for app in "{{ kubernetes_dir }}/apps"/*/; do
         ns="$(basename "$app")"
+        # Only folders that define their own Namespace: personal-apps/ holds
+        # one folder per app, each with its own Namespace, not a namespace.
+        [[ -f "$app/namespace.yaml" ]] || continue
         if kubectl create namespace "$ns" --dry-run=client -o yaml \
                 | kubectl apply --server-side --filename - &>/dev/null; then
             just log info "Namespace applied" namespace "$ns"
