@@ -1,0 +1,276 @@
+import {
+  POLICY_VERSION,
+  policyIdentity,
+  budgets,
+  qualify,
+  validateWatch,
+  type Watch,
+  type Binding,
+  type Offer,
+  type Retailer,
+} from "./vendor/domain.ts";
+import { collect } from "./adapters.ts";
+import { boundedText, nativeFetch, UpstreamError, type Fetcher } from "./http.ts";
+import { sendDiscord, message, type Delivery } from "./discord.ts";
+interface QueueEvent {
+  id: string;
+  watch_id: string;
+  binding_id: string;
+  offer_id: string;
+  policy_version: string;
+  lease_id: string;
+  attempts: number;
+}
+interface AppWatch {
+  id: string;
+  preferences: { paused: boolean; muted: boolean; purchased: boolean };
+}
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === "object" && !Array.isArray(v);
+const uuid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/.test(v);
+export interface Options {
+  baseUrl: string;
+  webhook?: string;
+  fetcher?: Fetcher;
+  now?: () => number;
+  random?: () => number;
+  watches: Watch[];
+  startupDelay?: boolean;
+  allowLocalHttp?: boolean;
+}
+export class Worker {
+  readonly policyVersion: string;
+  readonly watches: Watch[];
+  readonly fetcher: Fetcher;
+  readonly now: () => number;
+  readonly random: () => number;
+  readonly base: URL;
+  readonly floor = new Map<Retailer, number>();
+  readonly failures = new Map<Retailer, number>();
+  readonly cache = new Map<string, Offer>();
+  readonly sent = new Map<string, string>();
+  readonly cursor = new Map<Retailer, number>();
+  nextDelivery = 0;
+  lastSuccessfulCycle = 0;
+  constructor(readonly options: Options) {
+    this.base = new URL(options.baseUrl);
+    this.fetcher = options.fetcher ?? nativeFetch;
+    this.now = options.now ?? Date.now;
+    this.random = options.random ?? Math.random;
+    this.watches = options.watches;
+    this.policyVersion = policyIdentity(this.watches);
+    if (
+      this.base.username ||
+      this.base.password ||
+      this.base.search ||
+      this.base.hash ||
+      this.base.pathname !== "/" ||
+      !(
+        this.base.protocol === "https:" ||
+        (options.allowLocalHttp === true &&
+          this.base.protocol === "http:" &&
+          ["localhost", "127.0.0.1"].includes(this.base.hostname))
+      )
+    )
+      throw new Error("App URL must be the fixed HTTPS origin");
+    for (const w of this.watches) {
+      validateWatch(w);
+      for (const b of w.bindings)
+        this.floor.set(
+          b.retailer,
+          this.now() + (options.startupDelay === false ? 0 : budgets[b.retailer]),
+        );
+    }
+  }
+  async api(path: string, body?: unknown): Promise<Record<string, unknown>> {
+    const res = await this.fetcher(
+      new Request(new URL(path, this.base), {
+        method: body === undefined ? "GET" : "POST",
+        redirect: "error",
+        signal: AbortSignal.timeout(8_000),
+        headers: body === undefined ? {} : { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }),
+    );
+    if (!res.ok) {
+      await res.body?.cancel();
+      throw new Error("App request failed");
+    }
+    const data: unknown = JSON.parse(await boundedText(res, 1024 * 1024));
+    if (!isObject(data)) throw new Error("Invalid app response");
+    return data;
+  }
+  async runOnce(): Promise<{ checked: number; delivered: number }> {
+    const snapshot = await this.api("/api/dashboard");
+    await this.api("/api/integrations/status", {
+      policyId: this.policyVersion,
+      state: snapshot.policyVersion === this.policyVersion ? "ready" : "policy-mismatch",
+      discordConfigured: !!this.options.webhook,
+    });
+    if (snapshot.policyVersion !== this.policyVersion || !Array.isArray(snapshot.watches))
+      throw new Error("Policy mismatch");
+    const preferences = new Map<string, AppWatch["preferences"]>();
+    for (const row of snapshot.watches) {
+      if (!isObject(row) || typeof row.id !== "string" || !isObject(row.preferences)) continue;
+      const p = row.preferences;
+      if ([p.paused, p.muted, p.purchased].every((v) => typeof v === "boolean"))
+        preferences.set(row.id, p as AppWatch["preferences"]);
+    }
+    let checked = 0,
+      delivered = 0;
+    const groups = new Map<Retailer, { watch: Watch; binding: Binding }[]>();
+    for (const watch of this.watches) {
+      const p = preferences.get(watch.id);
+      if (!p || p.paused || p.purchased) continue;
+      for (const binding of watch.bindings) {
+        if (!binding.enabled) continue;
+        const list = groups.get(binding.retailer) ?? [];
+        list.push({ watch, binding });
+        groups.set(binding.retailer, list);
+      }
+    }
+    for (const [retailer, jobs] of groups) {
+      if ((this.floor.get(retailer) ?? Infinity) > this.now()) continue;
+      const start = (this.cursor.get(retailer) ?? 0) % jobs.length;
+      for (let n = 0; n < jobs.length; n++) {
+        const index = (start + n) % jobs.length,
+          { watch, binding } = jobs[index]!;
+        const claim = await this.api("/api/checks/claim", {
+          watchId: watch.id,
+          bindingId: binding.id,
+        });
+        if (claim.policyVersion !== this.policyVersion) throw new Error("Policy mismatch");
+        if (claim.lease === null) continue;
+        if (!isObject(claim.lease) || !uuid(claim.lease.leaseId))
+          throw new Error("Invalid check lease");
+        this.cursor.set(retailer, index + 1);
+        // Never let app data shorten our fixed request minimum. Startup also waits a full interval.
+        this.floor.set(
+          retailer,
+          this.now() + budgets[retailer] + Math.floor(this.random() * budgets[retailer] * 0.1),
+        );
+        let result: { offer: Offer } | { error: string; retryAfterMs: number };
+        try {
+          const offer = await collect(watch, binding, this.fetcher, this.now());
+          result = { offer };
+          this.cache.set(`${watch.id}/${binding.id}`, offer);
+          this.failures.set(retailer, 0);
+          if (!qualify(watch, binding, offer, this.now()).eligible)
+            this.sent.delete(`${watch.id}/${binding.id}`);
+        } catch (error) {
+          const failure =
+              error instanceof UpstreamError ? error : new UpstreamError("invalid-data"),
+            count = Math.min((this.failures.get(retailer) ?? 0) + 1, 12);
+          this.failures.set(retailer, count);
+          const delay = Math.max(
+            budgets[retailer] * Math.min(2 ** count, 32),
+            failure.retryAfterMs,
+          );
+          this.floor.set(retailer, Math.max(this.floor.get(retailer) ?? 0, this.now() + delay));
+          this.cache.delete(`${watch.id}/${binding.id}`);
+          result = { error: failure.code, retryAfterMs: delay };
+        }
+        // If scheduling/results cannot be persisted, stop this cycle; do not continue upstream work.
+        await this.api("/api/checks/complete", {
+          watchId: watch.id,
+          bindingId: binding.id,
+          leaseId: claim.lease.leaseId,
+          policyVersion: this.policyVersion,
+          ...result,
+        });
+        checked++;
+        break;
+      }
+    }
+    if (this.options.webhook && this.nextDelivery <= this.now()) {
+      const claim = await this.api("/api/outbox/claim", {});
+      if (claim.policyVersion !== this.policyVersion) throw new Error("Policy mismatch");
+      if (claim.event !== null) {
+        const raw = claim.event;
+        if (
+          !isObject(raw) ||
+          !uuid(raw.id) ||
+          !uuid(raw.lease_id) ||
+          ![raw.watch_id, raw.binding_id, raw.offer_id, raw.policy_version].every(
+            (v) => typeof v === "string",
+          ) ||
+          typeof raw.attempts !== "number" ||
+          !Number.isSafeInteger(raw.attempts) ||
+          raw.attempts < 1
+        )
+          throw new Error("Invalid event lease");
+        const event = raw as unknown as QueueEvent,
+          watch = this.watches.find((w) => w.id === event.watch_id),
+          binding = watch?.bindings.find((b) => b.id === event.binding_id),
+          key = `${event.watch_id}/${event.binding_id}`;
+        const offer = this.cache.get(key);
+        let result: Delivery;
+        if (!watch || !binding?.enabled || event.policy_version !== this.policyVersion)
+          result = { status: "suppressed", result: "policy-mismatch", delayMs: 0, messageId: null };
+        else if (
+          !offer ||
+          offer.observedAt < this.now() - Math.min(budgets[binding.retailer], 300_000)
+        )
+          result = {
+            status: "retry",
+            result: "awaiting-revalidation",
+            delayMs: 60_000,
+            messageId: null,
+          };
+        else if (
+          offer.id !== event.offer_id ||
+          !qualify(watch, binding, offer, this.now()).eligible
+        )
+          result = {
+            status: "suppressed",
+            result: "no-longer-eligible",
+            delayMs: 0,
+            messageId: null,
+          };
+        else {
+          const fingerprint = JSON.stringify([
+            offer.id,
+            offer.condition,
+            offer.priceCents,
+            offer.shippingCents,
+            offer.feesCents,
+            offer.shipping,
+          ]);
+          if (this.sent.get(key) === fingerprint)
+            result = {
+              status: "suppressed",
+              result: "duplicate-current-offer",
+              delayMs: 0,
+              messageId: null,
+            };
+          else {
+            result = await sendDiscord(
+              this.options.webhook,
+              message(watch, binding, offer, event.id, this.now()),
+              this.fetcher,
+            );
+            if (result.status === "sent") {
+              this.sent.set(key, fingerprint);
+              delivered++;
+            }
+          }
+        }
+        // A channel throttle applies to every watch, not only this event.
+        this.nextDelivery =
+          this.now() + Math.max(5_000, result.result === "rate-limited" ? result.delayMs : 0);
+        if (result.status === "retry" && result.result !== "rate-limited")
+          result.delayMs = Math.max(
+            result.delayMs,
+            Math.min(3_600_000, 1000 * 2 ** Math.min(event.attempts, 12)),
+          );
+        await this.api("/api/outbox/complete", {
+          id: event.id,
+          leaseId: event.lease_id,
+          ...result,
+        });
+      }
+    }
+    this.lastSuccessfulCycle = this.now();
+    return { checked, delivered };
+  }
+}

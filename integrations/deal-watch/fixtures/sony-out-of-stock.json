@@ -1,0 +1,26 @@
+{
+  "products": [
+    {
+      "code": "1000050805",
+      "name": "PlayStation\u00ae5 Pro Console",
+      "validProductCode": true,
+      "price": {
+        "basePrice": "899",
+        "currencyIso": "USD",
+        "currencySymbol": "$",
+        "decimalPrice": "00",
+        "value": 899.0
+      },
+      "stock": {
+        "isProductLowStock": false,
+        "stockLevelStatus": "outOfStock"
+      },
+      "purchasable": true,
+      "preOrderProduct": false,
+      "loginGated": false,
+      "psPlusGated": false,
+      "isMilitaryRestricted": false,
+      "maxOrderQuantity": 0
+    }
+  ]
+}

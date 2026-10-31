@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - ./quilt-planner
   - ./hello
+  - ./deal-watch

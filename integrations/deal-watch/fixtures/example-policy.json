@@ -1,0 +1,62 @@
+{
+  "policyVersion": "2026-10-31.1",
+  "watches": [
+    {
+      "id": "example-console",
+      "title": "PlayStation 5 Pro",
+      "zip": "10001",
+      "currency": "USD",
+      "newCeilingCents": 89999,
+      "newReferenceCents": 89999,
+      "openBoxDiscountPercent": 15,
+      "refurbishedDiscountPercent": 20,
+      "minSellerPercent": 99,
+      "minSellerScore": 500,
+      "allowPolicyShipping": true,
+      "bindings": [
+        {
+          "id": "sony-console",
+          "retailer": "sony",
+          "shippingPolicyZips": ["10001"],
+          "productId": "1000050805",
+          "pagePath": "/en-us/buy-consoles/playstation5-pro-console",
+          "enabled": true,
+          "note": "Example public-source watch"
+        },
+        {
+          "id": "costco-bundle",
+          "retailer": "costco",
+          "productId": "1793150",
+          "pagePath": "/p/-/sony-playstation-5-pro-console-bundle/4000352765",
+          "enabled": false,
+          "bundleExtraIds": ["dualsense-grey-camo"],
+          "note": "Disabled example; validate access before enabling"
+        },
+        {
+          "id": "bestbuy-console",
+          "retailer": "bestbuy",
+          "productId": "6601524",
+          "pagePath": "/site/6601524.p",
+          "enabled": false,
+          "note": "Disabled example; validate access before enabling"
+        },
+        {
+          "id": "target-console",
+          "retailer": "target",
+          "productId": "93620188",
+          "pagePath": "/p/-/A-93620188",
+          "enabled": false,
+          "note": "Disabled example; validate access before enabling"
+        },
+        {
+          "id": "ebay-console",
+          "retailer": "ebay",
+          "productId": "0",
+          "pagePath": "/sch/i.html",
+          "enabled": false,
+          "note": "Disabled example; validate access before enabling"
+        }
+      ]
+    }
+  ]
+}

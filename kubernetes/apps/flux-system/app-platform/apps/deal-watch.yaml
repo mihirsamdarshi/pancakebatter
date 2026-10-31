@@ -1,0 +1,25 @@
+---
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-deal-watch
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/deal-watch
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: deal-watch
+    parts: [pullsecret, internal-route, backup, backup-sqlite]
+    vars:
+      SQLITE_DBS: deal-watch.db
+      VOLSYNC_SCHEDULE: "30 12 * * *"
+      SQLITE_SCHEDULE: "20 12 * * *"
