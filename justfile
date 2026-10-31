@@ -21,7 +21,7 @@ mod? vms 'terraform'
 mod? dns 'terraform/dns'
 
 [group('tailscale')]
-mod? tailscale 'kubernetes/apps/tailscale'
+mod? tailscale 'kubernetes/apps/network/tailscale'
 
 [doc('Check the local agent notes in docs/agents (front matter, freshness, links)')]
 [group('docs')]

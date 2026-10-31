@@ -1,0 +1,20 @@
+---
+# Listed explicitly (Flux uses this file as-is instead of generating one):
+# network/kustomization.yaml sets `namespace: network` for everything it lists,
+# so network/tailscale (namespace `tailscale`) cannot be one of its resources.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./cert-manager
+  - ./default
+  - ./downloads
+  - ./flux-system
+  - ./home
+  - ./kube-system
+  - ./media
+  - ./network
+  - ./network/tailscale
+  - ./observability
+  - ./personal-apps
+  - ./storage
+  - ./volsync-system

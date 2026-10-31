@@ -4,7 +4,7 @@ set script-interpreter := ['bash', '-euo', 'pipefail']
 set default-list
 set default-script
 
-# Recipes run in this directory (kubernetes/apps/tailscale).
+# Recipes run in this directory (kubernetes/apps/network/tailscale).
 
 [doc('Regenerate the operator OAuth SOPS Secret using 1Password CLI access')]
 [group('tailscale')]
@@ -16,7 +16,7 @@ oauth-secret:
     tmp="$(mktemp "$out.tmp.XXXXXX")"
     trap 'rm -f "$tmp"' EXIT
     op inject --in-file tailscale-operator/app/secret.yaml.tpl \
-        | sops encrypt --filename-override "kubernetes/apps/tailscale/$out" \
+        | sops encrypt --filename-override "kubernetes/apps/network/tailscale/$out" \
             --input-type yaml --output-type yaml /dev/stdin > "$tmp"
     # Round trip: catches a bad MAC or a file our key cannot decrypt. Prints nothing.
     sops decrypt --input-type yaml --output-type yaml "$tmp" >/dev/null

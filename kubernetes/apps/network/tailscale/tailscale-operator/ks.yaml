@@ -7,7 +7,7 @@ metadata:
   name: tailscale-operator
 spec:
   interval: 1h
-  path: ./kubernetes/apps/tailscale/tailscale-operator/app
+  path: ./kubernetes/apps/network/tailscale/tailscale-operator/app
   prune: true
   sourceRef:
     kind: GitRepository
@@ -38,7 +38,7 @@ spec:
         status.conditions.exists(e, e.type == 'ProxyClassReady' && e.status == 'False'
         && e.observedGeneration == metadata.generation)
   interval: 1h
-  path: ./kubernetes/apps/tailscale/tailscale-operator/config
+  path: ./kubernetes/apps/network/tailscale/tailscale-operator/config
   prune: true
   sourceRef:
     kind: GitRepository
@@ -63,7 +63,7 @@ spec:
         status.conditions.exists(e, e.type == 'ProxyGroupReady' && e.status == 'True'
         && e.observedGeneration == metadata.generation)
   interval: 1h
-  path: ./kubernetes/apps/tailscale/tailscale-operator/proxies
+  path: ./kubernetes/apps/network/tailscale/tailscale-operator/proxies
   prune: true
   sourceRef:
     kind: GitRepository

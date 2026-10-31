@@ -1,0 +1,11 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./quilt-planner
+  - ./hello
+  - ./homepage
+  # The Homepage Flux Kustomizations keep their identity in the `home` Flux
+  # namespace (explicit metadata.namespace); they deploy into `homepage`.
+  - ./homepage/ks.yaml
+  - ./homepage-family/ks.yaml

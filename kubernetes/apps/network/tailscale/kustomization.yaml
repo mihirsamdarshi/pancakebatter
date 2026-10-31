@@ -4,7 +4,7 @@ kind: Kustomization
 namespace: tailscale
 
 # Keep this namespace limited to operator/proxy credentials: do not copy
-# unrelated cluster-secrets into it via ../../components/sops. Nothing in
+# unrelated cluster-secrets into it via ../../../components/sops. Nothing in
 # this app uses postBuild substitution.
 
 resources:

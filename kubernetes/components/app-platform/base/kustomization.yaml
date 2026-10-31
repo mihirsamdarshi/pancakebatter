@@ -1,6 +1,6 @@
 ---
 # The workload every platform app gets: a PVC, a Service and a Deployment that
-# follow the container contract in kubernetes/apps/personal/README.md. The
+# follow the container contract in kubernetes/apps/personal-apps/README.md. The
 # per-app Flux Kustomization app-<name> (rendered by the ResourceSet "apps" in
 # kubernetes/apps/flux-system/app-platform) builds this folder and fills in the
 # ${...} variables from its postBuild.substitute. A Kustomization, not a
