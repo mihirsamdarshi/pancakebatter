@@ -1,7 +1,16 @@
 ---
-# Listed explicitly (Flux uses this file as-is instead of generating one):
-# network/kustomization.yaml sets `namespace: network` for everything it lists,
-# so network/tailscale (namespace `tailscale`) cannot be one of its resources.
+# The explicit list of every app folder. Flux's cluster-apps Kustomization
+# (kubernetes/flux/cluster/ks.yaml) points at this folder and uses this file
+# as-is; it only generates a kustomization.yaml when none exists.
+#
+# TRAP: cluster-apps has prune: true. A folder missing from this list is not
+# applied, so Flux PRUNES every Flux Kustomization it defines (and, through
+# them, the live workloads). Add a new top-level folder here in the same PR.
+# scripts/validate-kubernetes.sh fails when this list and the folders disagree.
+#
+# network/tailscale is listed separately because network/kustomization.yaml
+# sets `namespace: network` for everything it lists, which would move the
+# tailscale Flux objects out of their `tailscale` namespace.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
