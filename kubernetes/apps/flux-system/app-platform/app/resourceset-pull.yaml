@@ -10,7 +10,8 @@
 # Never remove fluxcd.controlplane.io/prune: disabled from the template, never
 # delete ghcr-apps-read while an entry has `pullsecret`, never rename this
 # ResourceSet. Its `parts` default and namespace expression must equal
-# resourceset.yaml's. vars.PULL_SECRET changes only the name the Deployment
+# resourceset.yaml's. An input without a name renders nothing (see there).
+# vars.PULL_SECRET changes only the name the Deployment
 # references, never this Secret.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
@@ -31,7 +32,7 @@ spec:
   resourcesTemplate: |
     <<- $parts := list "pullsecret" "internal-route" "backup" >>
     <<- if hasKey inputs "parts" >><<- $parts = inputs.parts >><<- end >>
-    <<- if has "pullsecret" $parts >>
+    <<- if and (get inputs "name") (has "pullsecret" $parts) >>
     ---
     apiVersion: v1
     kind: Secret

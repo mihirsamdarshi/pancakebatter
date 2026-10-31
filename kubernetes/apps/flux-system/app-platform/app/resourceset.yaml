@@ -18,6 +18,11 @@
 # [$][{]APP[}]. Keep literal dollar-brace sequences out of this template: the
 # Kustomization that applies this file has no postBuild, and the template uses
 # << >> delimiters.
+#
+# The body is guarded by `if $name`: a real input always has a name (the
+# validator requires it), but the Flate CI check renders a ResourceSet with a
+# single empty input when no provider exists yet, and `inputs.name` then fails
+# with "map has no entry for key". An input without a name renders nothing.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -30,7 +35,7 @@ spec:
         matchLabels:
           platform/apps: "true"
   resourcesTemplate: |
-    <<- $name := inputs.name >>
+    <<- $name := get inputs "name" | default "" >>
     <<- $ns := get inputs "namespace" | default $name >>
     <<- $path := trimSuffix "/" (get inputs "path" | default "./kubernetes/components/app-platform/base") >>
     <<- $up := repeat (len (splitList "/" (trimPrefix "./" $path))) "../" >>
@@ -45,6 +50,7 @@ spec:
     <<- $egress := get inputs "egress" | default "none" >>
     <<- if $netpol >><<- $comps = append $comps "netpol" >><<- if eq $egress "internet" >><<- $comps = append $comps "netpol-egress-internet" >><<- end >><<- end >>
     <<- $reserved := list "APP" "IMAGE_DIGEST" "VOLSYNC_NAMESPACE" "VOLSYNC_CLAIM" "APP_UID" "APP_GID" "APP_NAMESPACE" >>
+    <<- if $name >>
     ---
     apiVersion: kustomize.toolkit.fluxcd.io/v1
     kind: Kustomization
@@ -142,3 +148,4 @@ spec:
           kind: Deployment
           name: << $name >>
           namespace: << $ns >>
+    <<- end >>

@@ -269,7 +269,7 @@ check_templates_in_sync() {
     a="$(grep -F 'if hasKey inputs "parts"' "$rs_apps" | sed -E 's/^[[:space:]]+//')"
     b="$(grep -F 'if hasKey inputs "parts"' "$rs_pull" | sed -E 's/^[[:space:]]+//')"
     [[ -n "$a" && "$a" == "$b" ]] || die "the parts override differs between $rs_apps and $rs_pull"
-    if ! { grep -qF '$name := inputs.name' "$rs_apps" \
+    if ! { grep -qF '$name := get inputs "name" | default ""' "$rs_apps" \
         && grep -qF '$ns := get inputs "namespace" | default $name' "$rs_apps" \
         && grep -qF 'get inputs "namespace" | default inputs.name' "$rs_pull"; }; then
         die "the namespace expression differs between $rs_apps and $rs_pull"
