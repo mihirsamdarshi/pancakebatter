@@ -40,7 +40,7 @@
 #      token, and gitleaks over the entries and every custom folder;
 #   6a. custom `path` folders on their own: plain workload kinds only;
 #   7. the pull Secret that `apps-pull` renders;
-#   8. the Namespace folder under kubernetes/apps/personal, and renames;
+#   8. the Namespace folder under kubernetes/apps/personal-apps, and renames;
 #   9. the flux-operator CLI version equals the operator chart tag; the
 #      PrometheusRule app-platform exists, names every entry's namespace and
 #      passes promtool check and its unit tests.
@@ -135,7 +135,7 @@ collect_git_facts() {
 
 check_credential() {
     local f
-    [[ -f "$credential" ]] || die "$credential is missing: create it before merging. It is the registry token (classic read:packages) every app Kustomization and image pull uses, and only the owner creates it. See 'Creating ghcr-apps-read' in kubernetes/apps/personal/README.md"
+    [[ -f "$credential" ]] || die "$credential is missing: create it before merging. It is the registry token (classic read:packages) every app Kustomization and image pull uses, and only the owner creates it. See 'Creating ghcr-apps-read' in kubernetes/apps/personal-apps/README.md"
     [[ "$(yq '.kind' "$credential")" == "Secret" \
         && "$(yq '.metadata.name' "$credential")" == "ghcr-apps-read" \
         && "$(yq '.metadata.namespace' "$credential")" == "flux-system" \
@@ -378,9 +378,9 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
     (if ($d | has("path")) then
        (if ($d.path | isstr | not) then "path must be a string"
         elif ($d.path | endswith("/")) then "path must not end with a slash"
-        elif ($d.path | IN($base, "./kubernetes/apps/personal/\($ns)/app", "./kubernetes/apps/personal/\($name)/app")) then empty
+        elif ($d.path | IN($base, "./kubernetes/apps/personal-apps/\($ns)/app", "./kubernetes/apps/personal-apps/\($name)/app")) then empty
         elif $fx and ($d.path | test("^\\./scripts/validate-apps/fixtures/custom/[a-z0-9-]+$")) then empty
-        else "path must be the default base or ./kubernetes/apps/personal/\($ns)/app" end)
+        else "path must be the default base or ./kubernetes/apps/personal-apps/\($ns)/app" end)
      else empty end)
   ]
 | .[]
@@ -561,7 +561,7 @@ validate_entry() {
 
     # 8. The Namespace folder (Git-defined, same PR as the entry). For a fixture
     # the self-test makes a folder per sample under a temporary root.
-    nsroot="kubernetes/apps/personal"
+    nsroot="kubernetes/apps/personal-apps"
     if [[ "$fx" == true && -n "${VALIDATE_APPS_NS_ROOT:-}" ]]; then nsroot="$VALIDATE_APPS_NS_ROOT"; fi
     nsdir="$nsroot/$ns"
     [[ -f "$nsdir/kustomization.yaml" ]] \

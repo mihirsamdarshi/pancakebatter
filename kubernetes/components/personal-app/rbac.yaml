@@ -5,7 +5,7 @@
 # is not a sandbox: the bundle can still run pods that mount this namespace's
 # Secrets. It has no rule for HTTPRoutes either, so a bundle cannot attach
 # itself to a shared gateway; routes are added in this repo (see
-# apps/personal/README.md). Add rules with a patch in the app's own
+# apps/personal-apps/README.md). Add rules with a patch in the app's own
 # kustomization.yaml if its bundle ships other kinds, but not HTTPRoutes.
 #
 # Variables come from the bootstrap Kustomization's postBuild.substitute; see
