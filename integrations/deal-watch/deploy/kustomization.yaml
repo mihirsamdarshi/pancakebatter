@@ -1,0 +1,10 @@
+---
+# REVIEW TEMPLATE ONLY: outside the Flux-watched kubernetes tree.
+# Resolve the image and create the approved encrypted Secrets before activation.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: deal-watch-integrations
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - networkpolicy.yaml

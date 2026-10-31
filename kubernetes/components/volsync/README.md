@@ -91,7 +91,8 @@ ten minutes before.
 | quilt-planner          | 10:05          | 10:15                 |
 | next apps              | 10:20, 10:35   | 10:30, 10:45, 11:00 … |
 | hello (platform entry) | 12:05          | 12:15                 |
-| next platform apps     | 12:20, 12:35 … | 12:30, 12:45 …        |
+| deal-watch (draft)     | 12:20          | 12:30                 |
+| next platform apps     | 12:35, 12:50 … | 12:45, 13:00 …        |
 
 ## SQLite
 
