@@ -45,6 +45,8 @@ jobs:
           patterns: |-
             kubernetes/**/*
             scripts/validate-kubernetes.sh
+            scripts/validate-apps.sh
+            scripts/validate-apps/**/*
             .github/workflows/kubernetes.yaml
             .github/actions/changed-files/*
             .mise/config.toml
@@ -62,16 +64,27 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The base branch too: validate-apps.sh compares the entries with it.
+          fetch-depth: 0
 
       - name: Setup mise
         uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
         with:
-          install_args: --locked kubeconform kustomize flux2 yq
+          install_args: --locked kubeconform kustomize flux2 flux-operator gitleaks jq promtool yq
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
 
       - name: Validate manifests
+        # APPS_BASE_REF turns on the check that an existing app platform entry
+        # keeps its name and namespace (a rename starts a new, empty app).
+        env:
+          APPS_BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
         run: bash scripts/validate-kubernetes.sh
+
+      - name: Validate app platform fixtures
+        # The validator's own tests: the samples under scripts/validate-apps
+        # must pass or be rejected for the stated reason.
+        run: bash scripts/validate-apps.sh --self-test
 
   # The required status check. always(): a cancelled run must not leave the
   # gate skipped, which GitHub would count as passing. It fails when the

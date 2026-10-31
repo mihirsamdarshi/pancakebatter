@@ -56,6 +56,35 @@ checksum = "sha256:3b0dbaf378337e9d7fb6cd235a76d1d6a7dee434c2d8edf9281164fb6a383
 url = "https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-darwin-amd64.tgz"
 url_api = "https://api.github.com/repos/cloudflare/cloudflared/releases/assets/644587062"
 
+[[tools.flux-operator]]
+version = "0.61.0"
+backend = "aqua:controlplaneio-fluxcd/flux-operator"
+specifiers = ["0.61.0"]
+
+[tools.flux-operator."platforms.linux-arm64"]
+checksum = "sha256:499982b3446452b894c9f487a49c18d396b2bdc2b48feb9624ca12aa7eda3001"
+url = "https://github.com/controlplaneio-fluxcd/flux-operator/releases/download/v0.61.0/flux-operator_0.61.0_linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/controlplaneio-fluxcd/flux-operator/releases/assets/603141670"
+provenance = "github-attestations"
+
+[tools.flux-operator."platforms.linux-x64"]
+checksum = "sha256:5720a6b38e48f950dd97cb06f692695700e0239b28503e1926cc28cf8310145c"
+url = "https://github.com/controlplaneio-fluxcd/flux-operator/releases/download/v0.61.0/flux-operator_0.61.0_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/controlplaneio-fluxcd/flux-operator/releases/assets/603141676"
+provenance = "github-attestations"
+
+[tools.flux-operator."platforms.macos-arm64"]
+checksum = "sha256:d59e2bac6c34163c402496e08dfb29b8b54cedb0ecb8bb2036e42721ccf0e852"
+url = "https://github.com/controlplaneio-fluxcd/flux-operator/releases/download/v0.61.0/flux-operator_0.61.0_darwin_arm64.tar.gz"
+url_api = "https://api.github.com/repos/controlplaneio-fluxcd/flux-operator/releases/assets/603141675"
+provenance = "github-attestations"
+
+[tools.flux-operator."platforms.macos-x64"]
+checksum = "sha256:14601c53e8f421355037651cb12c340e15b7fdb530c25e1fd24acbf4a52b4456"
+url = "https://github.com/controlplaneio-fluxcd/flux-operator/releases/download/v0.61.0/flux-operator_0.61.0_darwin_amd64.tar.gz"
+url_api = "https://api.github.com/repos/controlplaneio-fluxcd/flux-operator/releases/assets/603141673"
+provenance = "github-attestations"
+
 [[tools.flux2]]
 version = "2.9.6"
 backend = "aqua:fluxcd/flux2"
@@ -134,6 +163,35 @@ url_api = "https://api.github.com/repos/postfinance/topf/releases/assets/5975583
 checksum = "sha256:cc15ef60d1d6ec852285fac64f3cac4fed18e6ffd59c996dd403d38ac8872233"
 url = "https://github.com/postfinance/topf/releases/download/v0.6.1/topf_darwin_amd64.tar.gz"
 url_api = "https://api.github.com/repos/postfinance/topf/releases/assets/597558295"
+
+[[tools.gitleaks]]
+version = "8.30.1"
+backend = "aqua:gitleaks/gitleaks"
+specifiers = ["8.30.1"]
+
+[tools.gitleaks."platforms.linux-arm64"]
+checksum = "sha256:e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080"
+checksum_source = "mise-versions"
+url = "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378332057"
+
+[tools.gitleaks."platforms.linux-x64"]
+checksum = "sha256:551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+checksum_source = "mise-versions"
+url = "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz"
+url_api = "https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378332058"
+
+[tools.gitleaks."platforms.macos-arm64"]
+checksum = "sha256:b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5"
+checksum_source = "mise-versions"
+url = "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_darwin_arm64.tar.gz"
+url_api = "https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378332059"
+
+[tools.gitleaks."platforms.macos-x64"]
+checksum = "sha256:dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709"
+checksum_source = "mise-versions"
+url = "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_darwin_x64.tar.gz"
+url_api = "https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378332053"
 
 [[tools.gum]]
 version = "2.0.2"
@@ -361,6 +419,35 @@ version = "0.73.0"
 aube = { path = "locks/oxfmt/0.73.0", digest = "sha256:e42eeebedd060ec6393c40caa35362b541991453b9aab2de3d33d41a0c245a62" }
 backend = "npm:oxfmt"
 specifiers = ["0.73.0"]
+
+[[tools.promtool]]
+version = "3.15.1"
+backend = "aqua:prometheus/prometheus"
+specifiers = ["3.15.1"]
+
+[tools.promtool."platforms.linux-arm64"]
+checksum = "sha256:ceb6d21493c37ca0b4513b147642797c68cf39a0f50a444d50e1e80c74f21b26"
+checksum_source = "mise-versions"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/662697891"
+
+[tools.promtool."platforms.linux-x64"]
+checksum = "sha256:6a726885328ad9efebbf36e876ce2fb6225468a71fd1e7ce3ba666d5f4d97a84"
+checksum_source = "mise-versions"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/662697731"
+
+[tools.promtool."platforms.macos-arm64"]
+checksum = "sha256:0d4d3d9837d27e4fcd0bd16d115b1b8d6732a4bf3e69107f1190d9ef653ae471"
+checksum_source = "mise-versions"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.darwin-arm64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/662695921"
+
+[tools.promtool."platforms.macos-x64"]
+checksum = "sha256:c89fcb30045d8c394c9d93e96cbbee3aaf2448a48326b417e811eb4e528edf88"
+checksum_source = "mise-versions"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.15.1/prometheus-3.15.1.darwin-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/662695728"
 
 [[tools.sd]]
 version = "1.1.0"

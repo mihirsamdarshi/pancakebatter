@@ -1,0 +1,151 @@
+---
+# One Flux Kustomization per personal app, rendered from the
+# ResourceSetInputProviders in ../apps (one per app: the homelab entry). Each
+# provider exports the digest of the app's `main` image and the app's settings;
+# the Kustomization app-<name> applies the shared base and the parts the entry
+# lists, with the digest and settings in postBuild.substitute. Settings,
+# defaults and rules: kubernetes/apps/personal/README.md.
+#
+# Fixed safety properties: deletionPolicy Orphan (garbage collection deletes
+# only the Kustomization; the workload keeps running), wait true with a
+# Deployment health check, SOPS decryption (the volsync restic Secret). Never
+# set fluxcd.controlplane.io/force here, never render a Namespace, and never
+# rename this ResourceSet. Its `parts` default and namespace expression must
+# equal resourceset-pull.yaml's.
+#
+# Kustomize patches run before Flux substitutes ${APP}, so a patch cannot name
+# a Deployment by its final name; the targets below are regexes such as
+# [$][{]APP[}]. Keep literal dollar-brace sequences out of this template: the
+# Kustomization that applies this file has no postBuild, and the template uses
+# << >> delimiters.
+#
+# The body is guarded by `if $name`: a real input always has a name (the
+# validator requires it), but the Flate CI check renders a ResourceSet with a
+# single empty input when no provider exists yet, and `inputs.name` then fails
+# with "map has no entry for key". An input without a name renders nothing.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      selector:
+        matchLabels:
+          platform/apps: "true"
+  resourcesTemplate: |
+    <<- $name := get inputs "name" | default "" >>
+    <<- $ns := get inputs "namespace" | default $name >>
+    <<- $path := trimSuffix "/" (get inputs "path" | default "./kubernetes/components/app-platform/base") >>
+    <<- $up := repeat (len (splitList "/" (trimPrefix "./" $path))) "../" >>
+    <<- $parts := list "pullsecret" "internal-route" "backup" >>
+    <<- if hasKey inputs "parts" >><<- $parts = inputs.parts >><<- end >>
+    <<- $vars := get inputs "vars" | default dict >>
+    <<- $env := get inputs "env" | default dict >>
+    <<- $comps := list >>
+    <<- range $p := $parts >><<- if ne $p "pullsecret" >><<- $comps = append $comps $p >><<- end >><<- end >>
+    <<- $netpol := true >>
+    <<- if hasKey inputs "netpol" >><<- $netpol = inputs.netpol >><<- end >>
+    <<- $egress := get inputs "egress" | default "none" >>
+    <<- if $netpol >><<- $comps = append $comps "netpol" >><<- if eq $egress "internet" >><<- $comps = append $comps "netpol-egress-internet" >><<- end >><<- end >>
+    <<- $reserved := list "APP" "IMAGE_DIGEST" "VOLSYNC_NAMESPACE" "VOLSYNC_CLAIM" "APP_UID" "APP_GID" "APP_NAMESPACE" >>
+    <<- if $name >>
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: app-<< $name >>
+      namespace: flux-system
+    spec:
+      interval: 1h
+      retryInterval: 2m
+      timeout: 5m
+      path: << $path >>
+      prune: true
+      wait: true
+      deletionPolicy: Orphan
+      decryption:
+        provider: sops
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      targetNamespace: << $ns >>
+      <<- if $comps >>
+      components:
+        <<- range $p := $comps >>
+        - << $up >>kubernetes/components/app-platform/<< $p >>
+        <<- end >>
+      <<- end >>
+      <<- if or (has "backup" $parts) (has "backup-sqlite" $parts) >>
+      dependsOn:
+        - name: volsync
+          namespace: volsync-system
+      <<- end >>
+      <<- if or $env (hasKey inputs "path") >>
+      patches:
+        <<- if $env >>
+        - target:
+            kind: Deployment<< if not (hasKey inputs "path") >>
+            name: "[$][{]APP[}]"<< end >>
+          patch: |-
+            <<- range $k, $v := $env >>
+            - op: add
+              path: /spec/template/spec/containers/0/env/-
+              value:
+                name: << $k >>
+                value: << $v | quote >>
+            <<- end >>
+        <<- end >>
+        <<- if hasKey inputs "path" >>
+        # the cluster-apps defaults for HelmReleases, which app-owned folders do not get
+        - target:
+            group: helm.toolkit.fluxcd.io
+            kind: HelmRelease
+          patch: |-
+            apiVersion: helm.toolkit.fluxcd.io/v2
+            kind: HelmRelease
+            metadata:
+              name: _
+            spec:
+              install:
+                crds: CreateReplace
+                strategy:
+                  name: RetryOnFailure
+              rollback:
+                cleanupOnFail: true
+                recreate: true
+              upgrade:
+                cleanupOnFail: true
+                crds: CreateReplace
+                strategy:
+                  name: RemediateOnFailure
+                remediation:
+                  remediateLastFailure: true
+                  retries: 2
+        <<- end >>
+      <<- end >>
+      postBuild:
+        substitute:
+          APP: << $name | quote >>
+          IMAGE_DIGEST: << get inputs "pin" | default inputs.digest | quote >>
+          APP_UID: << get $vars "APP_UID" | default 1000 | quote >>
+          APP_GID: << get $vars "APP_GID" | default 1000 | quote >>
+          APP_NAMESPACE: << $ns | quote >>
+          VOLSYNC_NAMESPACE: << $ns | quote >>
+          VOLSYNC_CLAIM: << get $vars "CLAIM" | default (printf "%s-data" $name) | quote >>
+          <<- range $k, $v := $vars >>
+          <<- if not (has $k $reserved) >>
+          << $k >>: << $v | quote >>
+          <<- end >>
+          <<- end >>
+        substituteFrom:
+          - kind: Secret
+            name: cluster-secrets
+      healthChecks:
+        - apiVersion: apps/v1
+          kind: Deployment
+          name: << $name >>
+          namespace: << $ns >>
+    <<- end >>

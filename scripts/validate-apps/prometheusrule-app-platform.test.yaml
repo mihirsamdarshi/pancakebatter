@@ -1,0 +1,215 @@
+---
+# Unit tests for prometheusrule-app-platform.yaml, run by scripts/validate-apps.sh
+# with `promtool test rules`. The validator extracts the PrometheusRule's .spec
+# into app-platform-rules.yaml next to this file's copy.
+#
+# The input series carry the metric names and labels flux-operator really
+# exports (internal/reporter/metrics.go in v0.61.0): flux_resource_info for the
+# Flux toolkit kinds, flux_resourceset_info for ResourceSets and
+# flux_resourcesetinputprovider_info for ResourceSetInputProviders. A syntax
+# check alone passed a rule that selected kind="ResourceSet" in
+# flux_resource_info, which has no such series, so the alert could never fire.
+rule_files:
+  - app-platform-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # --- Kustomization app-<name> -------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'flux_resource_info{uid="u1", kind="Kustomization", name="app-hello", exported_namespace="flux-system", ready="False", reason="HealthCheckFailed", suspended="False"}'
+        values: "1x20"
+      - series: 'flux_resource_info{uid="u2", kind="Kustomization", name="app-ok", exported_namespace="flux-system", ready="True", reason="ReconciliationSucceeded", suspended="False"}'
+        values: "1x20"
+      - series: 'flux_resource_info{uid="u3", kind="Kustomization", name="cluster-apps", exported_namespace="flux-system", ready="False", reason="X", suspended="False"}'
+        values: "1x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: AppPlatformKustomizationNotReady
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: AppPlatformKustomizationNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              uid: u1
+              kind: Kustomization
+              name: app-hello
+              exported_namespace: flux-system
+              ready: "False"
+              reason: HealthCheckFailed
+              suspended: "False"
+            exp_annotations:
+              summary: "Kustomization flux-system/app-hello has not been ready for 10 minutes"
+              description: "A release is not rolled out, or the platform cannot render. `flux get ks -n flux-system app-hello` shows the reason. `Recreate` has already removed the old pod when a bad release fails, so the app may be down: `pin` the previous digest in its entry."
+
+  # --- ResourceSet apps and apps-pull -------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'flux_resourceset_info{uid="r1", kind="ResourceSet", name="apps", exported_namespace="flux-system", ready="False", reason="ReconciliationFailed", suspended="False", resources="3", revision="sha256:aa"}'
+        values: "1x20"
+      - series: 'flux_resourceset_info{uid="r2", kind="ResourceSet", name="apps-pull", exported_namespace="flux-system", ready="True", reason="ReconciliationSucceeded", suspended="False", resources="1", revision="sha256:bb"}'
+        values: "1x20"
+      - series: 'flux_resourceset_info{uid="r3", kind="ResourceSet", name="other", exported_namespace="flux-system", ready="False", reason="X", suspended="False", resources="0"}'
+        values: "1x20"
+      # The regression: ResourceSets are not in flux_resource_info, so a series
+      # there (which the operator never exports) must not be what fires.
+      - series: 'flux_resource_info{uid="r4", kind="ResourceSet", name="apps-pull", exported_namespace="flux-system", ready="False", reason="X", suspended="False"}'
+        values: "1x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: AppPlatformResourceSetNotReady
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: AppPlatformResourceSetNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              uid: r1
+              kind: ResourceSet
+              name: apps
+              exported_namespace: flux-system
+              ready: "False"
+              reason: ReconciliationFailed
+              suspended: "False"
+              resources: "3"
+              revision: "sha256:aa"
+            exp_annotations:
+              summary: "ResourceSet flux-system/apps has not been ready for 10 minutes"
+              description: "A ResourceSet applies none of its objects when one fails the dry run, so this blocks every app: `apps` its Kustomizations, `apps-pull` the copies of the pull Secret (a namespace missing, or ghcr-apps-read gone). `kubectl -n flux-system describe resourceset apps`."
+
+  # --- ResourceSetInputProvider app-<name> --------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'flux_resourcesetinputprovider_info{uid="p1", kind="ResourceSetInputProvider", name="app-hello", exported_namespace="flux-system", ready="False", reason="ReconciliationFailed", suspended="False", url="oci://ghcr.io/example/apps/hello"}'
+        values: "1x20"
+      - series: 'flux_resourcesetinputprovider_info{uid="p2", kind="ResourceSetInputProvider", name="app-fine", exported_namespace="flux-system", ready="True", reason="ReconciliationSucceeded", suspended="False", url="oci://ghcr.io/example/apps/fine"}'
+        values: "1x20"
+      - series: 'flux_resourcesetinputprovider_info{uid="p3", kind="ResourceSetInputProvider", name="unrelated", exported_namespace="flux-system", ready="False", reason="X", suspended="False", url="oci://example.test/x"}'
+        values: "1x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: AppPlatformInputProviderNotReady
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: AppPlatformInputProviderNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              uid: p1
+              kind: ResourceSetInputProvider
+              name: app-hello
+              exported_namespace: flux-system
+              ready: "False"
+              reason: ReconciliationFailed
+              suspended: "False"
+              url: "oci://ghcr.io/example/apps/hello"
+            exp_annotations:
+              summary: "ResourceSetInputProvider flux-system/app-hello has not been ready for 10 minutes"
+              description: "New images of that app are not noticed. Usually the registry token ghcr-apps-read has expired or lost read:packages, or the package does not exist yet."
+
+  # --- apps-pull, and a not-yet-known state ---------------------------------
+  # The operator reports ready="Unknown" for an object with no Ready condition
+  # yet, and ready!="True" must catch it (ready="False" would not). apps-pull is
+  # the second ResourceSet: dropping it from the name regex must fail here.
+  - interval: 1m
+    input_series:
+      - series: 'flux_resourceset_info{uid="r5", kind="ResourceSet", name="apps-pull", exported_namespace="flux-system", ready="False", reason="ReconciliationFailed", suspended="False", resources="0"}'
+        values: "1x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: AppPlatformResourceSetNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              uid: r5
+              kind: ResourceSet
+              name: apps-pull
+              exported_namespace: flux-system
+              ready: "False"
+              reason: ReconciliationFailed
+              suspended: "False"
+              resources: "0"
+            exp_annotations:
+              summary: "ResourceSet flux-system/apps-pull has not been ready for 10 minutes"
+              description: "A ResourceSet applies none of its objects when one fails the dry run, so this blocks every app: `apps` its Kustomizations, `apps-pull` the copies of the pull Secret (a namespace missing, or ghcr-apps-read gone). `kubectl -n flux-system describe resourceset apps-pull`."
+
+  - interval: 1m
+    input_series:
+      - series: 'flux_resourceset_info{uid="r6", kind="ResourceSet", name="apps-pull", exported_namespace="flux-system", ready="Unknown", suspended="False", resources="0"}'
+        values: "1x20"
+      - series: 'flux_resourcesetinputprovider_info{uid="p4", kind="ResourceSetInputProvider", name="app-hello", exported_namespace="flux-system", ready="Unknown", suspended="False", url="oci://ghcr.io/example/apps/hello"}'
+        values: "1x20"
+      - series: 'flux_resource_info{uid="u4", kind="Kustomization", name="app-hello", exported_namespace="flux-system", ready="Unknown", reason="Progressing", suspended="False"}'
+        values: "1x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: AppPlatformResourceSetNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              uid: r6
+              kind: ResourceSet
+              name: apps-pull
+              exported_namespace: flux-system
+              ready: Unknown
+              suspended: "False"
+              resources: "0"
+            exp_annotations:
+              summary: "ResourceSet flux-system/apps-pull has not been ready for 10 minutes"
+              description: "A ResourceSet applies none of its objects when one fails the dry run, so this blocks every app: `apps` its Kustomizations, `apps-pull` the copies of the pull Secret (a namespace missing, or ghcr-apps-read gone). `kubectl -n flux-system describe resourceset apps-pull`."
+      - eval_time: 15m
+        alertname: AppPlatformInputProviderNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              uid: p4
+              kind: ResourceSetInputProvider
+              name: app-hello
+              exported_namespace: flux-system
+              ready: Unknown
+              suspended: "False"
+              url: "oci://ghcr.io/example/apps/hello"
+            exp_annotations:
+              summary: "ResourceSetInputProvider flux-system/app-hello has not been ready for 10 minutes"
+              description: "New images of that app are not noticed. Usually the registry token ghcr-apps-read has expired or lost read:packages, or the package does not exist yet."
+      - eval_time: 15m
+        alertname: AppPlatformKustomizationNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              uid: u4
+              kind: Kustomization
+              name: app-hello
+              exported_namespace: flux-system
+              ready: Unknown
+              reason: Progressing
+              suspended: "False"
+            exp_annotations:
+              summary: "Kustomization flux-system/app-hello has not been ready for 10 minutes"
+              description: "A release is not rolled out, or the platform cannot render. `flux get ks -n flux-system app-hello` shows the reason. `Recreate` has already removed the old pod when a bad release fails, so the app may be down: `pin` the previous digest in its entry."
+
+  # --- Deployment in a platform namespace ---------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_unavailable{namespace="hello", deployment="hello"}'
+        values: "1x20"
+      - series: 'kube_deployment_status_replicas_unavailable{namespace="media", deployment="sonarr"}'
+        values: "1x20"
+      - series: 'kube_deployment_status_replicas_unavailable{namespace="hello", deployment="fine"}'
+        values: "0x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: AppPlatformDeploymentUnavailable
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: AppPlatformDeploymentUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: hello
+              deployment: hello
+            exp_annotations:
+              summary: "Deployment hello/hello has had unavailable replicas for 10 minutes"
+              description: "Flux reported Ready earlier, so its alert will not fire. `kubectl -n hello describe pod` shows why; roll back with `pin` in the entry."

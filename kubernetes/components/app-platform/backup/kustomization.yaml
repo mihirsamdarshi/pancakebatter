@@ -1,0 +1,11 @@
+---
+# Nightly restic backup of the data volume: the existing volsync component
+# (ReplicationSource, NFS PV and PVC, restic Secret). The generator sets APP,
+# VOLSYNC_CLAIM, VOLSYNC_NAMESPACE, APP_UID and APP_GID; the entry sets
+# vars.VOLSYNC_SCHEDULE. See components/volsync/README.md for the slots,
+# the first backup and restores. The restic Secret is SOPS, which is why the
+# app Kustomizations decrypt.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+components:
+  - ../../volsync

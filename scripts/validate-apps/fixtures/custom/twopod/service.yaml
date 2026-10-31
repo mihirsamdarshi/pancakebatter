@@ -1,0 +1,25 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${APP}
+spec:
+  selector:
+    app.kubernetes.io/name: ${APP}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# The worker's own Service, so the two pods can reach each other by name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${APP}-worker
+spec:
+  selector:
+    example.test/role: worker
+  ports:
+    - name: tcp
+      port: 9000
+      targetPort: 9000

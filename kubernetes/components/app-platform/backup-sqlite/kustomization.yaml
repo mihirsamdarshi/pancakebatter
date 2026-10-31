@@ -1,0 +1,18 @@
+---
+# A consistent copy of each SQLite database shortly before the backup: the
+# existing sqlite-export component. Needs vars.SQLITE_DBS and
+# vars.SQLITE_SCHEDULE, and `backup` for the restic side. The patch gives the
+# CronJob pod no service-account token; the shared component leaves the
+# default, and the patch keeps other users of that component untouched.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+components:
+  - ../../sqlite-export
+patches:
+  - target:
+      kind: CronJob
+      name: "[$][{]APP[}]-sqlite-export"
+    patch: |-
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/automountServiceAccountToken
+        value: false

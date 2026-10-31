@@ -1,0 +1,12 @@
+---
+# Family access: <FAMILY_HOST>.${SECRET_FAMILY_DOMAIN} on envoy-family only,
+# added per app on request (see network/family-apps/README.md). Needs
+# vars.FAMILY_HOST. The route's only parent is envoy-family in network with no
+# sectionName, and its hostnames sit under ${SECRET_FAMILY_DOMAIN}. Never
+# attach it to envoy-internal. The names equal Quilt's current
+# quilt-planner-family and quilt-planner-family-writes.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - ./httproute.yaml
+  - ./backendtrafficpolicy.yaml

@@ -1,0 +1,28 @@
+---
+# The personal app platform: the ResourceSets "apps" and "apps-pull", the
+# registry credential they share, the Discord Alert, and one
+# ResourceSetInputProvider per app (apps/). Do not rename this Kustomization or
+# the ResourceSets. To retire the platform, suspend the ResourceSets first:
+# flux-operator suspend resourceset <name> -n flux-system.
+#
+# No postBuild on purpose: the ResourceSet templates must reach the cluster
+# untouched. The flux-system tree already has cluster-secrets, which the
+# rendered app-* Kustomizations read.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-platform
+spec:
+  dependsOn:
+    - name: flux-operator
+  decryption:
+    provider: sops
+  interval: 1h
+  path: ./kubernetes/apps/flux-system/app-platform
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: flux-system
+  wait: false

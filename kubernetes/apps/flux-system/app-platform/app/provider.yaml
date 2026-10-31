@@ -1,0 +1,12 @@
+---
+# Discord, through the webhook in discord-webhook.sops.yaml (key `address`).
+# Flux 2.9 serves notification.toolkit.fluxcd.io/v1beta3.
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Provider
+metadata:
+  name: discord
+  namespace: flux-system
+spec:
+  type: discord
+  secretRef:
+    name: discord-webhook

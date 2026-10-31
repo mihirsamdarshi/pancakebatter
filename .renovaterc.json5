@@ -43,10 +43,18 @@
       overrideDatasource: "github-releases",
     },
     {
+      // The flux-operator CLI in .mise/config.toml (a mise tool, so a GitHub
+      // datasource) must equal the operator chart tag: scripts/validate-apps.sh
+      // fails on a difference. Keep the two in one PR.
       description: "Flux Operator Group",
       groupName: "flux-operator",
-      matchDatasources: ["docker"],
+      matchDatasources: ["docker", "github-releases", "github-tags"],
       matchPackageNames: ["/flux-operator/", "/flux-instance/"],
+      // The same delay as the "Mise Tools Group" rule above, which would
+      // otherwise hold only the CLI back: the charts and the CLI must be
+      // proposed together, or the chart PR fails validate-apps.sh until the
+      // CLI update ripens.
+      minimumReleaseAge: "3 days",
       group: {
         commitMessageTopic: "{{{groupName}}} group",
       },

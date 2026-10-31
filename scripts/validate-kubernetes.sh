@@ -30,7 +30,14 @@
 #      an HTTPRouteFilter's valueRef names);
 #   6. no `${SECRET_DOMAIN}` outside an allowlist: it is the bare zone, and LAN
 #      names use `${SECRET_DOMAIN_LOCAL}` (SECRET_DOMAIN meant local.<zone>
-#      until October 26, 2026).
+#      until October 26, 2026);
+#   7. the personal app platform (scripts/validate-apps.sh): its registry
+#      credential, every entry under flux-system/app-platform/apps, and what
+#      the ResourceSets render from them. These Kustomizations are generated
+#      at reconcile time, so none of the checks above can see them. It runs
+#      first, so a missing ghcr-apps-read.sops.yaml is reported before
+#      kustomize trips over the file the kustomization lists. A tree without
+#      the app platform skips it.
 # archive/ and other trees outside kubernetes/ are never read.
 #
 # Schemas fail closed: there is no -ignore-missing-schemas, so a typo in
@@ -114,7 +121,7 @@ die() {
 # Fail closed: a missing tool must fail the gate, never skip it.
 require_tools() {
     local tool missing=()
-    for tool in kubeconform kustomize flux yq git; do
+    for tool in kubeconform kustomize flux yq git flux-operator jq gitleaks; do
         command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
     done
     ((${#missing[@]} == 0)) || die "missing tools: ${missing[*]} (run via 'mise exec --' or 'mise install')"
@@ -137,6 +144,8 @@ validate_tree() {
         local file dir name namespace path index src_kind src_name src_ns ref rc tmp
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
+
+        "$(dirname "$script_path")/validate-apps.sh" .
 
         # File lists and yq queries are written out as standalone commands
         # first, so that a failing find or yq aborts the run (errexit does not

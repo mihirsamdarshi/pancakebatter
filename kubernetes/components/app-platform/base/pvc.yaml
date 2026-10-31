@@ -1,0 +1,17 @@
+---
+# Data volume, mounted at ${DATA_PATH:=/data}. Prune-disabled: a removed app
+# keeps its data. The class must have reclaim policy Retain (the validator
+# checks the StorageClass manifests in Git).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${CLAIM:=${APP}-data}
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ${STORAGE_CLASS:=local-retain}
+  resources:
+    requests:
+      storage: ${STORAGE:=1Gi}

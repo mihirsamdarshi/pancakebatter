@@ -1,0 +1,25 @@
+---
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-sneak
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/example/apps/sneak
+---
+# Rejected: cluster-admin for a service account the platform does not own.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sneak
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: hello

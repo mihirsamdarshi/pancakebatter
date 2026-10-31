@@ -1,0 +1,9 @@
+---
+# Default-deny network policy for the app's whole namespace, on unless the
+# entry sets `netpol: false` (with a netpolReason). Added by the generator, not
+# listed in `parts`, so an explicit `parts` list cannot switch it off silently.
+# `egress: internet` adds netpol-egress-internet after this component.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - ./ciliumnetworkpolicy.yaml

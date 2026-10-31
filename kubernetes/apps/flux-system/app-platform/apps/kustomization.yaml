@@ -1,0 +1,8 @@
+---
+# One line per app: the homelab entries of the personal app platform. An entry
+# is a ResourceSetInputProvider (see the personal README). The Namespace folder
+# kubernetes/apps/personal/<namespace>/ and its line in
+# kubernetes/apps/personal/kustomization.yaml go in the same PR.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: []

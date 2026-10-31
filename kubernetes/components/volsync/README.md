@@ -85,11 +85,13 @@ UTC: 10:00 is 03:00 Pacific in summer and 02:00 in winter. Give each app its own
 slot, 15 minutes apart, so movers never overlap on a node, and run its export
 ten minutes before.
 
-| App           | Export (UTC) | Backup (UTC)          |
-| ------------- | ------------ | --------------------- |
-| jellyfin      | 09:50        | 10:00                 |
-| quilt-planner | 10:05        | 10:15                 |
-| next apps     | 10:20, 10:35 | 10:30, 10:45, 11:00 … |
+| App                    | Export (UTC)   | Backup (UTC)          |
+| ---------------------- | -------------- | --------------------- |
+| jellyfin               | 09:50          | 10:00                 |
+| quilt-planner          | 10:05          | 10:15                 |
+| next apps              | 10:20, 10:35   | 10:30, 10:45, 11:00 … |
+| hello (platform entry) | 12:05          | 12:15                 |
+| next platform apps     | 12:20, 12:35 … | 12:30, 12:45 …        |
 
 ## SQLite
 

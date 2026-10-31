@@ -1,0 +1,11 @@
+---
+# Rejected: Helm-created pods cannot be inspected offline.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ${APP}
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: ${APP}
