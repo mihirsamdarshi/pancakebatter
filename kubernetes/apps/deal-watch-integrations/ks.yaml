@@ -1,0 +1,29 @@
+---
+# Proposed activation: outside the credential-free personal app platform.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: deal-watch-integrations
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: app-deal-watch
+      namespace: flux-system
+    - name: envoy-gateway
+      namespace: network
+  decryption:
+    provider: sops
+  interval: 1h
+  path: ./kubernetes/apps/deal-watch-integrations/app
+  postBuild:
+    substituteFrom:
+      - name: cluster-secrets
+        kind: Secret
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: deal-watch-integrations
+  timeout: 3m
+  wait: true

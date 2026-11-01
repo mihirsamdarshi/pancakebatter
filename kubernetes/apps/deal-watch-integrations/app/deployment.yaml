@@ -1,0 +1,79 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deal-watch-integrations
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: deal-watch-integrations
+  template:
+    metadata:
+      annotations:
+        checksum/runtime-config: fcc389a4c73d151166cffa127b6f49c41d6b3a3817ef4952535786499099005a
+      labels:
+        app.kubernetes.io/name: deal-watch-integrations
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: deal-watch-integrations-registry
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-integrations@sha256:3fc2fae2250fd0f67dd22b077206b69576fd2321e721152f5f5991a0773c8082
+          env:
+            - name: APP_BASE_URL
+              value: https://deal-watch.${SECRET_DOMAIN_LOCAL}
+            - name: WATCH_CONFIG_FILE
+              value: /run/credentials/watch-policy.json
+            - name: DISCORD_WEBHOOK_FILE
+              value: /run/credentials/discord-webhook
+          ports:
+            - name: health
+              containerPort: 3000
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 10
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 15
+          # No liveness restart loop for an upstream outage; readiness is the signal.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: credentials
+              mountPath: /run/credentials
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+        - name: credentials
+          secret:
+            secretName: deal-watch-integrations-credentials
+            defaultMode: 288 # 0440
