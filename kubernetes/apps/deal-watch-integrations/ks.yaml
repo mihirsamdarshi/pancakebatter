@@ -7,7 +7,9 @@ metadata:
   namespace: flux-system
 spec:
   dependsOn:
-    - name: app-deal-watch
+    # app-deal-watch is generated from live registry inputs. Keep the Git DAG
+    # statically renderable; the worker gates every cycle on the app/policy.
+    - name: app-platform
       namespace: flux-system
     - name: envoy-gateway
       namespace: network

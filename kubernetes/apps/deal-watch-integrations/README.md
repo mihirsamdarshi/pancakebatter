@@ -12,6 +12,12 @@ contain decrypted values and are accessible only inside the worker pod. The Flux
 flux-system and reads its existing domain substitution there; no copy of
 cluster-secrets is added to the worker namespace.
 
+The Flux dependency is the Git-defined app-platform Kustomization and gateway.
+The app-deal-watch Kustomization is generated from live registry inputs and is
+absent in an offline render. Before every collection/delivery cycle, the worker
+requires a successful dashboard response and matching complete policy; app
+unavailability or policy mismatch prevents retailer/Discord requests.
+
 The image pins the checked revision published by PR #773. The credential
 rollout checksum is calculated from the encrypted credential file, never the
 private policy fingerprint. Policy agreement is checked inside the worker.
