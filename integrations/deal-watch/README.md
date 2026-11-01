@@ -24,6 +24,35 @@ Fixtures are factual subsets of public Sony/Costco responses captured October
 30 PDT, 2026. They are dated snapshots, not current inventory or live tests.
 In-stock scenarios in tests are explicitly synthetic.
 
+## eBay production validation preparation
+
+`src/ebay.ts` and `scripts/probe-ebay.ts` provide a source-only production Browse
+client and one-shot investigation tool. They are not connected to the worker,
+source policy or Discord. No eBay monitoring is enabled by adding these files.
+
+The client uses a fixed production origin, memory-only application tokens,
+ZIP-aware requests, bounded responses and redacted failures. It preserves REST
+item/variation identity. The probe emits whitelisted public evidence; unknown
+returns and missing fields stay unknown. Search summaries are not qualified offers.
+
+A dry run requires no credentials and performs no network activity:
+
+```sh
+bun scripts/probe-ebay.ts --mode item --id 123456789012 --zip 10001
+```
+
+Only an explicit `--probe` reads bounded JSON from stdin with exactly `clientId`
+and `clientSecret`, then makes up to one OAuth request and one Browse request.
+Obtain credentials through the approved secret pipeline; never put values in
+arguments, terminal history, logs or source files. Confirm Production Browse
+access before probing. `--mode search --id GTIN` requests at most ten summaries;
+item mode accepts a numeric legacy ID or quoted REST item/variation ID. Never
+substitute a guessed product identifier for verified product identity.
+
+Integration still requires a reviewed marketplace offer contract, explicit
+per-request scheduling/accounting, qualification proof and separate activation
+approval. The current one-offer-per-binding worker contract has not changed.
+
 ## Trust and configuration
 
 Required environment:
