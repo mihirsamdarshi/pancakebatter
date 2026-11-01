@@ -8,3 +8,4 @@ kind: Kustomization
 resources:
   - ./hello.yaml
   - ./deal-watch.yaml
+  - ./scratch.yaml
