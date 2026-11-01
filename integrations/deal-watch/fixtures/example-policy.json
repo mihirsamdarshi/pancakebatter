@@ -1,5 +1,5 @@
 {
-  "policyVersion": "2026-10-31.1",
+  "policyVersion": "2026-11-01.1",
   "watches": [
     {
       "id": "example-console",

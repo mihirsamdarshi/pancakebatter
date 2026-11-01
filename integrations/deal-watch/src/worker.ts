@@ -9,6 +9,8 @@ import {
   type Offer,
   type Retailer,
 } from "./vendor/domain.ts";
+import { EbayClient } from "./ebay.ts";
+import { discoveryIds, parseEbay } from "./ebay-adapter.ts";
 import { collect } from "./adapters.ts";
 import { boundedText, nativeFetch, UpstreamError, type Fetcher } from "./http.ts";
 import { sendDiscord, message, type Delivery } from "./discord.ts";
@@ -30,6 +32,7 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 const uuid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/.test(v);
 export interface Options {
   baseUrl: string;
+  ebay?: EbayClient;
   webhook?: string;
   fetcher?: Fetcher;
   now?: () => number;
@@ -47,7 +50,7 @@ export class Worker {
   readonly base: URL;
   readonly floor = new Map<Retailer, number>();
   readonly failures = new Map<Retailer, number>();
-  readonly cache = new Map<string, Offer>();
+  readonly cache = new Map<string, Map<string, Offer>>();
   readonly sent = new Map<string, string>();
   readonly cursor = new Map<Retailer, number>();
   nextDelivery = 0;
@@ -149,14 +152,57 @@ export class Worker {
           retailer,
           this.now() + budgets[retailer] + Math.floor(this.random() * budgets[retailer] * 0.1),
         );
-        let result: { offer: Offer } | { error: string; retryAfterMs: number };
+        let result:
+          | { offer: Offer }
+          | { offers: Offer[]; mode: "upsert" }
+          | { discovery: string[] }
+          | { error: string; retryAfterMs: number };
         try {
-          const offer = await collect(watch, binding, this.fetcher, this.now());
-          result = { offer };
-          this.cache.set(`${watch.id}/${binding.id}`, offer);
+          const key = `${watch.id}/${binding.id}`;
+          if (retailer === "ebay" && !this.options.ebay) throw new UpstreamError("unsupported");
+          if (retailer === "ebay" && !binding.ebayGtin) throw new UpstreamError("invalid-data");
+          const task = claim.lease.task;
+          if (retailer === "ebay" && isObject(task) && task.kind === "search") {
+            const ids = discoveryIds(
+              await this.options.ebay!.searchByGtin(binding.ebayGtin!, watch.zip),
+            );
+            result = { discovery: ids };
+            const cache = this.cache.get(key);
+            if (cache) for (const id of cache.keys()) if (!ids.includes(id)) cache.delete(id);
+          } else {
+            if (
+              retailer === "ebay" &&
+              (!isObject(task) ||
+                task.kind !== "item" ||
+                typeof task.itemId !== "string" ||
+                !/^v1\|\d{9,20}\|\d{1,20}$/.test(task.itemId))
+            )
+              throw new UpstreamError("invalid-data");
+            const offer =
+              retailer === "ebay"
+                ? parseEbay(
+                    await this.options.ebay!.getRestItem(
+                      (task as { itemId: string }).itemId,
+                      watch.zip,
+                    ),
+                    watch,
+                    binding,
+                    (task as { itemId: string }).itemId,
+                    this.now(),
+                  )
+                : await collect(watch, binding, this.fetcher, this.now());
+            result = retailer === "ebay" ? { offers: [offer], mode: "upsert" } : { offer };
+            const cache =
+              retailer === "ebay"
+                ? (this.cache.get(key) ?? new Map<string, Offer>())
+                : new Map<string, Offer>();
+            cache.set(offer.id, offer);
+            while (cache.size > 10) cache.delete(cache.keys().next().value!);
+            this.cache.set(key, cache);
+            if (!qualify(watch, binding, offer, this.now()).eligible)
+              this.sent.delete(`${key}/${offer.id}`);
+          }
           this.failures.set(retailer, 0);
-          if (!qualify(watch, binding, offer, this.now()).eligible)
-            this.sent.delete(`${watch.id}/${binding.id}`);
         } catch (error) {
           const failure =
               error instanceof UpstreamError ? error : new UpstreamError("invalid-data"),
@@ -202,8 +248,8 @@ export class Worker {
         const event = raw as unknown as QueueEvent,
           watch = this.watches.find((w) => w.id === event.watch_id),
           binding = watch?.bindings.find((b) => b.id === event.binding_id),
-          key = `${event.watch_id}/${event.binding_id}`;
-        const offer = this.cache.get(key);
+          key = `${event.watch_id}/${event.binding_id}/${event.offer_id}`;
+        const offer = this.cache.get(`${event.watch_id}/${event.binding_id}`)?.get(event.offer_id);
         let result: Delivery;
         if (!watch || !binding?.enabled || event.policy_version !== this.policyVersion)
           result = { status: "suppressed", result: "policy-mismatch", delayMs: 0, messageId: null };

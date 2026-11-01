@@ -72,3 +72,88 @@ try {
   Date.now = realNow;
   db.close();
 }
+
+// Exercise the actual app's durable eBay task contract using synthetic API data.
+{
+  const { EbayClient } = await import("../src/ebay.ts");
+  const config = structuredClone(watches);
+  config[0]!.bindings = [
+    {
+      id: "ebay-synthetic",
+      retailer: "ebay",
+      productId: "1234567890123",
+      ebayGtin: "1234567890123",
+      pagePath: "/sch/i.html",
+      enabled: true,
+      note: "Synthetic protocol fixture",
+    },
+  ];
+  const database = openDb(":memory:"),
+    state = new Store(database, config),
+    handler = createHandler(database, state);
+  const ids = ["v1|123456789012|0", "v1|123456789013|0"];
+  let time = realNow(),
+    reads = 0;
+  Date.now = () => time;
+  const fetcher = async (req: Request) => {
+    const url = new URL(req.url);
+    if (url.hostname === "app.test") return handler(req);
+    if (url.hostname !== "api.ebay.com") throw Error("Unexpected synthetic host");
+    if (req.method === "POST")
+      return Response.json({
+        access_token: "synthetic-access-token",
+        expires_in: 7200,
+        token_type: "Application Access Token",
+      });
+    reads++;
+    if (url.pathname.endsWith("/search"))
+      return Response.json({ itemSummaries: ids.map((itemId) => ({ itemId })) });
+    return Response.json({
+      itemId: decodeURIComponent(url.pathname.split("/").at(-1)!),
+      gtin: "1234567890123",
+      title: "Synthetic console",
+      conditionId: "1000",
+      buyingOptions: ["FIXED_PRICE"],
+      price: { value: "500.00", currency: "USD" },
+      seller: { username: "Synthetic seller", feedbackPercentage: "99.9", feedbackScore: 1000 },
+    });
+  };
+  try {
+    const worker = new Worker({
+      baseUrl: "https://app.test",
+      watches: config,
+      fetcher,
+      startupDelay: false,
+      now: () => time,
+      random: () => 0,
+      ebay: new EbayClient(
+        { clientId: "synthetic-client", clientSecret: "synthetic-secret" },
+        fetcher,
+        () => time,
+      ),
+    });
+    await worker.runOnce();
+    time += 300000;
+    await worker.runOnce();
+    time += 300000;
+    await worker.runOnce();
+    const source = state.dashboard(time).watches[0]!.sources[0]!;
+    if (
+      reads !== 3 ||
+      source.offers.length !== 2 ||
+      source.offers.some((o: any) => o.qualification.eligible)
+    )
+      throw Error("eBay protocol or unknown-cost gate failed");
+    console.log(
+      JSON.stringify({
+        result: "pass",
+        syntheticEbayRequests: reads,
+        independentOffers: source.offers.length,
+        unknownCostsRemainIneligible: true,
+      }),
+    );
+  } finally {
+    Date.now = realNow;
+    database.close();
+  }
+}

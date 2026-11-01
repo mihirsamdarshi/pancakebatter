@@ -24,34 +24,47 @@ Fixtures are factual subsets of public Sony/Costco responses captured October
 30 PDT, 2026. They are dated snapshots, not current inventory or live tests.
 In-stock scenarios in tests are explicitly synthetic.
 
-## eBay production validation preparation
+## eBay collector preparation — disabled pending proof
 
-`src/ebay.ts` and `scripts/probe-ebay.ts` provide a source-only production Browse
-client and one-shot investigation tool. They are not connected to the worker,
-source policy or Discord. No eBay monitoring is enabled by adding these files.
+The production Browse client is wired behind optional `EBAY_CREDENTIALS_FILE`,
+read only by the integration worker. It accepts bounded credential JSON containing
+exactly `clientId` and `clientSecret`. Tokens remain in memory; use the approved
+SOPS pipeline for eventual mounted credentials, never arguments, logs or images.
+No eBay credentials, enablement or deployment manifests are included here.
 
-The client uses a fixed production origin, memory-only application tokens,
-ZIP-aware requests, bounded responses and redacted failures. It preserves REST
-item/variation identity. The probe emits whitelisted public evidence; unknown
-returns and missing fields stay unknown. Search summaries are not qualified offers.
+An enabled eBay binding requires an owner-configured exact `ebayGtin` equal to
+`productId`. The worker independently checks the detail response identity, fixed
+price, condition, seller and ZIP shipping. Missing mandatory fees and warranty
+stay unknown. This adapter currently cannot produce qualifying eBay alerts until
+cost proof is established. Unreviewed warnings fail closed, preserving evidence.
 
-A dry run requires no credentials and performs no network activity:
+SQLite in the app retains a bounded search/detail cursor. One search and each
+item lookup require separate retailer-budget turns. Startup waits and shared
+five-minute floors still apply. OAuth has memory reuse, a one-minute mint floor
+and no automatic retry; a cold read can make one OAuth plus one Browse request
+within the45second claim, each with15second timeout. At ten results the complete
+cycle is at least55minutes, longer with jitter, retries or other watches. Offers
+still expire after15minutes; do not describe this as five-minute full coverage.
+
+The worker cache and sent-state are keyed by exact offer ID. After restart or
+unmute, due pending alerts receive canonical refresh within the same source
+budget, alternating with normal discovery work. Priority is capped after two
+failed refreshes per offer/policy; normal detail tasks also advance after two
+failures. Missing discovery results do not rearm alert fingerprints. The app and
+worker share the same versioned domain module and fail closed on policy mismatch.
+
+`scripts/probe-ebay.ts` is a separate one-shot investigation command. A dry run
+requires no credentials or network:
 
 ```sh
 bun scripts/probe-ebay.ts --mode item --id 123456789012 --zip 10001
 ```
 
-Only an explicit `--probe` reads bounded JSON from stdin with exactly `clientId`
-and `clientSecret`, then makes up to one OAuth request and one Browse request.
-Obtain credentials through the approved secret pipeline; never put values in
-arguments, terminal history, logs or source files. Confirm Production Browse
-access before probing. `--mode search --id GTIN` requests at most ten summaries;
-item mode accepts a numeric legacy ID or quoted REST item/variation ID. Never
-substitute a guessed product identifier for verified product identity.
-
-Integration still requires a reviewed marketplace offer contract, explicit
-per-request scheduling/accounting, qualification proof and separate activation
-approval. The current one-offer-per-binding worker contract has not changed.
+Only explicit `--probe` reads bounded credential JSON from stdin and performs one
+OAuth plus one Browse request. Output whitelists public evidence and excludes
+credentials/raw response bodies. Search accepts a verified GTIN; item mode accepts
+legacy or quoted REST item/variation IDs. Confirm Production Browse entitlement,
+product identity and complete cost semantics before proposing source activation.
 
 ## Trust and configuration
 
@@ -59,6 +72,7 @@ Required environment:
 
 - `APP_BASE_URL`: fixed internal HTTPS origin, e.g. `https://deal-watch.local.<zone>`.
 - `WATCH_CONFIG_FILE`: mounted owner-approved JSON `{policyVersion, watches}`.
+- `EBAY_CREDENTIALS_FILE`: optional mounted eBay JSON, only for an approved eBay policy.
 - `DISCORD_WEBHOOK_FILE`: mounted fixed Discord webhook, when delivery is enabled.
 
 `ALLOW_LOCAL_HTTP=1` accepts localhost HTTP for isolated smoke tests only.
