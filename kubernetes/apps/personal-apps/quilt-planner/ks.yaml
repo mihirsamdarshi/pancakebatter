@@ -4,7 +4,7 @@ metadata:
   name: quilt-planner-bootstrap
 spec:
   interval: 1h
-  path: ./kubernetes/apps/personal/quilt-planner/app
+  path: ./kubernetes/apps/personal-apps/quilt-planner/app
   postBuild:
     substitute:
       APP: quilt-planner
@@ -33,7 +33,7 @@ spec:
     - name: quilt-planner
       namespace: quilt-planner
   interval: 1h
-  path: ./kubernetes/apps/personal/quilt-planner/tailnet
+  path: ./kubernetes/apps/personal-apps/quilt-planner/tailnet
   prune: true
   sourceRef:
     kind: GitRepository
@@ -56,7 +56,7 @@ spec:
     - name: volsync
       namespace: volsync-system
   interval: 1h
-  path: ./kubernetes/apps/personal/quilt-planner/backup
+  path: ./kubernetes/apps/personal-apps/quilt-planner/backup
   postBuild:
     substitute:
       APP: quilt-planner

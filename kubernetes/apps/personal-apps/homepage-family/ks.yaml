@@ -3,13 +3,15 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: homepage-family
+  # Keeps the Flux object where it has always been; only the workloads move.
+  namespace: home
 spec:
   dependsOn:
     # The HTTPRouteFilter CRD comes with Envoy Gateway.
     - name: envoy-gateway
       namespace: network
   interval: 1h
-  path: ./kubernetes/apps/home/homepage-family/app
+  path: ./kubernetes/apps/personal-apps/homepage-family/app
   postBuild:
     substituteFrom:
       - name: cluster-secrets
@@ -19,5 +21,5 @@ spec:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
-  targetNamespace: home
+  targetNamespace: homepage
   wait: false

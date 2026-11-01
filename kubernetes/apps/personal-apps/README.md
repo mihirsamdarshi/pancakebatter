@@ -11,6 +11,15 @@ app. There are two ways to run one:
   bundle with its manifests and a scoped service account applies it. Quilt
   Planner still runs this way until it moves onto the platform; see "Bundle
   apps" at the end.
+- **Homepage** (`homepage/`, `homepage-family/`): the two Homepage dashboards,
+  from a public chart rather than the owner's code, so neither of the above. They
+  share the Namespace `homepage` (folder `homepage/`). Their Flux Kustomizations
+  `homepage` and `homepage-family` stay in the Flux namespace `home` (explicit
+  `metadata.namespace`, listed straight from `personal-apps/kustomization.yaml`
+  so no `namespace:` field moves them) and read `cluster-secrets` from the copy
+  that `home/` keeps; the workloads run in `homepage`, which holds no
+  cluster-wide Secret. `home` itself is reserved for Home Assistant and its
+  neighbours.
 
 ## Platform apps
 
@@ -28,7 +37,7 @@ app. There are two ways to run one:
 - The `ResourceSet` `apps-pull` (`resourceset-pull.yaml`) copies the registry
   Secret `flux-system/ghcr-apps-read` into each app's namespace as `apps-ghcr`.
   It is a separate ResourceSet so that its failures never block `apps`.
-- `kubernetes/apps/personal/<namespace>/`: the app's Namespace, Git-defined,
+- `kubernetes/apps/personal-apps/<namespace>/`: the app's Namespace, Git-defined,
   Pod Security `restricted`, prune-disabled. Only the Namespace lives here.
 - Failures go to Discord through the Flux `Provider` and `Alert` in
   `app-platform/app`. The Alert covers Flux events only. The PrometheusRule
@@ -81,8 +90,8 @@ default namespace and default host.
                 SQLITE_SCHEDULE: "<UTC cron, ten minutes before the backup>"
     ```
 
-2. Create `personal/<name>/kustomization.yaml` and add `- ./<name>` to
-   `personal/kustomization.yaml`. The namespace is the app name:
+2. Create `personal-apps/<name>/kustomization.yaml` and add `- ./<name>` to
+   `personal-apps/kustomization.yaml`. The namespace is the app name:
 
     ```yaml
     apiVersion: kustomize.config.k8s.io/v1beta1
@@ -133,7 +142,7 @@ variable.
 | Key                                             | Default                                | Meaning                                                                                                                                                                                                                               |
 | ----------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`                                          | required                               | Deployment, Service, image name, default namespace and host                                                                                                                                                                           |
-| `namespace`                                     | `name`                                 | Must equal `name`: an app lives in the namespace of its own name (its network policy is namespace-wide and would default-deny another app's pods). The folder `personal/<name>/` must exist                                           |
+| `namespace`                                     | `name`                                 | Must equal `name`: an app lives in the namespace of its own name (its network policy is namespace-wide and would default-deny another app's pods). The folder `personal-apps/<name>/` must exist                                           |
 | `parts`                                         | `[pullsecret, internal-route, backup]` | Pieces to add (below). `namespace` is not a part                                                                                                                                                                                      |
 | `netpol`                                        | `true`                                 | The default-deny network policy. `false` needs a `netpolReason`                                                                                                                                                                       |
 | `netpolReason`                                  | none                                   | Free text, required with `netpol: false`. The validator prints every exemption with its reason                                                                                                                                        |
@@ -202,7 +211,7 @@ anything private.
 
 1. A new `vars` key or a new `components/app-platform/<part>` (a PR here).
 2. `env`: plain extra environment through a generated patch.
-3. `path: ./kubernetes/apps/personal/<name>/app`: the same Kustomization applies
+3. `path: ./kubernetes/apps/personal-apps/<name>/app`: the same Kustomization applies
    the app's own folder instead of the base. Plain manifests only: Deployment,
    StatefulSet, Job, CronJob, Service, ConfigMap, PersistentVolumeClaim. The
    validator rejects `HelmRelease`, any network policy, `Role`, `RoleBinding`,
@@ -348,8 +357,8 @@ for you.
 `<app>` is the app name. It is also the namespace, and the bundle's Deployment
 must use it as its name (the health check waits for it).
 
-1. Add `- ./<app>` to `personal/kustomization.yaml`.
-2. Create `personal/<app>/kustomization.yaml`:
+1. Add `- ./<app>` to `personal-apps/kustomization.yaml`.
+2. Create `personal-apps/<app>/kustomization.yaml`:
 
     ```yaml
     apiVersion: kustomize.config.k8s.io/v1beta1
@@ -361,7 +370,7 @@ must use it as its name (the health check waits for it).
         - ks.yaml
     ```
 
-3. Create `personal/<app>/ks.yaml`:
+3. Create `personal-apps/<app>/ks.yaml`:
 
     ```yaml
     apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -370,7 +379,7 @@ must use it as its name (the health check waits for it).
         name: <app>-bootstrap
     spec:
         interval: 1h
-        path: ./kubernetes/apps/personal/<app>/app
+        path: ./kubernetes/apps/personal-apps/<app>/app
         postBuild:
             substitute:
                 APP: <app>
@@ -384,7 +393,7 @@ must use it as its name (the health check waits for it).
         wait: false
     ```
 
-4. Create `personal/<app>/app/kustomization.yaml`:
+4. Create `personal-apps/<app>/app/kustomization.yaml`:
 
     ```yaml
     apiVersion: kustomize.config.k8s.io/v1beta1
@@ -395,7 +404,7 @@ must use it as its name (the health check waits for it).
         - registry.sops.yaml
     ```
 
-5. Create `personal/<app>/app/registry.sops.yaml` from a token that can read
+5. Create `personal-apps/<app>/app/registry.sops.yaml` from a token that can read
    the bundle's package (`read:packages`). Keep the token in an environment
    variable. Never paste it into chat, logs or Git. Encrypt before you stage
    the file:
@@ -404,8 +413,8 @@ must use it as its name (the health check waits for it).
     kubectl create secret docker-registry <app>-registry --namespace <app> \
       --docker-server=ghcr.io --docker-username=<github-user> \
       --docker-password="$GHCR_READ_TOKEN" --dry-run=client -o yaml \
-      > kubernetes/apps/personal/<app>/app/registry.sops.yaml \
-      && sops encrypt --in-place kubernetes/apps/personal/<app>/app/registry.sops.yaml
+      > kubernetes/apps/personal-apps/<app>/app/registry.sops.yaml \
+      && sops encrypt --in-place kubernetes/apps/personal-apps/<app>/app/registry.sops.yaml
     ```
 
 Variables for `postBuild.substitute`:
@@ -510,7 +519,7 @@ spec:
           namespace: <app>
         - name: volsync
           namespace: volsync-system
-    path: ./kubernetes/apps/personal/<app>/backup
+    path: ./kubernetes/apps/personal-apps/<app>/backup
     postBuild:
         substitute:
             APP: <app>
@@ -523,7 +532,7 @@ spec:
             SQLITE_SCHEDULE: "<cron, UTC; 10 minutes before the backup>"
 ```
 
-From `personal/<app>/backup/` the component paths are
+From `personal-apps/<app>/backup/` the component paths are
 `../../../../components/volsync` and `../../../../components/sqlite-export`.
 `quilt-planner/backup` is a working example. The volsync component's README has
 the rest, including the first backup and restore.
@@ -546,13 +555,13 @@ the rest, including the first backup and restore.
 
     ```sh
     yq 'select(.metadata.name == "<app>-bootstrap") | .metadata.namespace = "<app>"' \
-      kubernetes/apps/personal/<app>/ks.yaml > /tmp/ks.yaml
+      kubernetes/apps/personal-apps/<app>/ks.yaml > /tmp/ks.yaml
     flux diff kustomization <app>-bootstrap -n <app> \
-      --path ./kubernetes/apps/personal/<app>/app --kustomization-file /tmp/ks.yaml
+      --path ./kubernetes/apps/personal-apps/<app>/app --kustomization-file /tmp/ks.yaml
     ```
 
 - To remove an app, delete its folder and its line in
-  `personal/kustomization.yaml`, then delete its OCIRepository and Kustomization
+  `personal-apps/kustomization.yaml`, then delete its OCIRepository and Kustomization
   by hand (`kubectl -n <app> delete kustomization,ocirepository <app>`). Both
   are `prune: disabled`, so Flux leaves them. The app's own objects, its PVC and
   the Namespace stay until you delete them too.

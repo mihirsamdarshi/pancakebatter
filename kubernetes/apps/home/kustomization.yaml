@@ -3,10 +3,13 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: home
 
+# Reserved for Home Assistant, Mosquitto and the like. The Homepage Flux
+# Kustomizations still live in this namespace (their identity must not change)
+# and read their substitutions from the cluster-secrets copy that the sops
+# component places here, but their workloads run in `homepage`
+# (../personal-apps/homepage).
 components:
   - ../../components/sops
 
 resources:
   - ./namespace.yaml
-  - ./homepage/ks.yaml
-  - ./homepage-family/ks.yaml
