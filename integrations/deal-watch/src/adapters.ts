@@ -85,9 +85,11 @@ export function parseSony(body: string, w: Watch, b: Binding, now = Date.now()):
     p.isMilitaryRestricted !== true
   ) {
     o.shippingCents = 0;
-    o.feesCents = 0;
     o.shipping = "policy-supported";
   }
+  // Free standard shipping does not establish mandatory fees. In particular,
+  // battery-embedded products can incur a separate California recycling fee.
+  // Keep fees unknown until destination/product-specific cost evidence exists.
   return parseOffer(o, now);
 }
 async function productJsonLd(body: string): Promise<Record<string, unknown>[]> {

@@ -12,6 +12,9 @@ stable developer API. Out-of-stock wins over purchasable; order limits are not
 inventory. Preorder, gated or incomplete responses cannot qualify. A reviewed
 shipping-policy ZIP allowlist can establish policy-supported free standard
 shipping above $40; it never establishes ZIP-specific checkout availability.
+Free shipping does not establish zero mandatory fees. Sony observations retain
+unknown fees until product/destination-specific evidence exists, so collection
+continues but these observations cannot currently produce qualifying alerts.
 
 Costco Product JSON-LD is parsed by exact SKU and one unambiguous offer.
 Shipping, membership fees and component references remain unknown, so it cannot
@@ -92,8 +95,11 @@ an example policy. No actual Secret, token or private policy is included here.
 
 `src/vendor/domain.ts` is first-party shared source from the private apps
 repository's `deal-watch/src/domain.ts`, kept byte-identical. No upstream tracker
-source has been copied. The local cross-repository check compares it and tests
-collection -> qualification -> queue -> mocked Discord -> durable acknowledgement.
+source has been copied. The local cross-repository check compares it and verifies
+real-adapter collection through app ingestion without enqueueing or delivering
+unknown-cost observations. A separate synthetic known-cost protocol phase checks
+mocked delivery and the real app's durable acknowledgement. Positive delivery
+fixtures do not prove a real Sony offer has zero fees.
 The worker derives a canonical SHA-256 fingerprint of the complete approved policy,
 reports it to the app, and checks it before collection/delivery. A mismatch is
 visible in the dashboard and blocks collection and delivery. A policy change

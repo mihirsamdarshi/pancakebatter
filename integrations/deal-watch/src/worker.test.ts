@@ -56,6 +56,20 @@ describe("captured source metadata", () => {
       expect(parseSony(JSON.stringify(data), w, b).availability).toBe("unknown");
     }
   });
+  test("Sony free shipping does not establish mandatory fees or a qualifying total", () => {
+    const now = Date.now(),
+      offer = parseSony(stock(), w, b, now),
+      result = qualify(w, b, offer, now);
+    // Synthetic stock uses the factual response shape; no fee evidence is added.
+    expect(offer.availability).toBe("in-stock");
+    expect(offer.priceCents).toBe(89900);
+    expect(offer.shipping).toBe("policy-supported");
+    expect(offer.shippingCents).toBe(0);
+    expect(offer.feesCents).toBeNull();
+    expect(result.totalCents).toBeNull();
+    expect(result.eligible).toBe(false);
+    expect(result.reasons).toEqual(["Shipping or mandatory fees unknown"]);
+  });
   test("Costco snapshot gives price/stock without inventing shipping or bundle values", async () => {
     const binding = w.bindings.find((b) => b.retailer === "costco")!,
       o = await parseCostco(costco, w, binding);
@@ -105,7 +119,8 @@ describe("Discord", () => {
       request = r;
       return Response.json({ id: "123456" });
     };
-    const o = parseSony(stock(), w, b);
+    // Explicitly synthetic known-cost input tests Discord transport only.
+    const o = { ...parseSony(stock(), w, b), feesCents: 0 };
     const content = message(w, b, o, crypto.randomUUID());
     expect(content).toContain("ZIP checkout unverified");
     const result = await sendDiscord(webhook, content, fetcher);
@@ -298,7 +313,7 @@ describe("worker independent safeguards", () => {
     await worker.runOnce();
     expect(h.productIds).toEqual([b.productId, "123"]);
   });
-  test("message comes from worker-fetched canonical evidence and duplicate app events are suppressed", async () => {
+  test("an app event cannot bypass missing canonical mandatory-fee evidence", async () => {
     const h = harness(watches, true),
       worker = new Worker({
         baseUrl: "https://app.test",
@@ -309,6 +324,30 @@ describe("worker independent safeguards", () => {
         random: () => 0,
         startupDelay: false,
       });
+    await worker.runOnce();
+    expect(h.publicCalls).toBe(1);
+    expect(h.discordCalls).toBe(0);
+    expect(h.complete.at(-1)?.result).toBe("no-longer-eligible");
+  });
+  test("synthetic known-cost canonical evidence controls the message and duplicate suppression", async () => {
+    const h = harness(watches, true),
+      worker = new Worker({
+        baseUrl: "https://app.test",
+        watches,
+        webhook,
+        fetcher: h.fetcher,
+        now: () => h.now,
+        random: () => 0,
+        startupDelay: false,
+      });
+    await worker.runOnce();
+    expect(h.discordCalls).toBe(0);
+    // Test-only canonical cost evidence exercises delivery mechanics; the real
+    // Sony parser above cannot establish fees and must not qualify on its own.
+    const canonical = worker.cache.get(`${w.id}/${b.id}`)!.get(b.productId)!;
+    expect(canonical.feesCents).toBeNull();
+    worker.cache.get(`${w.id}/${b.id}`)!.set(b.productId, { ...canonical, feesCents: 0 });
+    h.advance(6000);
     await worker.runOnce();
     expect(h.discordCalls).toBe(1);
     h.advance(6000);
