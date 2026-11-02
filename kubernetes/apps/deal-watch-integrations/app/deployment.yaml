@@ -51,9 +51,9 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+          # Process startup is independent of upstream app/policy readiness.
           startupProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: health
             periodSeconds: 10
             failureThreshold: 12

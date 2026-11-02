@@ -16,6 +16,7 @@ spec:
   decryption:
     provider: sops
   interval: 1h
+  retryInterval: 2m
   path: ./kubernetes/apps/deal-watch-integrations/app
   postBuild:
     substituteFrom:
