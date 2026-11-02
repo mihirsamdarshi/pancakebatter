@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: headlamp
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # Headlamp, its plugin init container and the init container's image all
+    # run non-root with a read-only root filesystem and no capabilities.
+    pod-security.kubernetes.io/enforce: restricted

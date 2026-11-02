@@ -1,0 +1,160 @@
+---
+# Headlamp, the Kubernetes web UI, with the Flux plugin. LAN and tailnet only
+# (envoy-internal); there is no family or public route.
+#
+# Headlamp has no user accounts. The owner signs in with the token of the
+# ServiceAccount `headlamp-operator` (operator-rbac.yaml), and Headlamp sends
+# that token to the API server, so every action runs with that identity's
+# permissions. Headlamp's own ServiceAccount below gets no permissions at all.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: headlamp
+spec:
+  # spec.chart (not chartRef): the chart is only published to a Helm
+  # repository, so Renovate's flux manager tracks the version here.
+  chart:
+    spec:
+      chart: headlamp
+      version: 0.46.0
+      sourceRef:
+        kind: HelmRepository
+        name: headlamp
+  interval: 1h
+  values:
+    fullnameOverride: headlamp
+    replicaCount: 1
+    image:
+      registry: ghcr.io
+      repository: headlamp-k8s/headlamp
+      tag: v0.46.0@sha256:8a0ef97527544baa2b35825940ddf4db6e2d09c30cd5aa31fd269ff604cc8b75
+    # The chart binds its ServiceAccount to cluster-admin by default. That
+    # would make Headlamp's own pod a cluster-admin; it does not need any
+    # permission, because every request carries the signed-in user's token.
+    clusterRoleBinding:
+      create: false
+    serviceAccount:
+      create: true
+    # Headlamp needs the pod's token file only to find the API server in
+    # in-cluster mode (tested: with the mount off it logs "Failed to get
+    # in-cluster context" and serves no cluster). The ServiceAccount has no
+    # bindings, so the token grants nothing beyond what every authenticated
+    # identity gets (API discovery and self-access reviews).
+    automountServiceAccountToken: true
+    config:
+      inCluster: true
+      inClusterContextName: main
+      # The chart renders an empty `oidc` Secret unless told not to; there is
+      # no OIDC here.
+      oidc:
+        secret:
+          create: false
+      # The bundled Prometheus plugin proxies through the API server's service
+      # proxy, which the operator identity cannot use. Turn it off.
+      staticPlugins:
+        enabled: false
+      enableHelm: false
+      watchPlugins: false
+      # The Flux plugin is copied here by the init container below. The
+      # chart's pluginsManager is not used: it runs npm at startup against
+      # unpinned packages.
+      pluginsDir: /headlamp/plugins
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 100
+      runAsGroup: 101
+      seccompProfile:
+        type: RuntimeDefault
+    # The chart replaces its own default container context when this is set,
+    # so every field is spelled out. /tmp gets an emptyDir from the chart
+    # because readOnlyRootFilesystem is on.
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 100
+      runAsGroup: 101
+      privileged: false
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+      seccompProfile:
+        type: RuntimeDefault
+    initContainers:
+      # Copies the Flux plugin out of its image (a busybox image holding only
+      # /plugins/flux) into the shared emptyDir. Runs as the image's own
+      # `headlamp` user (100:101), not root.
+      - name: flux-plugin
+        image: ghcr.io/headlamp-k8s/headlamp-plugin-flux:v0.7.0@sha256:636c7a5ae0d4eb196c192f8f1cde06f20f1f5ebdf1863f6e57d22444d8b8360c
+        imagePullPolicy: IfNotPresent
+        command:
+          - /bin/sh
+          - -c
+          - cp -r /plugins/flux /headlamp/plugins/
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 100
+          runAsGroup: 101
+          privileged: false
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            memory: 64Mi
+        volumeMounts:
+          - name: plugins
+            mountPath: /headlamp/plugins
+    volumes:
+      - name: plugins
+        emptyDir:
+          sizeLimit: 16Mi
+      # Headlamp tries to create its per-user plugin folders under $HOME at
+      # start-up and logs an error when the root filesystem refuses.
+      - name: home-config
+        emptyDir:
+          sizeLimit: 8Mi
+    volumeMounts:
+      - name: plugins
+        mountPath: /headlamp/plugins
+        readOnly: true
+      - name: home-config
+        mountPath: /home/headlamp/.config
+    # Measured in kind v1.37 after ~100 proxied requests: about 17 MiB working
+    # set and next to no CPU. The limit leaves room for a real cluster's object
+    # lists passing through the proxy.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+    # Keep Headlamp off talos-01 when another node has room (memory limits
+    # are tight there, the same reason Grafana avoids it).
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: NotIn
+                  values: [talos-01]
+    service:
+      port: 80
+    # LAN and tailnet only: the internal gateway, no family route.
+    httpRoute:
+      enabled: true
+      parentRefs:
+        - name: envoy-internal
+          namespace: network
+          sectionName: https
+      hostnames:
+        - headlamp.${SECRET_DOMAIN_LOCAL}

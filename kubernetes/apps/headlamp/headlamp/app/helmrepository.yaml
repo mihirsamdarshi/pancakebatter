@@ -1,0 +1,12 @@
+---
+# The project publishes the chart to this Helm repository. No OCI chart could
+# be found with crane (ghcr.io/headlamp-k8s/charts/headlamp does not exist and
+# ghcr.io/kubernetes-sigs/headlamp/charts/headlamp refuses anonymous access),
+# so this is the source to use.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: headlamp
+spec:
+  interval: 1h
+  url: https://kubernetes-sigs.github.io/headlamp/

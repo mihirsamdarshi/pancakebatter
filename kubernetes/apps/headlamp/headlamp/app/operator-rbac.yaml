@@ -1,0 +1,90 @@
+---
+# The identity the owner signs in to Headlamp with: read everything except
+# Secrets; restart and scale workloads; suspend, resume and reconcile Flux
+# objects. Nothing else.
+#
+# RBAC alone cannot express that. `patch` on a Deployment can also mount a
+# Secret or swap the image, and `patch` on a Flux Kustomization or HelmRelease
+# can deploy anything through a controller that runs as cluster-admin. The
+# ValidatingAdmissionPolicies in operator-admission-policy.yaml narrow those
+# patches to the restart, suspend and reconcile fields. The role below must
+# never be applied without them.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headlamp-operator
+---
+# A long-lived token for the ServiceAccount. The manifest holds no token:
+# Kubernetes fills `data.token` in. The owner reads it with
+#   kubectl -n headlamp get secret headlamp-operator-token \
+#     -o jsonpath='{.data.token}' | base64 -d
+# and pastes it into Headlamp's sign-in page. To revoke the login, delete this
+# Secret (Flux recreates it with a new token) or delete the ServiceAccount.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: headlamp-operator-token
+  annotations:
+    kubernetes.io/service-account.name: headlamp-operator
+type: kubernetes.io/service-account-token
+---
+# Built-in `view`: reads most namespaced resources and aggregates the Flux API
+# groups (Flux's own aggregate-to-view roles). It has no Secrets. It also
+# lacks nodes, persistentvolumes, storageclasses, CRDs and RBAC objects; those
+# Headlamp pages show a "forbidden" message.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-operator-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: headlamp-operator
+    namespace: headlamp
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: headlamp-operator
+rules:
+  # Restart: Headlamp merge-patches spec.template.metadata.annotations
+  # ["kubectl.kubernetes.io/restartedAt"]. Scale: its Scale button sends a
+  # merge patch ({spec:{replicas}}) to the /scale subresource, which is the
+  # only verb it uses there (it reads with `get`, which `view` grants).
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "statefulsets/scale"]
+    verbs: ["patch"]
+  # Deleting a pod restarts it through its controller.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]
+  # Flux: suspend and resume merge {spec:{suspend}}; sync merges
+  # metadata.annotations["reconcile.fluxcd.io/requestedAt"].
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["patch"]
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["patch"]
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["gitrepositories", "ocirepositories", "helmrepositories", "helmcharts"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: headlamp-operator
+subjects:
+  - kind: ServiceAccount
+    name: headlamp-operator
+    namespace: headlamp
