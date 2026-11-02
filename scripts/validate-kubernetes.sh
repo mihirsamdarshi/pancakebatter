@@ -39,13 +39,15 @@
 #      kustomize trips over the file the kustomization lists. A tree without
 #      the app platform skips it;
 #   8. the Flux Operator web UI keeps a fixed identity: the flux-operator
-#      HelmRelease must set a non-empty
-#      spec.values.web.config.authentication.anonymous.username, unless
+#      HelmRelease must set
+#      spec.values.web.config.authentication.anonymous.username to flux-web-anon,
+#      the user rbac.yaml binds, with no anonymous groups, unless
 #      spec.values.web.enabled is false (no UI). Without a web config the UI
 #      reads the cluster with the operator's own cluster-admin account for
 #      every caller, and a values edit that drops the block is otherwise valid.
 #      The same release must not set web.config.search.cached, FineGrained user
-#      actions, valuesFrom or postRenderers, which bypass or can replace that
+#      actions, valuesFrom or postRenderers, and neither its kustomization.yaml
+#      nor its ks.yaml may carry patches: each bypasses or can replace that
 #      identity. A tree without that file fails: the template always renders it.
 # archive/ and other trees outside kubernetes/ are never read.
 #
@@ -339,8 +341,8 @@ validate_tree() {
         if [[ "$enabled" == false ]]; then
             echo "--- web.enabled is false: no web UI to protect"
         else
-            [[ -n "${name//[[:space:]]/}" ]] \
-                || die "$file: spec.values.web.config.authentication.anonymous.username is empty or missing, so the web UI would read the cluster as the operator (cluster-admin); set it, or set web.enabled: false"
+            [[ "$name" == flux-web-anon ]] \
+                || die "$file: spec.values.web.config.authentication.anonymous.username must be flux-web-anon, the user rbac.yaml binds. Anything else gives the web UI another identity, and leaving it out makes the UI read the cluster as the operator (cluster-admin). Set it, or set web.enabled: false"
             # The read-only role does not bound these: the cached search index is
             # built with the operator's account, FineGrained actions run as that
             # account, and valuesFrom or postRenderers can replace the values.
@@ -349,10 +351,17 @@ validate_tree() {
                    .spec.values.web.userActions.access == "FineGrained",
                    .spec.values.web.config.userActions.access == "FineGrained",
                    (.spec.valuesFrom | length) > 0,
-                   (.spec.postRenderers | length) > 0]
+                   (.spec.postRenderers | length) > 0,
+                   (.spec.values.web.config.authentication.anonymous.groups | length) > 0]
                 | any' "$file" >"$tmp/webui.unsafe"
             [[ "$(<"$tmp/webui.unsafe")" == false ]] \
-                || die "$file: web.config.search.cached, FineGrained user actions, valuesFrom and postRenderers are not allowed on this release, because they bypass or can replace the web UI's read-only identity"
+                || die "$file: web.config.search.cached, FineGrained user actions, valuesFrom, postRenderers and anonymous groups are not allowed on this release, because they bypass or can replace the web UI's read-only identity"
+            app="$(dirname "$file")"
+            yq -N '(.patches | length) + (.patchesStrategicMerge | length) + (.spec.patches | length)' \
+                "$app/kustomization.yaml" "$app/../ks.yaml" >"$tmp/webui.patches"
+            if grep -qv '^0$' "$tmp/webui.patches"; then
+                die "$app: patches are not allowed in kustomization.yaml or ks.yaml, because they can replace the web UI's read-only identity"
+            fi
             echo "--- $file (web UI sends requests as '$name')"
         fi
     )

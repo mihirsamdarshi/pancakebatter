@@ -2,8 +2,10 @@
 # Identity of the Flux Operator Web UI. The UI authenticates every visitor as
 # the fixed user "flux-web-anon" (see the web.config values in
 # helmrelease.yaml) and sends each Kubernetes request as that user, so this
-# role is the whole of what the UI can read or change. Anyone who can reach the
-# Service sees exactly this and nothing more.
+# role is the whole of what the UI can read or change, with one exception: the
+# search index, which the operator builds with its own account, lists the name,
+# kind, namespace and status of every Flux object, Receivers included, without
+# their status messages.
 #
 # Read only, on purpose:
 #   - No "secrets" and no "configmaps": the UI renders any object it can "get".
