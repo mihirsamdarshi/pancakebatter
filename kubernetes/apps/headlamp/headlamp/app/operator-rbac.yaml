@@ -20,8 +20,9 @@ metadata:
 #     -o jsonpath='{.data.token}' | base64 -d
 # and pastes it into Headlamp's sign-in page. To revoke the login, delete the
 # ServiceAccount: Flux recreates it with a new UID, and that gives a new token.
-# Deleting only this Secret revokes nothing, because the token is derived from
-# the ServiceAccount UID and the Secret name, so it comes back identical.
+# The old token stops working 10 to 20 seconds later. Deleting only this Secret
+# revokes nothing, because the token is derived from the ServiceAccount UID and
+# the Secret name, so it comes back identical.
 apiVersion: v1
 kind: Secret
 metadata:

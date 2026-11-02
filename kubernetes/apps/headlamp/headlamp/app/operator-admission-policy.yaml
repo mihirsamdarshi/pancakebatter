@@ -71,10 +71,16 @@ spec:
         object.metadata.?finalizers.orValue([]) == oldObject.metadata.?finalizers.orValue([])
       message: owner references and finalizers must not change
     # Controllers act on workload metadata, for example Reloader's annotations
-    # and Flux's reconcile annotation.
+    # and Flux's reconcile annotation. The API server itself bumps
+    # deprecated.daemonset.template.generation on a DaemonSet template change,
+    # so a restart needs that one key exempt.
     - expression: >-
         object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({}) &&
-        object.metadata.?annotations.orValue({}) == oldObject.metadata.?annotations.orValue({})
+        object.metadata.?annotations.orValue({}).all(k, k == 'deprecated.daemonset.template.generation' ||
+          (k in oldObject.metadata.?annotations.orValue({}) &&
+           object.metadata.annotations[k] == oldObject.metadata.annotations[k])) &&
+        oldObject.metadata.?annotations.orValue({}).all(k, k == 'deprecated.daemonset.template.generation' ||
+          k in object.metadata.?annotations.orValue({}))
       message: workload labels and annotations must not change
 ---
 apiVersion: admissionregistration.k8s.io/v1
