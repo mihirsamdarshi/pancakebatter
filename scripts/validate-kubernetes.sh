@@ -15,7 +15,8 @@
 #      be named with a lowercase RFC 1123 label (the schemas do not check
 #      names, and a Namespace that cannot be applied stops Flux applying the
 #      rest of that Kustomization, e.g. an app that forgot `namespace:` and so
-#      keeps the REPLACE_ME placeholder of components/personal-namespace);#   3. kubeconform on every Flux Kustomization object, and
+#      keeps the REPLACE_ME placeholder of components/personal-namespace);
+#   3. kubeconform on every Flux Kustomization object, and
 #      `flux build ks --dry-run | kubeconform` for each one sourced from this
 #      repo, which also catches a wrong spec.path and broken spec.patches.
 #      A GitRepository sourceRef must be exactly flux-system/flux-system with
@@ -43,7 +44,9 @@
 #      spec.values.web.enabled is false (no UI). Without a web config the UI
 #      reads the cluster with the operator's own cluster-admin account for
 #      every caller, and a values edit that drops the block is otherwise valid.
-#      A tree without that file fails: the template always renders it.
+#      The same release must not set web.config.search.cached, FineGrained user
+#      actions, valuesFrom or postRenderers, which bypass or can replace that
+#      identity. A tree without that file fails: the template always renders it.
 # archive/ and other trees outside kubernetes/ are never read.
 #
 # Schemas fail closed: there is no -ignore-missing-schemas, so a typo in
@@ -338,6 +341,18 @@ validate_tree() {
         else
             [[ -n "${name//[[:space:]]/}" ]] \
                 || die "$file: spec.values.web.config.authentication.anonymous.username is empty or missing, so the web UI would read the cluster as the operator (cluster-admin); set it, or set web.enabled: false"
+            # The read-only role does not bound these: the cached search index is
+            # built with the operator's account, FineGrained actions run as that
+            # account, and valuesFrom or postRenderers can replace the values.
+            yq -N 'select(.kind == "HelmRelease" and .metadata.name == "flux-operator")
+                | [.spec.values.web.config.search.cached != false and .spec.values.web.config.search.cached != null,
+                   .spec.values.web.userActions.access == "FineGrained",
+                   .spec.values.web.config.userActions.access == "FineGrained",
+                   (.spec.valuesFrom | length) > 0,
+                   (.spec.postRenderers | length) > 0]
+                | any' "$file" >"$tmp/webui.unsafe"
+            [[ "$(<"$tmp/webui.unsafe")" == false ]] \
+                || die "$file: web.config.search.cached, FineGrained user actions, valuesFrom and postRenderers are not allowed on this release, because they bypass or can replace the web UI's read-only identity"
             echo "--- $file (web UI sends requests as '$name')"
         fi
     )
