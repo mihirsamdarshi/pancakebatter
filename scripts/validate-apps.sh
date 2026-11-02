@@ -368,6 +368,10 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
     (("HOST", "FAMILY_HOST") as $k
       | if ($v | has($k)) and ($v[$k] | lbl | not) then "vars.\($k) must be a lowercase DNS label" else empty end),
     (if ($v | has("IMAGE")) and (($v.IMAGE | isstr | not) or ($v.IMAGE | test("^[a-z0-9][a-z0-9./_:-]*$") | not)) then "vars.IMAGE is not an image name" else empty end),
+    # dashboard tile: the route template quotes these, so printable ASCII only and no quote, backslash or dollar
+    (("TITLE", "DESCRIPTION") as $k
+      | if ($v | has($k)) and (($v[$k] | isstr | not) or ($v[$k] | test("^[\\x20-\\x7e]{1,80}$") | not) or ($v[$k] | test("[\"\\\\$]"))) then "vars.\($k) must be 1 to 80 printable ASCII characters without a double quote, backslash or $" else empty end),
+    (if ($v | has("ICON")) and (($v.ICON | isstr | not) or ($v.ICON | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$") | not)) then "vars.ICON must be an icon name such as mdi-<name>, si-<name> or <name>.png" else empty end),
     # backup
     (if ($parts | index("backup")) != null and (($v.VOLSYNC_SCHEDULE | cron) | not) then "backup needs vars.VOLSYNC_SCHEDULE, an explicit UTC cron string" else empty end),
     (if ($parts | index("backup-sqlite")) != null then

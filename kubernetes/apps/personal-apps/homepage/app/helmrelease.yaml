@@ -37,10 +37,10 @@ spec:
     serviceAccount:
       homepage: {}
     # Read-only: nodes and their metrics (metrics-server) for the cluster
-    # widget, and HTTPRoutes and Gateways for discovering the platform apps'
-    # tiles (kubernetes.yaml below). Pods and namespaces stay unreadable: the
-    # discovered routes carry `gethomepage.dev/external`, so Homepage never
-    # looks up pod status.
+    # widget, and listing HTTPRoutes for the platform apps' tiles
+    # (kubernetes.yaml below). Gateways are not needed because every discovered
+    # route sets its own href. Pods and namespaces stay unreadable: the routes
+    # carry `gethomepage.dev/external`, so Homepage never looks up pod status.
     rbac:
       roles:
         homepage:
@@ -64,9 +64,7 @@ spec:
                 - gateway.networking.k8s.io
               resources:
                 - httproutes
-                - gateways
               verbs:
-                - get
                 - list
       bindings:
         homepage:
