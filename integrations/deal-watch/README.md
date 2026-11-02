@@ -12,9 +12,14 @@ stable developer API. Out-of-stock wins over purchasable; order limits are not
 inventory. Preorder, gated or incomplete responses cannot qualify. A reviewed
 shipping-policy ZIP allowlist can establish policy-supported free standard
 shipping above $40; it never establishes ZIP-specific checkout availability.
-Free shipping does not establish zero mandatory fees. Sony observations retain
-unknown fees until product/destination-specific evidence exists, so collection
-continues but these observations cannot currently produce qualifying alerts.
+Free shipping does not establish zero mandatory fees. In this source revision,
+the Sony adapter leaves fees unknown and has no code path to establish them.
+Supporting fees requires an additional reviewed code change and supported
+product/destination-specific evidence. If deployed with a Sony-only policy,
+collection continues but no automatic shopping alert can qualify.
+Earlier worker revisions inferred zero fees from the shipping policy. Verify
+the pinned deployed image when assessing live behavior; this source revision
+and its documentation do not establish that a rollout has happened.
 
 Costco Product JSON-LD is parsed by exact SKU and one unambiguous offer.
 Shipping, membership fees and component references remain unknown, so it cannot

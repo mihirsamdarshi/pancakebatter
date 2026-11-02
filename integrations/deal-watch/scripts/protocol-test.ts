@@ -94,7 +94,8 @@ try {
     handler = createHandler(database, state);
   const time = realNow(),
     messageId = "424242";
-  let deliveries = 0;
+  let deliveries = 0,
+    retailerRequests = 0;
   Date.now = () => time;
   try {
     const synthetic = JSON.parse(JSON.stringify(snapshot));
@@ -126,7 +127,10 @@ try {
       fetcher: async (req) => {
         const url = new URL(req.url);
         if (url.hostname === "app.test") return handler(req);
-        if (url.hostname !== "discord.com") throw new Error("No retailer request expected in synthetic acknowledgement phase");
+        if (url.hostname !== "discord.com") {
+          retailerRequests++;
+          throw new Error("No retailer request expected in synthetic acknowledgement phase");
+        }
         deliveries++;
         return Response.json({ id: messageId });
       },
@@ -134,10 +138,10 @@ try {
     worker.cache.set(`${watch.id}/${binding.id}`, new Map([[offer.id, offer]]));
     await worker.runOnce();
     const events = database.query("SELECT status,message_id FROM outbox").all() as { status: string; message_id: string }[];
-    if (deliveries !== 1 || events.length !== 1 || events[0]!.status !== "sent" || events[0]!.message_id !== messageId)
+    if (retailerRequests !== 0 || deliveries !== 1 || events.length !== 1 || events[0]!.status !== "sent" || events[0]!.message_id !== messageId)
       throw new Error("Synthetic delivery did not persist the real app acknowledgement");
     console.log(JSON.stringify({ result: "pass", syntheticKnownCostEvidence: true,
-      deliveredMockEvents: deliveries, durableAcknowledgement: true, retailerRequests: 0 }));
+      deliveredMockEvents: deliveries, durableAcknowledgement: true, retailerRequests }));
   } finally {
     Date.now = realNow;
     database.close();
