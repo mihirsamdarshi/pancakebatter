@@ -2030,7 +2030,7 @@
     }
   ],
   "preload": false,
-  "refresh": "10s",
+  "refresh": "1m",
   "schemaVersion": 41,
   "tags": ["flux"],
   "templating": {
@@ -2079,7 +2079,7 @@
     ]
   },
   "time": {
-    "from": "now-30m",
+    "from": "now-6h",
     "to": "now"
   },
   "timepicker": {

@@ -783,7 +783,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Cert-manager-Kubernetes",
+  "title": "cert-manager",
   "uid": "cdhrcds8aosg0c",
   "version": 2,
   "weekStart": ""

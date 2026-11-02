@@ -1295,7 +1295,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "max(apiserver_storage_objects{resource=~\".*gitrepo.*\"}) + max(apiserver_storage_objects{resource=~\".*ocirepo.*\"}) + max(apiserver_storage_objects{resource=~\".*bucket.*\"}) + max(apiserver_storage_objects{resource=~\".*helmchart.*\"}) + max(apiserver_storage_objects{resource=~\".*helmrepo.*\"})",
+          "expr": "count(flux_resource_info{kind=~\"GitRepository|OCIRepository|Bucket|HelmChart|HelmRepository\"})",
           "interval": "",
           "legendFormat": "Source Resources",
           "range": true,
@@ -1567,7 +1567,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "max(apiserver_storage_objects{resource=~\".*kustomization.*\"})",
+          "expr": "count(flux_resource_info{kind=\"Kustomization\"})",
           "interval": "",
           "legendFormat": "Kustomize Resources",
           "range": true,
@@ -1838,7 +1838,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "max(apiserver_storage_objects{resource=~\".*helmrelease.*\"})",
+          "expr": "count(flux_resource_info{kind=\"HelmRelease\"})",
           "interval": "",
           "legendFormat": "Helm Resources",
           "range": true,
@@ -1850,7 +1850,7 @@
     }
   ],
   "preload": false,
-  "refresh": "10s",
+  "refresh": "1m",
   "schemaVersion": 41,
   "tags": [
     "flux"
@@ -1901,7 +1901,7 @@
     ]
   },
   "time": {
-    "from": "now-30m",
+    "from": "now-6h",
     "to": "now"
   },
   "timepicker": {

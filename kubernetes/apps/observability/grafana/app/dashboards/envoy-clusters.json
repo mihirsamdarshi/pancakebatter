@@ -2136,7 +2136,7 @@
     }
   ],
   "preload": false,
-  "refresh": "30s",
+  "refresh": "1m",
   "schemaVersion": 41,
   "tags": ["Data Plane"],
   "templating": {
@@ -2242,7 +2242,7 @@
     ]
   },
   "time": {
-    "from": "now-15m",
+    "from": "now-6h",
     "to": "now"
   },
   "timepicker": {},
