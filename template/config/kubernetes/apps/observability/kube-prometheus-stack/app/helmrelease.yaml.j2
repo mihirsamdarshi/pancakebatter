@@ -15,6 +15,48 @@ spec:
     kind: OCIRepository
     name: kube-prometheus-stack
   interval: 1h
+  # Chart dashboards that cannot show data here (see the Control plane
+  # dashboard in observability/grafana for the replacement). The chart has no
+  # per-dashboard switch and the components must stay enabled for scraping
+  # and alert rules, so the ConfigMaps are deleted after rendering.
+  postRenderers:
+    - kustomize:
+        patches:
+          - patch: |
+              $patch: delete
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: kube-prometheus-stack-apiserver
+                namespace: observability
+              ---
+              $patch: delete
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: kube-prometheus-stack-controller-manager
+                namespace: observability
+              ---
+              $patch: delete
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: kube-prometheus-stack-scheduler
+                namespace: observability
+              ---
+              $patch: delete
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: kube-prometheus-stack-kubelet
+                namespace: observability
+              ---
+              $patch: delete
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: kube-prometheus-stack-k8s-resources-multicluster
+                namespace: observability
   values:
     cleanPrometheusOperatorObjectNames: true
     # The chart's CRDs replace the 0.91 ones that bootstrap installed with

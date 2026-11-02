@@ -23,8 +23,11 @@ spec:
       hostRoot: /sys/fs/cgroup
     # The stable bond name is defined in talos/all/20-network-links.yaml.tpl
     devices: bond0+
+    # Off: most panels of the chart dashboards need metrics the guardrails
+    # scrape class drops. observability/grafana ships a Cilium dashboard
+    # for the metrics that are kept.
     dashboards:
-      enabled: true
+      enabled: false
     endpointRoutes:
       enabled: true
     envoy:
@@ -50,7 +53,7 @@ spec:
       enabled: true
     operator:
       dashboards:
-        enabled: true
+        enabled: false
       prometheus:
         enabled: true
         serviceMonitor:

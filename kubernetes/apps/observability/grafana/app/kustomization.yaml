@@ -12,11 +12,44 @@ resources:
 #   cert-manager.json      grafana.com 20842 rev 3 (cluster variable allValue set to .*)
 #   envoy-*.json           envoyproxy/gateway v1.9.2 charts/gateway-addons-helm/dashboards
 #   alerting-health.json   local
+#   homelab-overview, control-plane, cilium, app-platform, media-apps and
+#   storage-backups are local. They use only metrics the guardrails keep, so a
+#   new panel must be checked against the allowlists in the kube-prometheus-stack
+#   HelmRelease before it is added.
 generatorOptions:
   disableNameSuffixHash: true
   labels:
     grafana_dashboard: "1"
 configMapGenerator:
+  - name: grafana-dashboards-homelab
+    files:
+      - ./dashboards/homelab-overview.json
+    options:
+      annotations:
+        grafana_folder: Homelab
+        kustomize.toolkit.fluxcd.io/substitute: disabled
+  - name: grafana-dashboards-apps
+    files:
+      - ./dashboards/app-platform.json
+      - ./dashboards/media-apps.json
+    options:
+      annotations:
+        grafana_folder: Apps
+        kustomize.toolkit.fluxcd.io/substitute: disabled
+  - name: grafana-dashboards-storage
+    files:
+      - ./dashboards/storage-backups.json
+    options:
+      annotations:
+        grafana_folder: Storage
+        kustomize.toolkit.fluxcd.io/substitute: disabled
+  - name: grafana-dashboards-kubernetes
+    files:
+      - ./dashboards/control-plane.json
+    options:
+      annotations:
+        grafana_folder: Kubernetes
+        kustomize.toolkit.fluxcd.io/substitute: disabled
   - name: grafana-dashboards-flux
     files:
       - ./dashboards/flux-performance.json
@@ -30,6 +63,7 @@ configMapGenerator:
       - ./dashboards/cert-manager.json
       - ./dashboards/envoy-clusters.json
       - ./dashboards/envoy-proxy-global.json
+      - ./dashboards/cilium.json
     options:
       annotations:
         grafana_folder: Network
