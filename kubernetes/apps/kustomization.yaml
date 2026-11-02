@@ -19,6 +19,7 @@ resources:
   - ./deal-watch-integrations
   - ./downloads
   - ./flux-system
+  - ./headlamp
   - ./home
   - ./kube-system
   - ./media

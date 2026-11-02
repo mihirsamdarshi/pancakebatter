@@ -244,6 +244,16 @@ spec:
                     href: https://grafana.${SECRET_DOMAIN_LOCAL}
                     siteMonitor: https://grafana.${SECRET_DOMAIN_LOCAL}
                     description: Metrics and logs
+                - Flux:
+                    icon: flux-cd.png
+                    href: https://flux.${SECRET_DOMAIN_LOCAL}
+                    siteMonitor: https://flux.${SECRET_DOMAIN_LOCAL}
+                    description: GitOps status, read only
+                - Headlamp:
+                    icon: headlamp.png
+                    href: https://headlamp.${SECRET_DOMAIN_LOCAL}
+                    siteMonitor: https://headlamp.${SECRET_DOMAIN_LOCAL}
+                    description: Kubernetes, with a token
                 - TrueNAS:
                     icon: truenas.png
                     href: https://192.168.1.75

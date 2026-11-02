@@ -1,0 +1,155 @@
+---
+# Guardrails for the `headlamp-operator` identity (operator-rbac.yaml). RBAC
+# grants it `patch` on workloads and Flux objects; these policies decide which
+# patches are allowed to land. Both policies:
+#   - match only UPDATE (a patch is an UPDATE at admission) on the listed
+#     resources, and only when the caller is the headlamp-operator
+#     ServiceAccount (matchConditions), so no other client is ever affected;
+#   - fail closed: failurePolicy Fail, and a CEL error denies the request;
+#   - compare the new object with oldObject and allow only the fields below.
+# The /scale subresource is not matched: its handler writes spec.replicas and
+# nothing else.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: headlamp-operator-workloads
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["*"]
+        operations: ["UPDATE"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+  matchConditions:
+    - name: caller-is-headlamp-operator
+      expression: request.userInfo.username == 'system:serviceaccount:headlamp:headlamp-operator'
+  variables:
+    - name: restartKey
+      expression: "'kubectl.kubernetes.io/restartedAt'"
+    - name: newTemplateMeta
+      expression: object.spec.template.?metadata.orValue({})
+    - name: oldTemplateMeta
+      expression: oldObject.spec.template.?metadata.orValue({})
+    - name: newAnnotations
+      expression: variables.newTemplateMeta.?annotations.orValue({})
+    - name: oldAnnotations
+      expression: variables.oldTemplateMeta.?annotations.orValue({})
+  validations:
+    # Only spec.replicas (scaling) and spec.template may differ in spec: not
+    # the selector, strategy, update strategy, volume claim templates ...
+    - expression: >-
+        object.spec.all(k, k in ['replicas', 'template'] ||
+          (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
+        oldObject.spec.all(k, k in ['replicas', 'template'] || k in object.spec)
+      message: only spec.replicas and spec.template may change
+    # The whole pod spec is frozen: images, commands, env, volumes,
+    # serviceAccountName, securityContext ...
+    - expression: object.spec.template.spec == oldObject.spec.template.spec
+      message: the pod spec must not change
+    # Pod template metadata other than annotations (labels, name ...) is frozen.
+    - expression: >-
+        variables.newTemplateMeta.all(k, k == 'annotations' ||
+          (k in variables.oldTemplateMeta &&
+           variables.newTemplateMeta[k] == variables.oldTemplateMeta[k])) &&
+        variables.oldTemplateMeta.all(k, k == 'annotations' ||
+          k in variables.newTemplateMeta)
+      message: pod template metadata other than annotations must not change
+    # The one allowed template change: the restartedAt annotation.
+    - expression: >-
+        variables.newAnnotations.all(k, k == variables.restartKey ||
+          (k in variables.oldAnnotations &&
+           variables.newAnnotations[k] == variables.oldAnnotations[k])) &&
+        variables.oldAnnotations.all(k, k == variables.restartKey ||
+          k in variables.newAnnotations)
+      message: only the kubectl.kubernetes.io/restartedAt pod template annotation may change
+    # Patch could otherwise delete the workload without the delete verb: an
+    # owner reference to a UID that does not exist makes the garbage collector
+    # remove the object, and a finalizer can block its deletion.
+    - expression: >-
+        object.metadata.?ownerReferences.orValue([]) == oldObject.metadata.?ownerReferences.orValue([]) &&
+        object.metadata.?finalizers.orValue([]) == oldObject.metadata.?finalizers.orValue([])
+      message: owner references and finalizers must not change
+    # Controllers act on workload metadata, for example Reloader's annotations
+    # and Flux's reconcile annotation. The API server itself bumps
+    # deprecated.daemonset.template.generation on a DaemonSet template change,
+    # so a restart needs that one key exempt.
+    - expression: >-
+        object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({}) &&
+        object.metadata.?annotations.orValue({}).all(k, k == 'deprecated.daemonset.template.generation' ||
+          (k in oldObject.metadata.?annotations.orValue({}) &&
+           object.metadata.annotations[k] == oldObject.metadata.annotations[k])) &&
+        oldObject.metadata.?annotations.orValue({}).all(k, k == 'deprecated.daemonset.template.generation' ||
+          k in object.metadata.?annotations.orValue({}))
+      message: workload labels and annotations must not change
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: headlamp-operator-workloads
+spec:
+  policyName: headlamp-operator-workloads
+  validationActions: ["Deny"]
+---
+# Flux objects: the only spec change is spec.suspend (suspend and resume) and
+# the only annotation change is reconcile.fluxcd.io/requestedAt (reconcile
+# now). spec.force, spec.path, sourceRef, patches, postBuild, values,
+# postRenderers, serviceAccountName ... are all frozen. The Flux plugin sends
+# the object's existing annotations along with requestedAt; unchanged
+# annotations pass.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: headlamp-operator-flux
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+        apiVersions: ["*"]
+        operations: ["UPDATE"]
+        resources: ["kustomizations"]
+      - apiGroups: ["helm.toolkit.fluxcd.io"]
+        apiVersions: ["*"]
+        operations: ["UPDATE"]
+        resources: ["helmreleases"]
+      - apiGroups: ["source.toolkit.fluxcd.io"]
+        apiVersions: ["*"]
+        operations: ["UPDATE"]
+        resources: ["gitrepositories", "ocirepositories", "helmrepositories", "helmcharts"]
+  matchConditions:
+    - name: caller-is-headlamp-operator
+      expression: request.userInfo.username == 'system:serviceaccount:headlamp:headlamp-operator'
+  variables:
+    - name: requestKey
+      expression: "'reconcile.fluxcd.io/requestedAt'"
+    - name: newAnnotations
+      expression: object.metadata.?annotations.orValue({})
+    - name: oldAnnotations
+      expression: oldObject.metadata.?annotations.orValue({})
+  validations:
+    - expression: >-
+        object.spec.all(k, k == 'suspend' ||
+          (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
+        oldObject.spec.all(k, k == 'suspend' || k in object.spec)
+      message: only spec.suspend may change
+    - expression: >-
+        variables.newAnnotations.all(k, k == variables.requestKey ||
+          (k in variables.oldAnnotations &&
+           variables.newAnnotations[k] == variables.oldAnnotations[k])) &&
+        variables.oldAnnotations.all(k, k == variables.requestKey ||
+          k in variables.newAnnotations)
+      message: only the reconcile.fluxcd.io/requestedAt annotation may change
+    - expression: >-
+        object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({}) &&
+        object.metadata.?finalizers.orValue([]) == oldObject.metadata.?finalizers.orValue([]) &&
+        object.metadata.?ownerReferences.orValue([]) == oldObject.metadata.?ownerReferences.orValue([])
+      message: labels, finalizers and owner references must not change
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: headlamp-operator-flux
+spec:
+  policyName: headlamp-operator-flux
+  validationActions: ["Deny"]

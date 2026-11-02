@@ -1,0 +1,194 @@
+---
+# The identity the owner signs in to Headlamp with: read everything except
+# Secrets; restart and scale workloads; suspend, resume and reconcile Flux
+# objects. Nothing else.
+#
+# RBAC alone cannot express that. `patch` on a Deployment can also mount a
+# Secret or swap the image, and `patch` on a Flux Kustomization or HelmRelease
+# can deploy anything through a controller that runs as cluster-admin. The
+# ValidatingAdmissionPolicies in operator-admission-policy.yaml narrow those
+# patches to the restart, suspend and reconcile fields. The role below must
+# never be applied without them.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headlamp-operator
+---
+# A long-lived token for the ServiceAccount. The manifest holds no token:
+# Kubernetes fills `data.token` in. The owner reads it with
+#   kubectl -n headlamp get secret headlamp-operator-token \
+#     -o jsonpath='{.data.token}' | base64 -d
+# and pastes it into Headlamp's sign-in page. To revoke the login, delete the
+# ServiceAccount: Flux recreates it with a new UID, and that gives a new token.
+# The old token stops working 10 to 20 seconds later. Deleting only this Secret
+# revokes nothing, because the token is derived from the ServiceAccount UID and
+# the Secret name, so it comes back identical.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: headlamp-operator-token
+  annotations:
+    kubernetes.io/service-account.name: headlamp-operator
+type: kubernetes.io/service-account-token
+---
+# Built-in `view`: reads most namespaced resources and aggregates the Flux API
+# groups (Flux's own aggregate-to-view roles). It has no Secrets. What it lacks
+# (nodes, persistentvolumes, storageclasses, CRDs, RBAC objects ...) comes from
+# the read-only role headlamp-operator-read below.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-operator-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: headlamp-operator
+    namespace: headlamp
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: headlamp-operator
+rules:
+  # Restart: Headlamp merge-patches spec.template.metadata.annotations
+  # ["kubectl.kubernetes.io/restartedAt"]. Scale: its Scale button sends a
+  # merge patch ({spec:{replicas}}) to the /scale subresource, which is the
+  # only verb it uses there (it reads with `get`, which `view` grants).
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "statefulsets/scale"]
+    verbs: ["patch"]
+  # Deleting a pod restarts it through its controller.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]
+  # Flux: suspend and resume merge {spec:{suspend}}; sync merges
+  # metadata.annotations["reconcile.fluxcd.io/requestedAt"].
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["patch"]
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["patch"]
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["gitrepositories", "ocirepositories", "helmrepositories", "helmcharts"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: headlamp-operator
+subjects:
+  - kind: ServiceAccount
+    name: headlamp-operator
+    namespace: headlamp
+---
+# Read-only completion of `view` for a Kubernetes dashboard: the cluster-scoped
+# and CRD resources Headlamp's built-in pages and the Flux plugin list (the
+# plugin reads a CustomResourceDefinition to detect Flagger, and FluxReports).
+# get, list and watch only.
+#
+# SECRETS MUST STAY OUT. Two rules keep it that way:
+#   - The core group "" is enumerated, never wildcarded: a `*` there would
+#     include secrets.
+#   - A `*` resource is used only for API groups whose kinds hold references
+#     to Secrets (names), never credentials or key material: cilium.io,
+#     gateway.networking.k8s.io, gateway.networking.x-k8s.io,
+#     gateway.envoyproxy.io, snapshot.storage.k8s.io,
+#     groupsnapshot.storage.k8s.io, monitoring.coreos.com, tailscale.com,
+#     volsync.backube. Re-check a group before adding it, and when a CRD in
+#     one of these groups changes shape. Built-in groups are enumerated.
+#
+# Not included on purpose: certificatesigningrequests, apiservices, the
+# flowcontrol and resource.k8s.io (DRA) groups, secrets, and everything
+# Flux-related that `view` already aggregates.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: headlamp-operator-read
+rules:
+  # Core group: enumerated.
+  - apiGroups: [""]
+    resources: ["nodes", "persistentvolumes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
+      - volumeattachments
+      - volumeattributesclasses
+      - csidrivers
+      - csinodes
+      - csistoragecapacities
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["scheduling.k8s.io"]
+    resources: ["priorityclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["node.k8s.io"]
+    resources: ["runtimeclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources:
+      - mutatingwebhookconfigurations
+      - validatingwebhookconfigurations
+      - mutatingadmissionpolicies
+      - mutatingadmissionpolicybindings
+      - validatingadmissionpolicies
+      - validatingadmissionpolicybindings
+    verbs: ["get", "list", "watch"]
+  # Flux Operator kinds that `view` does not aggregate (the plugin lists
+  # FluxReport; `view` already has resourcesets and resourcesetinputproviders).
+  - apiGroups: ["fluxcd.controlplane.io"]
+    resources: ["fluxinstances", "fluxreports"]
+    verbs: ["get", "list", "watch"]
+  # cert-manager: `view` aggregates certificates, certificaterequests, issuers,
+  # orders and challenges; ClusterIssuers are missing.
+  - apiGroups: ["cert-manager.io"]
+    resources: ["clusterissuers"]
+    verbs: ["get", "list", "watch"]
+  # CRD groups checked to hold references only (see above).
+  - apiGroups:
+      - cilium.io
+      - gateway.networking.k8s.io
+      - gateway.networking.x-k8s.io
+      - gateway.envoyproxy.io
+      - snapshot.storage.k8s.io
+      - groupsnapshot.storage.k8s.io
+      - monitoring.coreos.com
+      - tailscale.com
+      - volsync.backube
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-operator-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: headlamp-operator-read
+subjects:
+  - kind: ServiceAccount
+    name: headlamp-operator
+    namespace: headlamp

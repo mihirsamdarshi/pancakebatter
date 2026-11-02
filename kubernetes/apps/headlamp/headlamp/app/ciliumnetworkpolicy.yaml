@@ -1,0 +1,58 @@
+---
+# Selecting every pod in the namespace turns on default-deny in both
+# directions. Conventions follow components/app-platform/netpol: the gateway's
+# Envoy pods matched by owning-gateway name and namespace, kubelet probes via
+# fromEntities host, DNS to the k8s-app kube-dns pods on 53.
+#
+# Headlamp talks to exactly one backend: the API server, with the signed-in
+# user's token. It runs on the three control-plane nodes (Talos, port 6443).
+# Cilium translates the kubernetes Service (10.43.0.1:443) to the node address
+# before it evaluates policy, so the rule below names the post-translation
+# port. Replies to allowed connections need no rule.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: headlamp
+spec:
+  endpointSelector: {}
+  ingress:
+    # Only the Envoy proxy pods of the internal gateway. The family gateway is
+    # deliberately absent: Headlamp must never be reachable from the family
+    # tailnet.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: envoy-internal
+      toPorts:
+        - ports:
+            - port: "4466"
+              protocol: TCP
+    # Kubelet probes come from the node. This also admits any host-network pod
+    # or host process on the same node to port 4466; accepted, as in the
+    # app-platform component.
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "4466"
+              protocol: TCP
+  egress:
+    # Cluster DNS.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # The API server, and nothing else.
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
