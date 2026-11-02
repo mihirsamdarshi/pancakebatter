@@ -4,6 +4,10 @@
 # that may already have been applied, so the `writes` rule gets no retries.
 # mergeType keeps everything else from the gateway-wide policy (compression,
 # keepalive, timeouts) instead of replacing it.
+#
+# With no retries, a write must not land on a connection the app is closing. The
+# app closes idle connections at 75 s (Bun's idleTimeout), so Envoy drops its own
+# at 60 s, first. This reaches only this rule's cluster, not the gateway's.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy
 metadata:
@@ -12,6 +16,9 @@ spec:
   mergeType: StrategicMerge
   retry:
     numRetries: 0
+  timeout:
+    http:
+      connectionIdleTimeout: 60s
   targetRefs:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
