@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["bun"]
   },
-  "include": ["src", "ebay-receiver/src"]
+  "include": ["src", "scripts", "ebay-receiver/src"]
 }
