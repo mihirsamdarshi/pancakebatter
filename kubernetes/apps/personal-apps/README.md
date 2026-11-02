@@ -160,12 +160,15 @@ variable.
 | `vars.PULL_SECRET`                              | `apps-ghcr`                            | The Secret name the Deployment references. The copied Secret is always `apps-ghcr`                                                                                                                                                    |
 | `vars.HOST`                                     | `name`                                 | `<HOST>.${SECRET_DOMAIN_LOCAL}`                                                                                                                                                                                                       |
 | `vars.FAMILY_HOST`                              | none                                   | With `family-route`: `<FAMILY_HOST>.${SECRET_FAMILY_DOMAIN}`                                                                                                                                                                          |
+| `vars.TITLE`, `vars.DESCRIPTION`, `vars.ICON`  | `name`, `Platform app`, `mdi-application` | The LAN dashboard tile that `internal-route` registers (Homepage discovers the route). Icons: `mdi-<name>` (Material Design Icons) or a file name from the Homepage icon set                                                        |
 | `vars.SQLITE_DBS`                               | none                                   | Space-separated database paths for `backup-sqlite`                                                                                                                                                                                    |
 | `vars.VOLSYNC_SCHEDULE`, `vars.SQLITE_SCHEDULE` | none                                   | Explicit UTC cron strings, required with `backup` / `backup-sqlite`                                                                                                                                                                   |
 
 Parts (`kubernetes/components/app-platform/`): `pullsecret` (a name only: the
 Secret is rendered by `apps-pull`), `internal-route` (`<HOST>.${SECRET_DOMAIN_LOCAL}`
-on `envoy-internal`, no retries for writes), `family-route` (only on request;
+on `envoy-internal`, no retries for writes, and the tile on the LAN dashboard
+`home.${SECRET_DOMAIN_LOCAL}`, discovered from the route's `gethomepage.dev/*`
+annotations), `family-route` (only on request;
 see `network/family-apps/README.md`; needs `vars.FAMILY_HOST`),
 `family-route-legacy` (the transitional `family.${SECRET_DOMAIN_LOCAL}` name;
 list it after `family-route`), `backup` (the `volsync` component) and

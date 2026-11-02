@@ -20,6 +20,9 @@ spec:
     name: deal-watch
     parts: [pullsecret, internal-route, backup, backup-sqlite]
     vars:
+      TITLE: Deal Watch
+      DESCRIPTION: Price and deal tracker
+      ICON: mdi-tag-search
       SQLITE_DBS: deal-watch.db
       VOLSYNC_SCHEDULE: "30 12 * * *"
       SQLITE_SCHEDULE: "20 12 * * *"

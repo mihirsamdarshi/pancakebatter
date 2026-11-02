@@ -1,6 +1,7 @@
 ---
 # The LAN dashboard: one tile for every app and admin UI, plus cluster CPU and
-# memory. It is for the home network only (envoy-internal), so it may link to
+# memory. Platform apps (kubernetes/apps/flux-system/app-platform) appear by
+# themselves through Gateway API discovery; everything else is listed here. It is for the home network only (envoy-internal), so it may link to
 # anything. The family start page is the separate `homepage-family` release.
 #
 # TODO(widgets): per-service widgets (Jellyfin streams, *arr queues, Grafana
@@ -35,9 +36,11 @@ spec:
           type: RuntimeDefault
     serviceAccount:
       homepage: {}
-    # Read-only, and only what the cluster widget calls: list nodes and their
-    # metrics (metrics-server). Service discovery (gateway, ingress) is off, so
-    # no routes, pods or namespaces are readable.
+    # Read-only: nodes and their metrics (metrics-server) for the cluster
+    # widget, and HTTPRoutes and Gateways for discovering the platform apps'
+    # tiles (kubernetes.yaml below). Pods and namespaces stay unreadable: the
+    # discovered routes carry `gethomepage.dev/external`, so Homepage never
+    # looks up pod status.
     rbac:
       roles:
         homepage:
@@ -54,6 +57,14 @@ spec:
                 - metrics.k8s.io
               resources:
                 - nodes
+              verbs:
+                - get
+                - list
+            - apiGroups:
+                - gateway.networking.k8s.io
+              resources:
+                - httproutes
+                - gateways
               verbs:
                 - get
                 - list
@@ -285,12 +296,14 @@ spec:
           bookmarks.yaml: ""
           docker.yaml: ""
           proxmox.yaml: ""
-          # Cluster mode so the widget can list nodes. Discovery is off: the
-          # tiles above are the only source, in one reviewable place.
+          # Cluster mode so the widget can list nodes. Gateway API discovery adds
+          # one tile per HTTPRoute annotated gethomepage.dev/enabled: the
+          # platform apps (components/app-platform/internal-route). Ingress and
+          # Traefik discovery stay off; everything else is the static list above.
           kubernetes.yaml: |
             mode: cluster
             ingress: false
-            gateway: false
+            gateway: true
             traefik: false
           custom.css: ""
           custom.js: ""
