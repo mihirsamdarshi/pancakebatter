@@ -123,7 +123,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count(kube_deployment_status_replicas_unavailable{namespace=~\"$namespace\"} > 0) or vector(0)",
+          "expr": "count(kube_deployment_status_replicas_unavailable{namespace=~\"$namespace\"} > 0) or (count(kube_deployment_status_replicas_unavailable{namespace=~\"$namespace\"}) * 0)",
           "instant": true
         }
       ],
@@ -138,7 +138,7 @@
     {
       "type": "stat",
       "title": "Pods not Ready",
-      "description": "Pending or Running pods that are not Ready. Finished job pods are not counted.",
+      "description": "Pods that are Pending, Running or Failed (kubectl shows Unknown) and not Ready. Succeeded job pods are not counted.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -183,7 +183,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count((kube_pod_status_phase{namespace=~\"$namespace\", phase=~\"Pending|Running\"} == 1) * on (namespace, pod, uid) group_left () (1 - kube_pod_status_ready{condition=\"true\"}) == 1) or vector(0)",
+          "expr": "count((kube_pod_status_phase{namespace=~\"$namespace\", phase=~\"Pending|Running|Failed\"} == 1) * on (namespace, pod, uid) group_left () (1 - kube_pod_status_ready{condition=\"true\"}) == 1) or (count(kube_pod_status_phase) * 0)",
           "instant": true
         }
       ],
@@ -247,7 +247,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\"}[24h])) or vector(0)",
+          "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\"}[24h])) or (count(kube_pod_container_status_restarts_total) * 0)",
           "instant": true
         }
       ],
@@ -307,7 +307,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(container_oom_events_total{namespace=~\"$namespace\"}[24h])) or vector(0)",
+          "expr": "sum(increase(container_oom_events_total{namespace=~\"$namespace\"}[24h])) or (count(container_oom_events_total) * 0)",
           "instant": true
         }
       ],
@@ -367,7 +367,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count(volsync_volume_out_of_sync{obj_namespace=~\"$namespace\"} == 1) or vector(0)",
+          "expr": "count(volsync_volume_out_of_sync{obj_namespace=~\"$namespace\"} == 1) or (count(volsync_volume_out_of_sync) * 0)",
           "instant": true
         }
       ],
@@ -380,70 +380,7 @@
       }
     },
     {
-      "type": "stat",
-      "title": "Fullest volume",
-      "description": "Highest used share of any PVC in these namespaces.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.8
-              },
-              {
-                "color": "red",
-                "value": 0.9
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "auto",
-        "justifyMode": "center",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "max(kubelet_volume_stats_used_bytes{namespace=~\"$namespace\"} / kubelet_volume_stats_capacity_bytes{namespace=~\"$namespace\"})",
-          "instant": true
-        }
-      ],
       "id": 7,
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 20,
-        "y": 1
-      }
-    },
-    {
-      "id": 8,
       "type": "row",
       "title": "Workloads",
       "collapsed": false,
@@ -555,7 +492,7 @@
           "instant": true
         }
       ],
-      "id": 9,
+      "id": 8,
       "gridPos": {
         "h": 7,
         "w": 8,
@@ -669,7 +606,7 @@
           "instant": true
         }
       ],
-      "id": 10,
+      "id": 9,
       "gridPos": {
         "h": 7,
         "w": 8,
@@ -779,7 +716,7 @@
           "instant": true
         }
       ],
-      "id": 11,
+      "id": 10,
       "gridPos": {
         "h": 7,
         "w": 8,
@@ -788,7 +725,7 @@
       }
     },
     {
-      "id": 12,
+      "id": 11,
       "type": "row",
       "title": "Resources",
       "collapsed": false,
@@ -865,7 +802,7 @@
           "legendFormat": "{{pod}}"
         }
       ],
-      "id": 13,
+      "id": 12,
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -938,7 +875,7 @@
           "legendFormat": "{{pod}}"
         }
       ],
-      "id": 14,
+      "id": 13,
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -1004,7 +941,7 @@
           "instant": true
         }
       ],
-      "id": 15,
+      "id": 14,
       "gridPos": {
         "h": 7,
         "w": 8,
@@ -1080,7 +1017,7 @@
           "legendFormat": "{{pod}}"
         }
       ],
-      "id": 16,
+      "id": 15,
       "gridPos": {
         "h": 7,
         "w": 8,
@@ -1159,7 +1096,7 @@
           "legendFormat": "{{pod}} tx"
         }
       ],
-      "id": 17,
+      "id": 16,
       "gridPos": {
         "h": 7,
         "w": 8,
@@ -1168,7 +1105,7 @@
       }
     },
     {
-      "id": 18,
+      "id": 17,
       "type": "row",
       "title": "Traffic through the Envoy gateways",
       "collapsed": false,
@@ -1245,7 +1182,7 @@
           "legendFormat": "{{envoy_cluster_name}}"
         }
       ],
-      "id": 19,
+      "id": 18,
       "gridPos": {
         "h": 7,
         "w": 8,
@@ -1315,7 +1252,7 @@
           "legendFormat": "{{envoy_cluster_name}}"
         }
       ],
-      "id": 20,
+      "id": 19,
       "gridPos": {
         "h": 7,
         "w": 8,
@@ -1385,7 +1322,7 @@
           "legendFormat": "{{envoy_cluster_name}}"
         }
       ],
-      "id": 21,
+      "id": 20,
       "gridPos": {
         "h": 7,
         "w": 8,
@@ -1394,7 +1331,7 @@
       }
     },
     {
-      "id": 22,
+      "id": 21,
       "type": "row",
       "title": "Storage and backups",
       "collapsed": false,
@@ -1405,89 +1342,6 @@
         "y": 37
       },
       "panels": []
-    },
-    {
-      "type": "timeseries",
-      "title": "Volume used",
-      "description": "Used share of each PVC.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "thresholdsStyle": {
-              "mode": "dashed"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.8
-              },
-              {
-                "color": "red",
-                "value": 0.9
-              }
-            ]
-          },
-          "min": 0,
-          "max": 1
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "kubelet_volume_stats_used_bytes{namespace=~\"$namespace\"} / kubelet_volume_stats_capacity_bytes{namespace=~\"$namespace\"}",
-          "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}"
-        }
-      ],
-      "id": 23,
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 0,
-        "y": 38
-      }
     },
     {
       "type": "timeseries",
@@ -1554,11 +1408,11 @@
           "legendFormat": "{{obj_name}}"
         }
       ],
-      "id": 24,
+      "id": 22,
       "gridPos": {
         "h": 7,
-        "w": 12,
-        "x": 12,
+        "w": 24,
+        "x": 0,
         "y": 38
       }
     }

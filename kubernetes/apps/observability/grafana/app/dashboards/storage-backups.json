@@ -89,7 +89,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count(volsync_volume_out_of_sync == 1) or vector(0)",
+          "expr": "count(volsync_volume_out_of_sync == 1) or (count(volsync_volume_out_of_sync) * 0)",
           "instant": true
         }
       ],
@@ -149,7 +149,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(volsync_missed_intervals_total[7d])) or vector(0)",
+          "expr": "sum(increase(volsync_missed_intervals_total[7d]))",
           "instant": true
         }
       ],
@@ -552,8 +552,8 @@
     },
     {
       "type": "bargauge",
-      "title": "Volume used",
-      "description": "Used share of each PVC.",
+      "title": "NFS dataset usage",
+      "description": "Used share of the shared NFS dataset behind the media and downloads PVCs. All six static NFS PVCs report the same figure, so it is shown once. Local-path and local-retain volumes export no per-PVC usage, so they are not covered here; see the node disk panels.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -603,8 +603,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes",
-          "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}",
+          "expr": "max(kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes)",
+          "legendFormat": "NFS dataset",
           "instant": true
         }
       ],
@@ -618,8 +618,8 @@
     },
     {
       "type": "table",
-      "title": "Days until full",
-      "description": "Linear projection from the last 7 days of growth. Only volumes that are growing appear; empty is good.",
+      "title": "Days until node disk full",
+      "description": "Linear projection from the last 7 days of change in free space on the node disks (/var and the local-path disk). Only disks whose free space is shrinking appear; empty is good. Per-PVC projections are not possible: local volumes have no usage series.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -701,13 +701,14 @@
               "service": true,
               "instance": true,
               "container": true,
-              "metrics_path": true,
-              "node": true,
+              "device": true,
+              "fstype": true,
+              "namespace": true,
               "pod": true
             },
             "renameByName": {
-              "namespace": "Namespace",
-              "persistentvolumeclaim": "Volume",
+              "nodename": "Node",
+              "mountpoint": "Mount",
               "Value": "Days left"
             }
           }
@@ -720,7 +721,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(kubelet_volume_stats_capacity_bytes - kubelet_volume_stats_used_bytes) / (deriv(kubelet_volume_stats_used_bytes[7d]) > 0) / 86400",
+          "expr": "node_filesystem_avail_bytes{mountpoint=~\"/var|/var/mnt/local-path\"} / (-deriv(node_filesystem_avail_bytes{mountpoint=~\"/var|/var/mnt/local-path\"}[7d]) > 0) / 86400 * on (instance) group_left (nodename) node_uname_info",
           "format": "table",
           "instant": true
         }
@@ -781,7 +782,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count(kube_persistentvolumeclaim_status_phase{phase!=\"Bound\"} == 1) or vector(0)",
+          "expr": "count(kube_persistentvolumeclaim_status_phase{phase!=\"Bound\"} == 1) or (count(kube_persistentvolumeclaim_status_phase) * 0)",
           "instant": true
         }
       ],
@@ -851,8 +852,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Volume used over time",
-      "description": "Used share of each PVC.",
+      "title": "NFS dataset usage over time",
+      "description": "Used share of the shared NFS dataset behind the media and downloads PVCs (shown once; the six PVCs report the same figure). Local-path and local-retain volumes export no per-PVC usage, so they are not covered here; see the node disk panels.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -900,13 +901,10 @@
       },
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "hidden",
           "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
+          "showLegend": false,
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
@@ -920,8 +918,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes",
-          "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}"
+          "expr": "max(kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes)",
+          "legendFormat": "NFS dataset"
         }
       ],
       "id": 14,
@@ -934,8 +932,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Volume size used",
-      "description": "Bytes used on each PVC.",
+      "title": "NFS dataset size used",
+      "description": "Bytes used on the shared NFS dataset (shown once). Local-path and local-retain volumes export no per-PVC usage, so they are not covered here; see the node disk panels.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -973,13 +971,10 @@
       },
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "hidden",
           "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
+          "showLegend": false,
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
@@ -993,8 +988,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "kubelet_volume_stats_used_bytes",
-          "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}"
+          "expr": "max(kubelet_volume_stats_used_bytes)",
+          "legendFormat": "NFS dataset"
         }
       ],
       "id": 15,

@@ -88,7 +88,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count(up{job=~\"apiserver|kube-etcd|kube-scheduler|kube-controller-manager\"} == 0) or vector(0)",
+          "expr": "count(up{job=~\"apiserver|kube-etcd|kube-scheduler|kube-controller-manager\"} == 0) or (count(up{job=~\"apiserver|kube-etcd|kube-scheduler|kube-controller-manager\"}) * 0)",
           "instant": true
         }
       ],
@@ -148,7 +148,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count(up{job=\"kubelet\", metrics_path=\"/metrics\"} == 0) or vector(0)",
+          "expr": "count(up{job=\"kubelet\", metrics_path=\"/metrics\"} == 0) or (count(up{job=\"kubelet\", metrics_path=\"/metrics\"}) * 0)",
           "instant": true
         }
       ],
@@ -396,7 +396,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(kubelet_certificate_manager_client_expiration_renew_errors) or vector(0)",
+          "expr": "sum(kubelet_certificate_manager_client_expiration_renew_errors)",
           "instant": true
         }
       ],
@@ -563,8 +563,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Mean latency",
-      "description": "Mean time to answer a request (sum / count), excluding WATCH and CONNECT, which stay open. The histogram buckets are not kept.",
+      "title": "Mean latency (GET and LIST only)",
+      "description": "Mean time to answer a request (sum / count). Only GET and LIST have a duration count in the kept metrics; writes (POST, PUT, PATCH, DELETE) are missing, and WATCH and CONNECT stay open and are excluded. The histogram buckets are not kept.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

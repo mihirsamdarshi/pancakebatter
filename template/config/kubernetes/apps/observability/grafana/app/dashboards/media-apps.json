@@ -123,7 +123,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count(kube_deployment_status_replicas_unavailable{namespace=~\"$namespace\"} > 0) or vector(0)",
+          "expr": "count(kube_deployment_status_replicas_unavailable{namespace=~\"$namespace\"} > 0) or (count(kube_deployment_status_replicas_unavailable{namespace=~\"$namespace\"}) * 0)",
           "instant": true
         }
       ],
@@ -138,7 +138,7 @@
     {
       "type": "stat",
       "title": "Pods not Ready",
-      "description": "Pending or Running pods that are not Ready. Finished job pods are not counted.",
+      "description": "Pods that are Pending, Running or Failed (kubectl shows Unknown) and not Ready. Succeeded job pods are not counted.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -183,7 +183,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count((kube_pod_status_phase{namespace=~\"$namespace\", phase=~\"Pending|Running\"} == 1) * on (namespace, pod, uid) group_left () (1 - kube_pod_status_ready{condition=\"true\"}) == 1) or vector(0)",
+          "expr": "count((kube_pod_status_phase{namespace=~\"$namespace\", phase=~\"Pending|Running|Failed\"} == 1) * on (namespace, pod, uid) group_left () (1 - kube_pod_status_ready{condition=\"true\"}) == 1) or (count(kube_pod_status_phase) * 0)",
           "instant": true
         }
       ],
@@ -247,7 +247,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\"}[24h])) or vector(0)",
+          "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\"}[24h])) or (count(kube_pod_container_status_restarts_total) * 0)",
           "instant": true
         }
       ],
@@ -307,7 +307,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(container_oom_events_total{namespace=~\"$namespace\"}[24h])) or vector(0)",
+          "expr": "sum(increase(container_oom_events_total{namespace=~\"$namespace\"}[24h])) or (count(container_oom_events_total) * 0)",
           "instant": true
         }
       ],
@@ -367,7 +367,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count(volsync_volume_out_of_sync{obj_namespace=~\"$namespace\"} == 1) or vector(0)",
+          "expr": "count(volsync_volume_out_of_sync{obj_namespace=~\"$namespace\"} == 1) or (count(volsync_volume_out_of_sync) * 0)",
           "instant": true
         }
       ],
@@ -381,8 +381,8 @@
     },
     {
       "type": "stat",
-      "title": "Fullest volume",
-      "description": "Highest used share of any PVC in these namespaces.",
+      "title": "NFS dataset used",
+      "description": "Used share of the shared NFS dataset behind these PVCs (they all report the same figure). Local-path volumes export no per-PVC usage.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1408,8 +1408,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Volume used",
-      "description": "Used share of each PVC.",
+      "title": "NFS dataset used",
+      "description": "Used share of the shared NFS dataset behind these PVCs (they all report the same figure, so it is shown once). Local-path volumes export no per-PVC usage.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1457,13 +1457,10 @@
       },
       "options": {
         "legend": {
-          "displayMode": "table",
+          "displayMode": "hidden",
           "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
+          "showLegend": false,
+          "calcs": []
         },
         "tooltip": {
           "mode": "multi",
@@ -1477,14 +1474,14 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "kubelet_volume_stats_used_bytes{namespace=~\"$namespace\"} / kubelet_volume_stats_capacity_bytes{namespace=~\"$namespace\"}",
-          "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}"
+          "expr": "max(kubelet_volume_stats_used_bytes{namespace=~\"$namespace\"} / kubelet_volume_stats_capacity_bytes{namespace=~\"$namespace\"})",
+          "legendFormat": "NFS dataset"
         }
       ],
       "id": 23,
       "gridPos": {
         "h": 7,
-        "w": 12,
+        "w": 8,
         "x": 0,
         "y": 38
       }
@@ -1557,8 +1554,8 @@
       "id": 24,
       "gridPos": {
         "h": 7,
-        "w": 12,
-        "x": 12,
+        "w": 16,
+        "x": 8,
         "y": 38
       }
     }

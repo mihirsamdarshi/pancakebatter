@@ -216,7 +216,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(cilium_endpoint_state{endpoint_state!=\"ready\"}) or vector(0)",
+          "expr": "sum(cilium_endpoint_state{endpoint_state!=\"ready\"}) or (count(cilium_endpoint_state) * 0)",
           "instant": true
         }
       ],
@@ -276,7 +276,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(cilium_unreachable_nodes) or vector(0)",
+          "expr": "sum(cilium_unreachable_nodes)",
           "instant": true
         }
       ],
@@ -336,7 +336,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(cilium_controllers_failing) or vector(0)",
+          "expr": "sum(cilium_controllers_failing)",
           "instant": true
         }
       ],
