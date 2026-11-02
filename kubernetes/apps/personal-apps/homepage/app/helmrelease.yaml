@@ -1,7 +1,8 @@
 ---
 # The LAN dashboard: one tile for every app and admin UI, plus cluster CPU and
 # memory. Platform apps (kubernetes/apps/flux-system/app-platform) appear by
-# themselves through Gateway API discovery; everything else is listed here. It is for the home network only (envoy-internal), so it may link to
+# themselves through Gateway API discovery; everything else is listed here.
+# It is for the home network only (envoy-internal), so it may link to
 # anything. The family start page is the separate `homepage-family` release.
 #
 # TODO(widgets): per-service widgets (Jellyfin streams, *arr queues, Grafana
