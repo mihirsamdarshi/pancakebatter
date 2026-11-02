@@ -24,12 +24,59 @@ Fixtures are factual subsets of public Sony/Costco responses captured October
 30 PDT, 2026. They are dated snapshots, not current inventory or live tests.
 In-stock scenarios in tests are explicitly synthetic.
 
+## eBay collector preparation — disabled pending proof
+
+The production Browse client is wired behind optional `EBAY_CREDENTIALS_FILE`,
+read only by the integration worker. It accepts bounded credential JSON containing
+exactly `clientId` and `clientSecret`. Tokens remain in memory; use the approved
+SOPS pipeline for eventual mounted credentials, never arguments, logs or images.
+No eBay credentials, enablement or deployment manifests are included here.
+
+An enabled eBay binding requires an owner-configured exact `ebayGtin` equal to
+`productId`. The worker independently checks the detail response identity, fixed
+price, condition, seller and ZIP shipping. Missing mandatory fees and warranty
+stay unknown. This adapter currently cannot produce qualifying eBay alerts until
+cost proof is established. Unreviewed warnings fail closed, preserving evidence.
+
+SQLite in the app retains a bounded search/detail cursor. One search and each
+item lookup require separate retailer-budget turns. Startup waits and shared
+five-minute floors still apply. OAuth has memory reuse, a one-minute mint floor
+and no automatic retry; a cold read can make one OAuth plus one Browse request
+within the45second claim, each with15second timeout. At ten results the complete
+cycle is at least55minutes, longer with jitter, retries or other watches. Offers
+still expire after15minutes; do not describe this as five-minute full coverage.
+
+The worker cache and sent-state are keyed by exact offer ID. After restart or
+unmute, due pending alerts receive canonical refresh within the same source
+budget, alternating with normal discovery work. Priority is capped after two
+failed refreshes per offer/policy; normal detail tasks also advance after two
+failures. Missing discovery results do not rearm alert fingerprints. The app and
+worker share the same versioned domain module and fail closed on policy mismatch.
+A failed item lookup invalidates only that listing's canonical cache entry. Failed
+searches retain existing detail evidence without changing its observation time;
+every delivery still requires independently fresh, qualifying detail evidence.
+Malformed tasks and failures from single-offer sources invalidate the binding cache.
+
+`scripts/probe-ebay.ts` is a separate one-shot investigation command. A dry run
+requires no credentials or network:
+
+```sh
+bun scripts/probe-ebay.ts --mode item --id 123456789012 --zip 10001
+```
+
+Only explicit `--probe` reads bounded credential JSON from stdin and performs one
+OAuth plus one Browse request. Output whitelists public evidence and excludes
+credentials/raw response bodies. Search accepts a verified GTIN; item mode accepts
+legacy or quoted REST item/variation IDs. Confirm Production Browse entitlement,
+product identity and complete cost semantics before proposing source activation.
+
 ## Trust and configuration
 
 Required environment:
 
 - `APP_BASE_URL`: fixed internal HTTPS origin, e.g. `https://deal-watch.local.<zone>`.
 - `WATCH_CONFIG_FILE`: mounted owner-approved JSON `{policyVersion, watches}`.
+- `EBAY_CREDENTIALS_FILE`: optional mounted eBay JSON, only for an approved eBay policy.
 - `DISCORD_WEBHOOK_FILE`: mounted fixed Discord webhook, when delivery is enabled.
 
 `ALLOW_LOCAL_HTTP=1` accepts localhost HTTP for isolated smoke tests only.
@@ -85,6 +132,24 @@ entrypoint. `/healthz` reports app-cycle readiness and whether Discord is config
 it does not assert retailer availability. Source freshness/errors remain visible
 in the dashboard. Credentials and upstream response bodies never enter logs.
 
+## Coordinated upgrade required
+
+This worker and the multi-offer app use policy version `2026-11-01.1`. The earlier
+activation draft uses `2026-10-31.1`. Do not deploy these revisions separately:
+review the app revision, published worker digest, activation image pin and mounted
+policy exported from the matching app as one change set. Re-encrypt the matching
+policy through the approved credential pipeline; never edit only its version string
+without verifying the complete policy identity. Mismatches stop collection and
+delivery; an old mounted version prevents worker startup.
+
+The app upgrade migrates SQLite to schema 3 after taking a mandatory backup. A
+previous image cannot read the newer schema. A rollback requires a reviewed restore
+of the pre-migration database, with collection stopped and the restored app/worker/
+policy versions matched. A registry image pin alone does not roll back data.
+Merging the app PR publishes and deploys it through the platform; local validation
+is not deployment approval. No deploying merge or credential change is authorized
+by this document.
+
 ## Deployment draft — not activated
 
 `deploy/` is intentionally outside the Flux-watched Kubernetes tree. It renders a
@@ -123,3 +188,13 @@ shopping request. This local-build draft does not complete that broader request.
 Primary references: [Bun HTMLRewriter](https://bun.sh/docs/runtime/html-rewriter),
 [Bun SQLite](https://bun.sh/docs/runtime/sqlite),
 [Discord webhooks](https://docs.discord.com/developers/resources/webhook#execute-webhook).
+
+
+`fixtures/sony-stock-comparison-20261101.json` is a factual subset captured
+2026-11-02T03:48:03Z (November 1 locally) from Sony's public US
+`/commercewebservices/ps-direct-us/products/productList?fields=BASIC&productCodes=1000050805,1000050328`.
+PS5 Pro was explicitly `outOfStock` at USD899; white DualSense controller was
+`inStock` at USD74 with ordinary ungated purchase flags. This corroborates the
+positive stock spelling, not PS5 Pro stock, ZIP fulfillment or every possible
+low-stock state. Unrecognized states still fail closed. No logged-in session,
+cart or purchase was used, and the comparison controller is not enabled by policy.

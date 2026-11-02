@@ -1,5 +1,5 @@
 /** Shared, credential-free wire contract and qualification rules. Integer USD cents only. */
-export const POLICY_VERSION = "2026-10-31.1";
+export const POLICY_VERSION = "2026-11-01.1";
 export type Retailer = "sony" | "costco" | "bestbuy" | "target" | "ebay";
 export const budgets: Record<Retailer, number> = {
   sony: 120_000,
@@ -19,6 +19,7 @@ export interface Binding {
   note: string;
   shippingPolicyZips?: string[];
   bundleExtraIds?: string[];
+  ebayGtin?: string;
 }
 export interface Watch {
   id: string;
@@ -106,6 +107,8 @@ export function validateWatch(w: Watch): void {
       b.pagePath.startsWith("//") ||
       typeof b.enabled !== "boolean" ||
       !text(b.note, 600) ||
+      (b.ebayGtin !== undefined && (b.retailer !== "ebay" || !/^\d{8,14}$/.test(b.ebayGtin))) ||
+      (b.retailer === "ebay" && b.enabled && (!b.ebayGtin || b.productId !== b.ebayGtin)) ||
       (b.shippingPolicyZips &&
         (!Array.isArray(b.shippingPolicyZips) ||
           b.shippingPolicyZips.length > 50 ||
@@ -205,6 +208,20 @@ export function parseOffer(value: unknown, now = Date.now()): Offer {
   } as Offer;
 }
 
+/** Bounded collection boundary; an empty successful result is distinct from a source error. */
+export const MAX_OFFERS_PER_SOURCE = 10;
+export function parseOffers(value: unknown, now = Date.now()): Offer[] {
+  if (!Array.isArray(value) || value.length > MAX_OFFERS_PER_SOURCE)
+    throw new Error("Invalid offer collection");
+  const offers = value.map((item) => parseOffer(item, now));
+  const ids = new Set<string>();
+  for (const offer of offers) {
+    if (ids.has(offer.id)) throw new Error("Duplicate offer identity");
+    ids.add(offer.id);
+  }
+  return offers;
+}
+
 /** Links are constructed from configured IDs, never an observation's supplied URL. */
 export function purchaseUrl(binding: Binding, offer?: Offer): string {
   const hosts: Record<Retailer, string> = {
@@ -214,6 +231,11 @@ export function purchaseUrl(binding: Binding, offer?: Offer): string {
     target: "www.target.com",
     ebay: "www.ebay.com",
   };
+  if (binding.retailer === "ebay" && offer) {
+    const rest = /^v1\|(\d{9,20})\|(\d{1,20})$/.exec(offer.id);
+    if (rest)
+      return `https://www.ebay.com/itm/${rest[1]}${rest[2] === "0" ? "" : "?var=" + rest[2]}`;
+  }
   if (binding.retailer === "ebay" && offer && /^\d{1,30}$/.test(offer.id))
     return `https://www.ebay.com/itm/${offer.id}`;
   return `https://${hosts[binding.retailer]}${binding.pagePath}`;
@@ -232,7 +254,8 @@ export function qualify(w: Watch, b: Binding, o: Offer, now = Date.now()): Quali
   if (
     o.shipping === "rejected" ||
     o.shipping === "unverified" ||
-    (o.shipping === "policy-supported" && !w.allowPolicyShipping)
+    (o.shipping === "policy-supported" &&
+      (!w.allowPolicyShipping || !b.shippingPolicyZips?.includes(w.zip)))
   )
     reasons.push("Shipping to destination unverified");
   const total =

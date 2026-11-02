@@ -1,0 +1,40 @@
+{
+  "products": [
+    {
+      "code": "1000050805",
+      "name": "PlayStation\u00ae5 Pro Console",
+      "validProductCode": true,
+      "purchasable": true,
+      "preOrderProduct": false,
+      "loginGated": false,
+      "psPlusGated": false,
+      "isMilitaryRestricted": false,
+      "stock": {
+        "stockLevelStatus": "outOfStock",
+        "isProductLowStock": false
+      },
+      "price": {
+        "value": 899.0,
+        "currencyIso": "USD"
+      }
+    },
+    {
+      "code": "1000050328",
+      "name": "DualSense\u00ae Wireless Controller - White - For PS5, PC, MAC & Mobile",
+      "validProductCode": true,
+      "purchasable": true,
+      "preOrderProduct": false,
+      "loginGated": false,
+      "psPlusGated": false,
+      "isMilitaryRestricted": false,
+      "stock": {
+        "stockLevelStatus": "inStock",
+        "isProductLowStock": false
+      },
+      "price": {
+        "value": 74.0,
+        "currencyIso": "USD"
+      }
+    }
+  ]
+}

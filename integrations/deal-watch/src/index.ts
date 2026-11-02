@@ -1,5 +1,6 @@
 import { readWebhook } from "./discord.ts";
 import { readPolicy } from "./policy.ts";
+import { EbayClient, readEbayCredentials } from "./ebay.ts";
 import { Worker } from "./worker.ts";
 const baseUrl = process.env.APP_BASE_URL;
 if (!baseUrl) throw new Error("APP_BASE_URL is required");
@@ -9,6 +10,9 @@ const webhook = process.env.DISCORD_WEBHOOK_FILE
 const watches = readPolicy(process.env.WATCH_CONFIG_FILE ?? "/run/credentials/watch-policy.json");
 const worker = new Worker({
   baseUrl,
+  ebay: process.env.EBAY_CREDENTIALS_FILE
+    ? new EbayClient(readEbayCredentials(process.env.EBAY_CREDENTIALS_FILE))
+    : undefined,
   webhook,
   watches,
   allowLocalHttp: process.env.ALLOW_LOCAL_HTTP === "1",
