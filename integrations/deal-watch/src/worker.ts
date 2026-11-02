@@ -157,11 +157,18 @@ export class Worker {
           | { offers: Offer[]; mode: "upsert" }
           | { discovery: string[] }
           | { error: string; retryAfterMs: number };
+        const key = `${watch.id}/${binding.id}`;
+        const task = claim.lease.task;
+        const itemId =
+          isObject(task) &&
+          task.kind === "item" &&
+          typeof task.itemId === "string" &&
+          /^v1\|\d{9,20}\|\d{1,20}$/.test(task.itemId)
+            ? task.itemId
+            : null;
         try {
-          const key = `${watch.id}/${binding.id}`;
           if (retailer === "ebay" && !this.options.ebay) throw new UpstreamError("unsupported");
           if (retailer === "ebay" && !binding.ebayGtin) throw new UpstreamError("invalid-data");
-          const task = claim.lease.task;
           if (retailer === "ebay" && isObject(task) && task.kind === "search") {
             const ids = discoveryIds(
               await this.options.ebay!.searchByGtin(binding.ebayGtin!, watch.zip),
@@ -170,24 +177,14 @@ export class Worker {
             const cache = this.cache.get(key);
             if (cache) for (const id of cache.keys()) if (!ids.includes(id)) cache.delete(id);
           } else {
-            if (
-              retailer === "ebay" &&
-              (!isObject(task) ||
-                task.kind !== "item" ||
-                typeof task.itemId !== "string" ||
-                !/^v1\|\d{9,20}\|\d{1,20}$/.test(task.itemId))
-            )
-              throw new UpstreamError("invalid-data");
+            if (retailer === "ebay" && itemId === null) throw new UpstreamError("invalid-data");
             const offer =
               retailer === "ebay"
                 ? parseEbay(
-                    await this.options.ebay!.getRestItem(
-                      (task as { itemId: string }).itemId,
-                      watch.zip,
-                    ),
+                    await this.options.ebay!.getRestItem(itemId!, watch.zip),
                     watch,
                     binding,
-                    (task as { itemId: string }).itemId,
+                    itemId!,
                     this.now(),
                   )
                 : await collect(watch, binding, this.fetcher, this.now());
@@ -213,7 +210,11 @@ export class Worker {
             failure.retryAfterMs,
           );
           this.floor.set(retailer, Math.max(this.floor.get(retailer) ?? 0, this.now() + delay));
-          this.cache.delete(`${watch.id}/${binding.id}`);
+          // A detail failure invalidates only that listing. Discovery failure
+          // does not disprove cached details or renew their freshness deadline.
+          if (retailer === "ebay" && itemId !== null) this.cache.get(key)?.delete(itemId);
+          else if (!(retailer === "ebay" && isObject(task) && task.kind === "search"))
+            this.cache.delete(key);
           result = { error: failure.code, retryAfterMs: delay };
         }
         // If scheduling/results cannot be persisted, stop this cycle; do not continue upstream work.

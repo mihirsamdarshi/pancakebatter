@@ -52,6 +52,10 @@ budget, alternating with normal discovery work. Priority is capped after two
 failed refreshes per offer/policy; normal detail tasks also advance after two
 failures. Missing discovery results do not rearm alert fingerprints. The app and
 worker share the same versioned domain module and fail closed on policy mismatch.
+A failed item lookup invalidates only that listing's canonical cache entry. Failed
+searches retain existing detail evidence without changing its observation time;
+every delivery still requires independently fresh, qualifying detail evidence.
+Malformed tasks and failures from single-offer sources invalidate the binding cache.
 
 `scripts/probe-ebay.ts` is a separate one-shot investigation command. A dry run
 requires no credentials or network:
@@ -127,6 +131,24 @@ credentials, an example policy and a loopback mock app. It exercises the actual
 entrypoint. `/healthz` reports app-cycle readiness and whether Discord is configured;
 it does not assert retailer availability. Source freshness/errors remain visible
 in the dashboard. Credentials and upstream response bodies never enter logs.
+
+## Coordinated upgrade required
+
+This worker and the multi-offer app use policy version `2026-11-01.1`. The earlier
+activation draft uses `2026-10-31.1`. Do not deploy these revisions separately:
+review the app revision, published worker digest, activation image pin and mounted
+policy exported from the matching app as one change set. Re-encrypt the matching
+policy through the approved credential pipeline; never edit only its version string
+without verifying the complete policy identity. Mismatches stop collection and
+delivery; an old mounted version prevents worker startup.
+
+The app upgrade migrates SQLite to schema 3 after taking a mandatory backup. A
+previous image cannot read the newer schema. A rollback requires a reviewed restore
+of the pre-migration database, with collection stopped and the restored app/worker/
+policy versions matched. A registry image pin alone does not roll back data.
+Merging the app PR publishes and deploys it through the platform; local validation
+is not deployment approval. No deploying merge or credential change is authorized
+by this document.
 
 ## Deployment draft — not activated
 
