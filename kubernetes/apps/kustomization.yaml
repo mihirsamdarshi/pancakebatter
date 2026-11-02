@@ -16,6 +16,7 @@ kind: Kustomization
 resources:
   - ./cert-manager
   - ./default
+  - ./deal-watch-integrations
   - ./downloads
   - ./flux-system
   - ./home

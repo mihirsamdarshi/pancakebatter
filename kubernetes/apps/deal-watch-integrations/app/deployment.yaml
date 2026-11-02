@@ -1,0 +1,79 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deal-watch-integrations
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: deal-watch-integrations
+  template:
+    metadata:
+      annotations:
+        checksum/runtime-config: 38c161af071a4ce2ff6985ca1a3669d0c735d65da3e5795432c4477fb9b065ee
+      labels:
+        app.kubernetes.io/name: deal-watch-integrations
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: deal-watch-integrations-registry
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-integrations@sha256:a6f17886d1e0bfb5f9674ec197630986b9080868ac628c290f3d1977b11ee109
+          env:
+            - name: APP_BASE_URL
+              value: https://deal-watch.${SECRET_DOMAIN_LOCAL}
+            - name: WATCH_CONFIG_FILE
+              value: /run/credentials/watch-policy.json
+            - name: DISCORD_WEBHOOK_FILE
+              value: /run/credentials/discord-webhook
+          ports:
+            - name: health
+              containerPort: 3000
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # Process startup is independent of upstream app/policy readiness.
+          startupProbe:
+            tcpSocket:
+              port: health
+            periodSeconds: 10
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 15
+          # No liveness restart loop for an upstream outage; readiness is the signal.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: credentials
+              mountPath: /run/credentials
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+        - name: credentials
+          secret:
+            secretName: deal-watch-integrations-credentials
+            defaultMode: 288 # 0440
