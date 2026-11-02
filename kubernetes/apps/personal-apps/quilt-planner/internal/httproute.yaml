@@ -1,10 +1,6 @@
 ---
 # The LAN address. Owned here, not by the app's bundle, so this repo decides
-# what is exposed on envoy-internal. The bundle still ships its own route named
-# quilt-planner for the same hostname until the app release drops it. Until
-# then GET and HEAD match `reads` (the more specific rule), but everything else
-# matches both catch-alls and Gateway API prefers the older route, the bundle's,
-# so writes only get the no-retry rule once that route is gone.
+# what is exposed on envoy-internal.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

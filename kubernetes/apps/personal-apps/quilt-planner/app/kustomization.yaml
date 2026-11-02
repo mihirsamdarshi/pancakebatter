@@ -1,5 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+# The Kustomization quilt-planner/quilt-planner comes from this folder, through
+# the personal-app component, and ../family and ../internal depend on it. Flate
+# reconciles only what a PR changes, so a PR that touches those two folders must
+# also touch this one, or Flate cannot find the dependency and fails.
 components:
   - ../../../../components/personal-app
 resources:
