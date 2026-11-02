@@ -37,7 +37,16 @@
 #      at reconcile time, so none of the checks above can see them. It runs
 #      first, so a missing ghcr-apps-read.sops.yaml is reported before
 #      kustomize trips over the file the kustomization lists. A tree without
-#      the app platform skips it.
+#      the app platform skips it;
+#   8. the Flux Operator web UI keeps a fixed identity: the flux-operator
+#      HelmRelease must set a non-empty
+#      spec.values.web.config.authentication.anonymous.username, unless
+#      spec.values.web.enabled is false (no UI). Without a web config the UI
+#      reads the cluster with the operator's own cluster-admin account for
+#      every caller, and a values edit that drops the block is otherwise valid.
+#      The same release must not set web.config.search.cached, FineGrained user
+#      actions, valuesFrom or postRenderers, which bypass or can replace that
+#      identity. A tree without that file fails: the template always renders it.
 # archive/ and other trees outside kubernetes/ are never read.
 #
 # Schemas fail closed: there is no -ignore-missing-schemas, so a typo in
@@ -309,6 +318,42 @@ validate_tree() {
         if [[ -s "$tmp/zone" ]]; then
             cat "$tmp/zone" >&2
             die '${SECRET_DOMAIN} is the bare zone: use ${SECRET_DOMAIN_LOCAL} for LAN names, or add the file to zone_allow'
+        fi
+
+        echo "=== flux-operator web UI has a fixed identity ==="
+        # See rbac.yaml next to the HelmRelease: the web config makes the UI send
+        # every request as this user, whose read-only role is the whole of what
+        # visitors can see. The chart still renders a valid release without it.
+        file=kubernetes/apps/flux-system/flux-operator/app/helmrelease.yaml
+        [[ -f "$file" ]] || die "$file is missing: the flux-operator web UI identity cannot be checked"
+        # Standalone commands, so that a failing yq aborts the run.
+        yq -N 'select(.kind == "HelmRelease" and .metadata.name == "flux-operator") | .metadata.name' "$file" >"$tmp/webui.found"
+        [[ "$(grep -c . "$tmp/webui.found")" == 1 ]] \
+            || die "$file: expected exactly one HelmRelease named flux-operator"
+        yq -N 'select(.kind == "HelmRelease" and .metadata.name == "flux-operator")
+            | .spec.values.web.enabled' "$file" >"$tmp/webui.enabled"
+        yq -N 'select(.kind == "HelmRelease" and .metadata.name == "flux-operator")
+            | .spec.values.web.config.authentication.anonymous.username // ""' "$file" >"$tmp/webui.name"
+        enabled="$(<"$tmp/webui.enabled")"
+        name="$(<"$tmp/webui.name")"
+        if [[ "$enabled" == false ]]; then
+            echo "--- web.enabled is false: no web UI to protect"
+        else
+            [[ -n "${name//[[:space:]]/}" ]] \
+                || die "$file: spec.values.web.config.authentication.anonymous.username is empty or missing, so the web UI would read the cluster as the operator (cluster-admin); set it, or set web.enabled: false"
+            # The read-only role does not bound these: the cached search index is
+            # built with the operator's account, FineGrained actions run as that
+            # account, and valuesFrom or postRenderers can replace the values.
+            yq -N 'select(.kind == "HelmRelease" and .metadata.name == "flux-operator")
+                | [.spec.values.web.config.search.cached != false and .spec.values.web.config.search.cached != null,
+                   .spec.values.web.userActions.access == "FineGrained",
+                   .spec.values.web.config.userActions.access == "FineGrained",
+                   (.spec.valuesFrom | length) > 0,
+                   (.spec.postRenderers | length) > 0]
+                | any' "$file" >"$tmp/webui.unsafe"
+            [[ "$(<"$tmp/webui.unsafe")" == false ]] \
+                || die "$file: web.config.search.cached, FineGrained user actions, valuesFrom and postRenderers are not allowed on this release, because they bypass or can replace the web UI's read-only identity"
+            echo "--- $file (web UI sends requests as '$name')"
         fi
     )
     echo "=== kubernetes manifests are valid ==="

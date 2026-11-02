@@ -1,0 +1,83 @@
+---
+# Identity of the Flux Operator Web UI. The UI authenticates every visitor as
+# the fixed user "flux-web-anon" (see the web.config values in
+# helmrelease.yaml) and sends each Kubernetes request as that user, so this
+# role is the whole of what the UI can read or change. Anyone who can reach the
+# Service sees exactly this and nothing more.
+#
+# Read only, on purpose:
+#   - No "secrets" and no "configmaps": the UI renders any object it can "get".
+#   - No "receivers": a Receiver's status.webhookPath acts as its secret URL.
+#     Flux kinds are listed one by one, not with a wildcard, so a kind added by
+#     a Flux upgrade stays hidden until someone checks its fields and adds it.
+#   - No "pods/log" and none of the custom verbs (reconcile, suspend, resume,
+#     restart, delete, download): without them the UI offers no action, and the
+#     API refuses the action, log and download routes.
+#   - "pods" is "list" only: the workload screens list pods to show their
+#     status. "get" would let the UI return a whole Pod.
+#   - Do not bind flux-web-user (its wildcard includes Secrets) or
+#     flux-web-admin to this user.
+#
+# What stays readable, so keep credentials out of it:
+#   - The workload screens show the whole spec of every Deployment,
+#     StatefulSet, DaemonSet and CronJob, including literal env values and
+#     args. Credentials must stay in secretKeyRef or envFrom, never in a
+#     literal env value or argument.
+#   - The spec of every listed Flux kind is readable too, including
+#     HelmRelease spec.values and Kustomization spec.postBuild.substitute, and
+#     Provider spec.address if it is set inline. Reference a Secret instead.
+#
+# The UI lists namespaces and the cached report with the operator's own
+# account, then keeps the namespaces where this user may "get" ResourceSets, so
+# the fluxcd.controlplane.io rule (resourcesets) must stay cluster-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: flux-web-anonymous
+rules:
+  - apiGroups: ["fluxcd.controlplane.io"]
+    resources: ["fluxinstances", "fluxreports", "resourcesets", "resourcesetinputproviders"]
+    verbs: ["get", "list"]
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources:
+      - "buckets"
+      - "externalartifacts"
+      - "gitrepositories"
+      - "helmcharts"
+      - "helmrepositories"
+      - "ocirepositories"
+    verbs: ["get", "list"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list"]
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["get", "list"]
+  - apiGroups: ["notification.toolkit.fluxcd.io"]
+    resources: ["alerts", "providers"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: flux-web-anonymous
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: flux-web-anonymous
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: flux-web-anon

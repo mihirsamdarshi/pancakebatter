@@ -11,3 +11,13 @@ spec:
   values:
     serviceMonitor:
       create: true
+    # Web UI on port 9080. Without a config the UI reads with the operator's own
+    # cluster-admin account, for every caller. Anonymous authentication makes it
+    # send each request as the fixed user below instead; rbac.yaml grants that
+    # user read access only. The chart turns this map into a Secret and mounts it.
+    web:
+      config:
+        authentication:
+          type: Anonymous
+          anonymous:
+            username: flux-web-anon
