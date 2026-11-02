@@ -254,7 +254,8 @@ export function qualify(w: Watch, b: Binding, o: Offer, now = Date.now()): Quali
   if (
     o.shipping === "rejected" ||
     o.shipping === "unverified" ||
-    (o.shipping === "policy-supported" && !w.allowPolicyShipping)
+    (o.shipping === "policy-supported" &&
+      (!w.allowPolicyShipping || !b.shippingPolicyZips?.includes(w.zip)))
   )
     reasons.push("Shipping to destination unverified");
   const total =

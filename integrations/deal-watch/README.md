@@ -188,3 +188,13 @@ shopping request. This local-build draft does not complete that broader request.
 Primary references: [Bun HTMLRewriter](https://bun.sh/docs/runtime/html-rewriter),
 [Bun SQLite](https://bun.sh/docs/runtime/sqlite),
 [Discord webhooks](https://docs.discord.com/developers/resources/webhook#execute-webhook).
+
+
+`fixtures/sony-stock-comparison-20261101.json` is a factual subset captured
+2026-11-02T03:48:03Z (November 1 locally) from Sony's public US
+`/commercewebservices/ps-direct-us/products/productList?fields=BASIC&productCodes=1000050805,1000050328`.
+PS5 Pro was explicitly `outOfStock` at USD899; white DualSense controller was
+`inStock` at USD74 with ordinary ungated purchase flags. This corroborates the
+positive stock spelling, not PS5 Pro stock, ZIP fulfillment or every possible
+low-stock state. Unrecognized states still fail closed. No logged-in session,
+cart or purchase was used, and the comparison controller is not enabled by policy.

@@ -378,3 +378,18 @@ test("a stale approved worker policy is reported and blocks collection and deliv
   expect(h.discordCalls).toBe(0);
   expect(h.statusReports[0]?.state).toBe("policy-mismatch");
 });
+
+test("captured Sony positive stock spelling does not turn PS5 Pro OOS into stock", () => {
+  const body = readFileSync(
+    new URL("../fixtures/sony-stock-comparison-20261101.json", import.meta.url),
+    "utf8",
+  );
+  const pro = { ...b, productId: "1000050805" };
+  expect(parseSony(body, w, pro).availability).toBe("out-of-stock");
+  const controller = { ...b, productId: "1000050328" };
+  expect(parseSony(body, w, controller).availability).toBe("in-stock");
+  expect(parseSony(body, w, controller).priceCents).toBe(7400);
+  const unknown = JSON.parse(body);
+  unknown.products[1].stock = { stockLevelStatus: "unverifiedLowStock", isProductLowStock: true };
+  expect(parseSony(JSON.stringify(unknown), w, controller).availability).toBe("unknown");
+});
