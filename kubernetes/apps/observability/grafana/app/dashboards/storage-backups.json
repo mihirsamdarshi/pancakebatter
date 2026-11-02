@@ -619,7 +619,7 @@
     {
       "type": "table",
       "title": "Days until node disk full",
-      "description": "Linear projection from the last 7 days of change in free space on the node disks (/var and the local-path disk). Only disks whose free space is shrinking appear; empty is good. Per-PVC projections are not possible: local volumes have no usage series.",
+      "description": "Linear projection from the last 7 days of change in free space on the node disks (/var and the local-path disk). Only disks projected to fill within a year appear; empty is good. Per-PVC projections are not possible: local volumes have no usage series.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -721,7 +721,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_filesystem_avail_bytes{mountpoint=~\"/var|/var/mnt/local-path\"} / (-deriv(node_filesystem_avail_bytes{mountpoint=~\"/var|/var/mnt/local-path\"}[7d]) > 0) / 86400 * on (instance) group_left (nodename) node_uname_info",
+          "expr": "node_filesystem_avail_bytes{mountpoint=~\"/var|/var/mnt/local-path\"} / (-deriv(node_filesystem_avail_bytes{mountpoint=~\"/var|/var/mnt/local-path\"}[7d]) > 0) / 86400 * on (instance) group_left (nodename) node_uname_info < 365",
           "format": "table",
           "instant": true
         }
