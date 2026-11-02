@@ -1,9 +1,9 @@
 ---
 # The Flux Operator's built-in Web UI (flux-operator Service, port name
-# http-web, 9080), on the internal gateway only. It is anonymous and read-only
-# (Secrets and ConfigMaps are refused), and the chart's NetworkPolicy already
-# admits any namespace. A standalone route: the flux-operator HelmRelease is
-# also consumed by bootstrap and stays untouched.
+# http-web, 9080), on the internal gateway only. Visitors get the fixed,
+# read-only flux-web-anon identity set in the flux-operator HelmRelease. Never
+# publish this route without that identity: with no web config the UI uses the
+# operator's own cluster-admin client.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

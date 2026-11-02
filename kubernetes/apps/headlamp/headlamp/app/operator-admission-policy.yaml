@@ -70,6 +70,12 @@ spec:
         object.metadata.?ownerReferences.orValue([]) == oldObject.metadata.?ownerReferences.orValue([]) &&
         object.metadata.?finalizers.orValue([]) == oldObject.metadata.?finalizers.orValue([])
       message: owner references and finalizers must not change
+    # Controllers act on workload metadata, for example Reloader's annotations
+    # and Flux's reconcile annotation.
+    - expression: >-
+        object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({}) &&
+        object.metadata.?annotations.orValue({}) == oldObject.metadata.?annotations.orValue({})
+      message: workload labels and annotations must not change
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

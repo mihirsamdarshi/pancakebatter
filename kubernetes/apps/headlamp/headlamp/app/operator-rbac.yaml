@@ -18,8 +18,10 @@ metadata:
 # Kubernetes fills `data.token` in. The owner reads it with
 #   kubectl -n headlamp get secret headlamp-operator-token \
 #     -o jsonpath='{.data.token}' | base64 -d
-# and pastes it into Headlamp's sign-in page. To revoke the login, delete this
-# Secret (Flux recreates it with a new token) or delete the ServiceAccount.
+# and pastes it into Headlamp's sign-in page. To revoke the login, delete the
+# ServiceAccount: Flux recreates it with a new UID, and that gives a new token.
+# Deleting only this Secret revokes nothing, because the token is derived from
+# the ServiceAccount UID and the Secret name, so it comes back identical.
 apiVersion: v1
 kind: Secret
 metadata:
