@@ -10,3 +10,4 @@ resources:
   - ./deal-watch.yaml
   - ./scratch.yaml
   - ./quilt-planner.yaml
+  - ./reports.yaml

@@ -1,0 +1,29 @@
+---
+# reports: a read-only site that serves static files baked into its image. It
+# writes nothing, so it has no backup parts; its volume stays empty. Delete this entry (and its
+# line in kustomization.yaml) to stop updating it; the workload keeps running
+# until it is removed by hand.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-reports
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/reports
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: reports
+    parts: [pullsecret, internal-route]
+    vars:
+      TITLE: Reports
+      DESCRIPTION: Research reports and notes
+      ICON: mdi-file-document-multiple

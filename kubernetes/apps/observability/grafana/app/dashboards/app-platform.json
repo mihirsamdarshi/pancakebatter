@@ -1,7 +1,7 @@
 {
   "title": "App platform",
   "uid": "app-platform",
-  "description": "The personal app platform (hello, deal-watch, scratch): workloads, resources, traffic through Envoy, volumes and backups.",
+  "description": "The personal app platform (hello, deal-watch, scratch, reports): workloads, resources, traffic through Envoy, volumes and backups.",
   "editable": false,
   "schemaVersion": 41,
   "tags": [
@@ -40,10 +40,10 @@
           "uid": "prometheus"
         },
         "query": {
-          "query": "label_values(kube_namespace_status_phase{namespace=~\"hello|deal-watch|scratch\"}, namespace)",
+          "query": "label_values(kube_namespace_status_phase{namespace=~\"hello|deal-watch|scratch|reports\"}, namespace)",
           "refId": "var-namespace"
         },
-        "definition": "label_values(kube_namespace_status_phase{namespace=~\"hello|deal-watch|scratch\"}, namespace)",
+        "definition": "label_values(kube_namespace_status_phase{namespace=~\"hello|deal-watch|scratch|reports\"}, namespace)",
         "refresh": 2,
         "sort": 1,
         "multi": true,
@@ -57,7 +57,7 @@
             "$__all"
           ]
         },
-        "allValue": "hello|deal-watch|scratch"
+        "allValue": "hello|deal-watch|scratch|reports"
       }
     ]
   },

@@ -6,6 +6,7 @@ resources:
   - ./hello
   - ./deal-watch
   - ./scratch
+  - ./reports
   - ./homepage
   # The Homepage Flux Kustomizations keep their identity in the `home` Flux
   # namespace (explicit metadata.namespace); they deploy into `homepage`.
