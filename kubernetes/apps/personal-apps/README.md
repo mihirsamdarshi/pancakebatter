@@ -488,9 +488,10 @@ accept routes from every namespace and a route in an app's namespace can attach
 to `envoy-internal` or `envoy-family` without any other change. Restricting
 `envoy-family` to labelled namespaces is a possible follow-up.
 
-- **Tailnet:** copy `quilt-planner/tailnet/` and the `quilt-planner-tailnet`
-  block in `quilt-planner/ks.yaml`. In `ingress.yaml`, change `tls.hosts` (the
-  Tailscale machine name) and the backend Service.
+- **Tailnet:** Quilt's own tailnet endpoint (`quilt-planner/tailnet/`, the
+  `quilts` Ingress on ProxyGroup `apps`) was retired in the move to the
+  platform; the folder is in Git history. Apps are reached from the tailnet
+  through the LAN subnet route and the internal address.
 - **Family:** copy `quilt-planner/family/` and the `quilt-planner-family` block
   in `network/family-apps/ks.yaml`. It has to live there, because it reads
   `cluster-secrets` in the `network` namespace. Two things must hold: the
