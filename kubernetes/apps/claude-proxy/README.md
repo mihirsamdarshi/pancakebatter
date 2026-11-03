@@ -96,7 +96,7 @@ sops decrypt kubernetes/apps/claude-proxy/app/credentials.sops.yaml | yq '.strin
 
 ### 3. `app/registry.sops.yaml` (read-only GHCR pull credential)
 
-This is a copy of `deal-watch-integrations/app/registry.sops.yaml` with only
+This is a copy of `personal-apps/deal-watch/integrations/app/registry.sops.yaml` with only
 `metadata.name` and `metadata.namespace` changed. It pulls from the same
 `ghcr.io/<owner>/<homelab-repo>/*` packages. The repo's sops rule sets
 `mac_only_encrypted`, so the MAC covers the encrypted value only and the
@@ -104,7 +104,7 @@ copy decrypts without re-encryption. To make it again (no plaintext involved):
 
 ```sh
 yq '.metadata.name = "claude-proxy-registry" | .metadata.namespace = "claude-proxy"' \
-  kubernetes/apps/deal-watch-integrations/app/registry.sops.yaml \
+  kubernetes/apps/personal-apps/deal-watch/integrations/app/registry.sops.yaml \
   > kubernetes/apps/claude-proxy/app/registry.sops.yaml
 ```
 

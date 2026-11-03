@@ -17,7 +17,6 @@ resources:
   - ./cert-manager
   - ./claude-proxy
   - ./default
-  - ./deal-watch-integrations
   - ./downloads
   - ./flux-system
   - ./headlamp
