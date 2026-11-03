@@ -9,3 +9,4 @@ resources:
   - ./hello.yaml
   - ./deal-watch.yaml
   - ./scratch.yaml
+  - ./quilt-planner.yaml

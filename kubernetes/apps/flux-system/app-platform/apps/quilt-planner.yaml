@@ -1,0 +1,48 @@
+---
+# quilt-planner: the first app moved onto the platform from its own Git
+# Kustomization (move plan D2). While `pin` is set, the digest the provider
+# exports is ignored: the workload runs exactly the pinned image.
+#
+# url: the monorepo package ghcr.io/<owner>/apps/quilt-planner does not exist
+# yet (it appears at D8). A provider whose package is missing exports nothing,
+# so the app would not render. Until D9b this entry therefore watches the
+# existing deploy bundle package, whose `main` tag is known to exist (the old
+# OCIRepository follows it). Its digest is never used because of `pin`. D9b
+# switches url to the monorepo package in the same PR that removes `pin`.
+#
+# parts is empty at D2: the workload only. The internal route, backup and
+# registry Secret stay Git-defined until later steps; the family route joins at
+# D5. netpol is off until D6, because the `quilts` tailnet Ingress proxies
+# into the pod and the default policy would block it.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-quilt-planner
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/quilt-planner-deploy
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: quilt-planner
+    parts: []
+    pin: sha256:ceddd6ccec835c4bc6f1c2ee8cc33eab140cbf127b71de5b364aee787c3217df
+    netpol: false
+    netpolReason: "tailnet Ingress proxies until D6"
+    vars:
+      IMAGE: ghcr.io/mihirsamdarshi/quilt-planner
+      PULL_SECRET: quilt-registry
+      CLAIM: quilt-data
+      STORAGE: 5Gi
+      STORAGE_CLASS: quilt-local-retain
+      HEALTH_PATH: /api/health
+      APP_UID: "1000"
+      APP_GID: "1000"
