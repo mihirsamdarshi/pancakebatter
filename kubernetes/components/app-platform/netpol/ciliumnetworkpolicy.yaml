@@ -14,7 +14,8 @@
 #
 # The sqlite-export and VolSync mover pods are selected too and need no network
 # beyond this: the export reads the node-local PVC, and the mover's repository
-# is an NFS volume that the kubelet mounts, which is outside pod policy.
+# is an NFS volume that the kubelet mounts, which is outside pod policy. An
+# egress mode widens the policy for every pod in the namespace, movers included.
 # Prometheus scraping is not allowed (apps expose no metrics); an app that
 # needs it needs a reviewed addition.
 apiVersion: cilium.io/v2

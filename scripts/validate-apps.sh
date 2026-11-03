@@ -335,8 +335,8 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
     # netpol and egress
     (if ($d | has("netpol")) and ($d.netpol | type) != "boolean" then "netpol must be true or false" else empty end),
     (if $d.netpol == false and (($d.netpolReason | isstr | not) or ($d.netpolReason | gsub("\\s"; "") == "")) then "netpol: false needs a non-empty netpolReason" else empty end),
-    (if ($d | has("egress")) and (["none", "internet"] | index($d.egress) == null) then "egress must be none or internet" else empty end),
-    (if $d.netpol == false and $d.egress == "internet" then "egress: internet has no meaning with netpol: false" else empty end),
+    (if ($d | has("egress")) and ((($d.egress | type) != "string") or (["none", "internet", "claude-proxy"] | index($d.egress) == null)) then "egress must be none, internet or claude-proxy" else empty end),
+    (if $d.netpol == false and ($d.egress // "none") != "none" then "egress: \($d.egress) has no meaning with netpol: false" else empty end),
     # pin
     (if ($d | has("pin")) and (($d.pin | isstr | not) or ($d.pin | test("^sha256:[0-9a-f]{64}$") | not)) then "pin must be sha256:<64 hex digits>" else empty end),
     # env
@@ -454,6 +454,8 @@ def expected_egress: [
   {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "kube-system", "k8s-app": "kube-dns"}}],
    toPorts: [{ports: [{port: "53", protocol: "UDP"}, {port: "53", protocol: "TCP"}]}]}
 ];
+def claude_proxy_rule: {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "claude-proxy", "app.kubernetes.io/name": "claude-proxy"}}],
+   toPorts: port3000};
 def internet_except: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16", "192.0.0.0/24", "198.18.0.0/15", "224.0.0.0/3"];
 . as $all
 | [.[] | select(type == "object" and (.kind | IN("CiliumNetworkPolicy", "CiliumClusterwideNetworkPolicy", "NetworkPolicy")))] as $pols
@@ -477,6 +479,8 @@ def internet_except: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0
                | (if ($r | keys) != ["toCIDRSet"] or ($r.toCIDRSet | length) != 1 or ($r.toCIDRSet[0] | keys) != ["cidr", "except"] or $r.toCIDRSet[0].cidr != "0.0.0.0/0" then "the internet rule must be a single toCIDRSet of 0.0.0.0/0 with an except list" else empty end),
                  (if ($r.toCIDRSet[0].except | sort) != (internet_except | sort) then "the except list must be exactly \(internet_except | join(", "))" else empty end)
              end)
+          elif $egress == "claude-proxy" then
+            (if $p.spec.egress != expected_egress + [claude_proxy_rule] then "egress must be the own-namespace rule, kube-dns on 53, then the claude-proxy pods on 3000/TCP" else empty end)
           elif $p.spec.egress != expected_egress then "egress is not: own namespace, kube-dns on 53 UDP and TCP"
           else empty end),
          (if ($p | tojson | test("\"world\"|kube-apiserver|toEntities|toFQDNs")) then "the policy has a world, kube-apiserver, toEntities or toFQDNs rule" else empty end)

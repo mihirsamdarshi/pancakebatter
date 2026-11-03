@@ -146,7 +146,7 @@ variable.
 | `parts`                                         | `[pullsecret, internal-route, backup]` | Pieces to add (below). `namespace` is not a part                                                                                                                                                                                      |
 | `netpol`                                        | `true`                                 | The default-deny network policy. `false` needs a `netpolReason`                                                                                                                                                                       |
 | `netpolReason`                                  | none                                   | Free text, required with `netpol: false`. The validator prints every exemption with its reason                                                                                                                                        |
-| `egress`                                        | `none`                                 | `none` (DNS and the own namespace only) or `internet` (public addresses on all ports, never private ranges)                                                                                                                           |
+| `egress`                                        | `none`                                 | `none` (DNS and the own namespace only), `internet` (public addresses on all ports, never private ranges) or `claude-proxy` (the claude-proxy pods on 3000/TCP only)                                                                                                                           |
 | `pin`                                           | none                                   | A `sha256:` digest that wins over the registry's: the rollback and migration lever                                                                                                                                                    |
 | `env`                                           | none                                   | Plain extra environment. Keys uppercase, not `N`, `Y`, `ON`, `OFF`, and not credential-like (`TOKEN`, `SECRET`, `PASS`, `PWD`, `KEY`, `AUTH`, `PRIVATE`, `CERT`, ...). A literal `$` is written `$$` (`$${X}` gives a literal `${X}`) |
 | `path`                                          | the base                               | The escape hatch (below). No trailing slash                                                                                                                                                                                           |
@@ -173,8 +173,9 @@ see `network/family-apps/README.md`; needs `vars.FAMILY_HOST`),
 `family-route-legacy` (the transitional `family.${SECRET_DOMAIN_LOCAL}` name;
 list it after `family-route`), `backup` (the `volsync` component) and
 `backup-sqlite` (the `sqlite-export` component, with no service-account token).
-The `netpol` and `egress` keys add the `netpol` and `netpol-egress-internet`
-components after the parts, so an explicit `parts: []` still gets the policy.
+The `netpol` and `egress` keys add the `netpol` component and then
+`netpol-egress-internet` or `netpol-egress-claude-proxy` after the parts, so an
+explicit `parts: []` still gets the policy.
 
 ### The container contract
 
@@ -205,7 +206,11 @@ namespace with an empty `endpointSelector`). Ingress comes only from the pods of
 the namespace, the two Envoy gateways on port 3000 and the kubelet (probes).
 Egress goes only to cluster DNS and the namespace's own pods. `egress: internet`
 adds public addresses on every port, never the private ranges (LAN, VLANs,
-Tailscale, cluster). Nothing reaches the Kubernetes API, the NAS or other
+Tailscale, cluster). `egress: claude-proxy` adds only the claude-proxy pods on
+3000/TCP, for an app that runs a Claude agent: the proxy, outside the platform,
+holds the Anthropic API key and caps daily spend (`kubernetes/apps/claude-proxy/`,
+added by its own change),
+and admits only the namespaces its own policy lists. Nothing reaches the Kubernetes API, the NAS or other
 namespaces. DNS remains a tunnelling channel for a compromised app. Prometheus
 cannot scrape an app; that would be a reviewed addition.
 
