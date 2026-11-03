@@ -73,7 +73,7 @@ an existing one. The subshell keeps `pipefail` out of your shell. Replace the
 
 ```sh
 ( set -o pipefail
-  f=kubernetes/apps/claude-proxy/app/credentials.sops.yaml
+  f=kubernetes/apps/personal-apps/claude-proxy/app/credentials.sops.yaml
   op read 'op://<vault>/<item>/<field>' \
     | kubectl create secret generic claude-proxy-credentials --namespace claude-proxy --from-file=anthropic-api-key=/dev/stdin --dry-run=client -o yaml \
     | yq '.type = "Opaque" | .stringData = (.data | map_values(@base64d)) | del(.data) | del(.metadata.creationTimestamp)' \
@@ -88,9 +88,9 @@ is harmless: the proxy trims the key.
 Check the shape only, never the value:
 
 ```sh
-sops decrypt kubernetes/apps/claude-proxy/app/credentials.sops.yaml | yq '.stringData | keys'
+sops decrypt kubernetes/apps/personal-apps/claude-proxy/app/credentials.sops.yaml | yq '.stringData | keys'
 # - anthropic-api-key
-sops decrypt kubernetes/apps/claude-proxy/app/credentials.sops.yaml | yq '.stringData["anthropic-api-key"] | length'
+sops decrypt kubernetes/apps/personal-apps/claude-proxy/app/credentials.sops.yaml | yq '.stringData["anthropic-api-key"] | length'
 # the key's length, not 0
 ```
 
@@ -105,7 +105,7 @@ copy decrypts without re-encryption. To make it again (no plaintext involved):
 ```sh
 yq '.metadata.name = "claude-proxy-registry" | .metadata.namespace = "claude-proxy"' \
   kubernetes/apps/personal-apps/deal-watch/integrations/app/registry.sops.yaml \
-  > kubernetes/apps/claude-proxy/app/registry.sops.yaml
+  > kubernetes/apps/personal-apps/claude-proxy/app/registry.sops.yaml
 ```
 
 When the deal-watch token is rotated, copy it again. To give the proxy its own
@@ -116,14 +116,14 @@ namespace.
 Check the shape only:
 
 ```sh
-sops decrypt kubernetes/apps/claude-proxy/app/registry.sops.yaml | yq '.type'
+sops decrypt kubernetes/apps/personal-apps/claude-proxy/app/registry.sops.yaml | yq '.type'
 # kubernetes.io/dockerconfigjson
 ```
 
 ### 4. Validate
 
 ```sh
-git status --short kubernetes/apps/claude-proxy   # the two .sops.yaml files, no .tmp file
+git status --short kubernetes/apps/personal-apps/claude-proxy   # the two .sops.yaml files, no .tmp file
 bash scripts/validate-kubernetes.sh
 ```
 
@@ -172,6 +172,6 @@ every request, so the new key is used once the kubelet updates the mounted
 file (about a minute), without a restart. Then revoke the old key in the
 Console.
 
-To retire, remove `./claude-proxy` from `kubernetes/apps/kustomization.yaml`
+To retire, remove `./claude-proxy` from `kubernetes/apps/personal-apps/kustomization.yaml`
 and this folder in one change, and revoke the key. The namespace has
 `prune: disabled`, so delete it by hand afterwards.

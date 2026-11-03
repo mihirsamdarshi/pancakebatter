@@ -1,5 +1,6 @@
 ---
-# Proposed activation: outside the credential-free personal app platform.
+# Claude API proxy: outside the credential-free app platform, next to the
+# platform apps in personal-apps/ that call it.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -10,7 +11,7 @@ spec:
     provider: sops
   interval: 1h
   retryInterval: 2m
-  path: ./kubernetes/apps/claude-proxy/app
+  path: ./kubernetes/apps/personal-apps/claude-proxy/app
   prune: true
   sourceRef:
     kind: GitRepository

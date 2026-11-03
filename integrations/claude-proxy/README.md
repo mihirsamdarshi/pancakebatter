@@ -8,7 +8,7 @@ proxy reaches `api.anthropic.com`.
 
 This is infrastructure outside the personal app platform, like the Deal Watch
 integrations worker. The Kubernetes manifests are in
-`kubernetes/apps/claude-proxy/`; its README has the activation steps.
+`kubernetes/apps/personal-apps/claude-proxy/`; its README has the activation steps.
 
 ## Routes
 
