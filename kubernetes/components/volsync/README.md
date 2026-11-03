@@ -93,6 +93,7 @@ ten minutes before.
 | hello (platform entry) | 12:05          | 12:15                 |
 | deal-watch (draft)     | 12:20          | 12:30                 |
 | scratch (throwaway)    | 12:35          | 12:45                 |
+| reports (no backup)    | none           | none: writes nothing  |
 | next platform apps     | 12:50, 13:05 … | 13:00, 13:15 …        |
 
 ## SQLite
