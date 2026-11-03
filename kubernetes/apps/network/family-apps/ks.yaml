@@ -28,7 +28,7 @@ spec:
   dependsOn:
     - name: family-apps
       namespace: network
-    - name: quilt-planner
+    - name: quilt-planner-bootstrap
       namespace: quilt-planner
   interval: 1h
   path: ./kubernetes/apps/personal-apps/quilt-planner/family

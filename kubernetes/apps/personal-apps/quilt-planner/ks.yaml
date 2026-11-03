@@ -30,7 +30,7 @@ spec:
   dependsOn:
     - name: tailscale-apps
       namespace: tailscale
-    - name: quilt-planner
+    - name: quilt-planner-bootstrap
       namespace: quilt-planner
   interval: 1h
   path: ./kubernetes/apps/personal-apps/quilt-planner/tailnet
@@ -51,7 +51,7 @@ metadata:
   name: quilt-planner-backup
 spec:
   dependsOn:
-    - name: quilt-planner
+    - name: quilt-planner-bootstrap
       namespace: quilt-planner
     - name: volsync
       namespace: volsync-system
