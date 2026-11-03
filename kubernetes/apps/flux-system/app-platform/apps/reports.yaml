@@ -32,8 +32,9 @@ spec:
       DESCRIPTION: Research reports and notes
       ICON: mdi-file-document-multiple
       # One agent run at a time; the Agent SDK's hosting guide starts at 1 GiB and 1 CPU per agent.
+      # STORAGE stays at the 1Gi default: local-retain cannot expand a bound volume, and the
+      # reports plus their git history are tens of MB.
       CPU: 100m
       MEMORY: 512Mi
       MEMORY_LIMIT: 2Gi
-      STORAGE: 2Gi
       VOLSYNC_SCHEDULE: "0 13 * * *"
