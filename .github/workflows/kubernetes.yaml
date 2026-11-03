@@ -47,6 +47,7 @@ jobs:
             scripts/validate-kubernetes.sh
             scripts/validate-apps.sh
             scripts/validate-apps/**/*
+            scripts/validate-rules/**/*
             .github/workflows/kubernetes.yaml
             .github/actions/changed-files/*
             .mise/config.toml

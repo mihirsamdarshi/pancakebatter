@@ -1,0 +1,69 @@
+---
+# The truenas-monitoring app on TrueNAS (VM 999) listens on its VLAN 10
+# address only. Two jobs, each with an allowlist (keep what is
+# listed, drop the rest), so the cardinality stays low: about 160 series from
+# node_exporter and about 110 from smartctl_exporter on November 2, 2026.
+#
+# The job name is not `node-exporter` on purpose: the chart's node rules and
+# the Node Exporter dashboards select that job and would mix TrueNAS into the
+# Kubernetes nodes (ZFS ARC alone would trip NodeMemoryHigh).
+#
+# sampleLimit counts the series that survive the allowlist. A breach fails the
+# scrape, and ScrapeSampleLimitHit (guardrails) says so.
+#
+# The default scrape class (`guardrails`, kube-prometheus-stack) applies here
+# too; it drops histogram buckets and the go_*/workqueue_*/... families that
+# it does not list, none of which these two jobs need.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: truenas-node
+spec:
+  jobName: truenas-node
+  scrapeInterval: 60s
+  scrapeTimeout: 30s
+  sampleLimit: 1000
+  staticConfigs:
+    - targets:
+        - 192.168.10.75:9100
+      labels:
+        host: truenas
+  metricRelabelings:
+    # Everything not listed is dropped. That includes the 1,040 per-dataset
+    # node_zfs_zpool_dataset_* series (dataset space comes from
+    # node_filesystem_*), the go_* and process_* families, and the rest of
+    # the ARC statistics.
+    - sourceLabels: [__name__]
+      action: keep
+      regex: node_cpu_seconds_total|node_load(1|5|15)|node_memory_(MemTotal|MemAvailable|MemFree|Buffers|Cached|SwapTotal|SwapFree)_bytes|node_filesystem_(size|avail|free)_bytes|node_filesystem_readonly|node_network_(receive|transmit)_(bytes|packets|errs|drop)_total|node_zfs_arc_(size|c|c_max|c_min|hits|misses|demand_data_hits|demand_data_misses|demand_metadata_hits|demand_metadata_misses|prefetch_data_hits|prefetch_data_misses|memory_throttle_count)|node_zfs_zpool_state|node_textfile_(scrape_error|mtime_seconds)|node_boot_time_seconds|truenas_zpool_.*
+---
+# smartctl_exporter polls the disks itself every 5 minutes and serves the last
+# good result, so 120 s here keeps every sample inside Prometheus's 5-minute
+# look-back window without touching the disks more often.
+#
+# smartctl_device_attribute comes in four forms per attribute (value, worst,
+# thresh, raw). Only the raw value of the attributes below is kept:
+#   5 reallocated, 9 power-on hours, 187 reported uncorrectable, 188 command
+#   timeout, 194 temperature, 197 current pending, 198 offline uncorrectable,
+#   199 UDMA CRC errors.
+# The label match joins __name__, attribute_id and attribute_value_type with
+# ";". Series that carry no attribute labels end in ";;".
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: truenas-smart
+spec:
+  jobName: truenas-smart
+  scrapeInterval: 120s
+  scrapeTimeout: 60s
+  sampleLimit: 600
+  staticConfigs:
+    - targets:
+        - 192.168.10.75:9633
+      labels:
+        host: truenas
+  metricRelabelings:
+    - sourceLabels: [__name__, attribute_id, attribute_value_type]
+      separator: ";"
+      action: keep
+      regex: (smartctl_device_attribute;(5|9|187|188|194|197|198|199);raw)|((smartctl_device(_smart_status|_temperature|_self_test_log_error_count|_error_log_count|_power_on_seconds|_media_errors|_critical_warning|_percentage_used|_available_spare|_smartctl_exit_status)?|smartctl_devices);;)

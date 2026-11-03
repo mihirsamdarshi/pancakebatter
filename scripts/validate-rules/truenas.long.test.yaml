@@ -1,0 +1,143 @@
+# Long-horizon unit tests for prometheusrule-truenas.yaml (35-day scrub age, 2-day history, 36-hour scan).
+# Evaluation and input steps are 1 h so the real 35-day constant can be tested; `for` durations are
+# whole hours, so one evaluation step equals one hour.
+rule_files:
+  - truenas.rules.yaml
+evaluation_interval: 1h
+tests:
+  - name: 'a finished scrub 36 days old, not running: overdue fires (real 35 day constant)'
+    interval: 1h
+    input_series:
+      - series: 'truenas_zpool_scan_end_timestamp_seconds{zpool="nasty",function="SCRUB"}'
+        values: '0+0x960'
+      - series: 'truenas_zpool_scan_in_progress{zpool="nasty",function="SCRUB"}'
+        values: '0+0x960'
+      - series: 'truenas_zpool_scan_present{zpool="nasty"}'
+        values: '1+0x960'
+    alert_rule_test:
+      - eval_time: 34d
+        alertname: TrueNASScrubOverdue
+        exp_alerts: []
+      - eval_time: 36d
+        alertname: TrueNASScrubOverdue
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              zpool: 'nasty'
+              function: 'SCRUB'
+            exp_annotations:
+              description: 'Scrubs are scheduled monthly. Check the TrueNAS scrub task and zpool status.'
+              summary: 'TrueNAS pool nasty: the last scrub ended more than 35 days ago'
+  - name: 'a scrub is running: the old end time does not alert'
+    interval: 1h
+    input_series:
+      - series: 'truenas_zpool_scan_end_timestamp_seconds{zpool="nasty",function="SCRUB"}'
+        values: '0+0x960'
+      - series: 'truenas_zpool_scan_in_progress{zpool="nasty",function="SCRUB"}'
+        values: '1+0x960'
+      - series: 'truenas_zpool_scan_present{zpool="nasty"}'
+        values: '1+0x960'
+    alert_rule_test:
+      - eval_time: 38d
+        alertname: TrueNASScrubOverdue
+        exp_alerts: []
+  - name: 'a scrub is running and the sidecar wrote no end time: no overdue alert'
+    interval: 1h
+    input_series:
+      - series: 'truenas_zpool_scan_in_progress{zpool="nasty",function="SCRUB"}'
+        values: '1+0x960'
+      - series: 'truenas_zpool_scan_present{zpool="nasty"}'
+        values: '1+0x960'
+    alert_rule_test:
+      - eval_time: 38d
+        alertname: TrueNASScrubOverdue
+        exp_alerts: []
+      - eval_time: 35h
+        alertname: TrueNASScanRunningLong
+        exp_alerts: []
+      - eval_time: 38h
+        alertname: TrueNASScanRunningLong
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              zpool: 'nasty'
+              function: 'SCRUB'
+            exp_annotations:
+              description: 'A scrub normally takes about 7 hours on this pool. Check for a stalled or paused scan.'
+              summary: 'TrueNAS pool nasty: a SCRUB has run for more than 36 hours'
+  - name: 'a cancelled scrub (no end time, not running): no overdue alert, history unknown after 2 days'
+    interval: 1h
+    input_series:
+      - series: 'truenas_zpool_scan_in_progress{zpool="nasty",function="SCRUB"}'
+        values: '0+0x960'
+      - series: 'truenas_zpool_scan_present{zpool="nasty"}'
+        values: '1+0x960'
+    alert_rule_test:
+      - eval_time: 38d
+        alertname: TrueNASScrubOverdue
+        exp_alerts: []
+      - eval_time: 40h
+        alertname: TrueNASScrubHistoryUnknown
+        exp_alerts: []
+      - eval_time: 50h
+        alertname: TrueNASScrubHistoryUnknown
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              zpool: 'nasty'
+            exp_annotations:
+              description: 'The pool was never scanned, or the latest scan is a resilver or a cancelled scrub. Run a scrub.'
+              summary: 'TrueNAS pool nasty: no finished scrub on record'
+  - name: 'a resilver replaced the scrub record: history unknown after 2 days'
+    interval: 1h
+    input_series:
+      - series: 'truenas_zpool_scan_end_timestamp_seconds{zpool="nasty",function="RESILVER"}'
+        values: '0+0x960'
+      - series: 'truenas_zpool_scan_in_progress{zpool="nasty",function="RESILVER"}'
+        values: '0+0x960'
+      - series: 'truenas_zpool_scan_present{zpool="nasty"}'
+        values: '1+0x960'
+    alert_rule_test:
+      - eval_time: 40h
+        alertname: TrueNASScrubHistoryUnknown
+        exp_alerts: []
+      - eval_time: 50h
+        alertname: TrueNASScrubHistoryUnknown
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              zpool: 'nasty'
+            exp_annotations:
+              description: 'The pool was never scanned, or the latest scan is a resilver or a cancelled scrub. Run a scrub.'
+              summary: 'TrueNAS pool nasty: no finished scrub on record'
+  - name: 'a pool that was never scanned: history unknown after 2 days'
+    interval: 1h
+    input_series:
+      - series: 'truenas_zpool_scan_present{zpool="nasty"}'
+        values: '0+0x960'
+    alert_rule_test:
+      - eval_time: 50h
+        alertname: TrueNASScrubHistoryUnknown
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              zpool: 'nasty'
+            exp_annotations:
+              description: 'The pool was never scanned, or the latest scan is a resilver or a cancelled scrub. Run a scrub.'
+              summary: 'TrueNAS pool nasty: no finished scrub on record'
+  - name: 'a recent finished scrub: neither alert'
+    interval: 1h
+    input_series:
+      - series: 'truenas_zpool_scan_end_timestamp_seconds{zpool="nasty",function="SCRUB"}'
+        values: '3456000+3600x960'
+      - series: 'truenas_zpool_scan_in_progress{zpool="nasty",function="SCRUB"}'
+        values: '0+0x960'
+      - series: 'truenas_zpool_scan_present{zpool="nasty"}'
+        values: '1+0x960'
+    alert_rule_test:
+      - eval_time: 38d
+        alertname: TrueNASScrubOverdue
+        exp_alerts: []
+      - eval_time: 38d
+        alertname: TrueNASScrubHistoryUnknown
+        exp_alerts: []
