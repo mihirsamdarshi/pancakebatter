@@ -1,0 +1,149 @@
+---
+# Alloy on every node: reads the pod logs from /var/log/pods and pushes them to
+# Loki. Pod logs only; node and syslog sources arrive in later changes.
+#
+# Labels (anything not listed stays in the line or in structured metadata):
+# job=pods, namespace, app, container; pod and node as structured metadata.
+# Per node: 50 lines/s (burst 500) and 8 KB per line. Loki's own byte cap
+# (50 KB/s for all sources) is the hard limit.
+#
+# Host networking: Alloy's port 12345 (UI and /metrics) binds on the node IP,
+# VLAN 10 only and without auth. Accepted. The root filesystem is read-only; the
+# data directory is an emptyDir (positions are not kept across restarts:
+# tail_from_end).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alloy
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: alloy
+  interval: 1h
+  values:
+    controller:
+      type: daemonset
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      volumes:
+        extra:
+          - name: data
+            emptyDir: {}
+    alloy:
+      enableReporting: false
+      clustering:
+        enabled: false
+      storagePath: /var/lib/alloy
+      mounts:
+        varlog: true
+        extra:
+          - name: data
+            mountPath: /var/lib/alloy
+      extraEnv:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+      resources:
+        requests:
+          cpu: 30m
+          memory: 96Mi
+        limits:
+          memory: 256Mi
+      securityContext:
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+      configMap:
+        content: |
+          discovery.kubernetes "pods" {
+            role = "pod"
+            selectors {
+              role  = "pod"
+              field = "spec.nodeName=" + sys.env("NODE_NAME")
+            }
+          }
+
+          discovery.relabel "pods" {
+            targets = discovery.kubernetes.pods.targets
+            rule {
+              source_labels = ["__meta_kubernetes_namespace"]
+              target_label  = "namespace"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app", "__meta_kubernetes_pod_container_name"]
+              separator     = ";"
+              regex         = "^;*([^;]+).*$"
+              target_label  = "app"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              target_label  = "container"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_name"]
+              target_label  = "pod"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_node_name"]
+              target_label  = "node"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+              separator     = "/"
+              target_label  = "__path__"
+              replacement   = "/var/log/pods/*$1/*.log"
+            }
+          }
+
+          local.file_match "pods" {
+            path_targets = discovery.relabel.pods.output
+          }
+
+          loki.source.file "pods" {
+            targets       = local.file_match.pods.targets
+            tail_from_end = true
+            forward_to    = [loki.process.pods.receiver]
+          }
+
+          loki.process "pods" {
+            stage.cri {}
+            stage.drop {
+              longer_than = "8KB"
+            }
+            stage.limit {
+              rate  = 50
+              burst = 500
+              drop  = true
+            }
+            stage.structured_metadata {
+              values = {
+                pod  = "",
+                node = "",
+              }
+            }
+            stage.label_drop {
+              values = ["pod", "node", "filename"]
+            }
+            stage.static_labels {
+              values = {
+                job = "pods",
+              }
+            }
+            forward_to = [loki.write.default.receiver]
+          }
+
+          loki.write "default" {
+            endpoint {
+              url = "http://loki.observability.svc.cluster.local:3100/loki/api/v1/push"
+            }
+          }
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+      # Only what the rules and the Logs dashboard use.
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          action: keep
+          regex: loki_(source_syslog_.*|process_dropped_lines_total|write_(sent|dropped)_(bytes|entries)_total|write_batch_retries_total|write_request_duration_seconds_(sum|count))|alloy_build_info|alloy_resources_(process_resident_memory_bytes|process_cpu_seconds_total)

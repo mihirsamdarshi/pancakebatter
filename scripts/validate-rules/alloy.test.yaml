@@ -1,0 +1,104 @@
+# Unit tests for prometheusrule-alloy.yaml, run by scripts/validate-kubernetes.sh with promtool.
+# Series use the Alloy metric names (loki_write_*, loki_process_*, loki_source_syslog_*); the names are
+# confirmed against a running Alloy v1.21.1 in the live checks. Time constants are the real ones.
+rule_files:
+  - alloy.rules.yaml
+evaluation_interval: 1m
+tests:
+  - name: 'a source goes over its line cap: dropped lines alert, per component'
+    interval: 1m
+    input_series:
+      - series: 'loki_process_dropped_lines_total{component_id="loki.process.syslog"}'
+        values: '0+0x10 5+5x50'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: AlloyLinesRateLimited
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: AlloyLinesRateLimited
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              component_id: 'loki.process.syslog'
+            exp_annotations:
+              description: 'A source went over its line-rate cap or sent lines over the size limit. Expect this once after a TrueNAS reboot (boot burst); otherwise find the noisy source.'
+              summary: 'Alloy dropped log lines in loki.process.syslog'
+  - name: 'no dropped lines: quiet'
+    interval: 1m
+    input_series:
+      - series: 'loki_process_dropped_lines_total{component_id="loki.process.syslog"}'
+        values: '3+0x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: AlloyLinesRateLimited
+        exp_alerts: []
+  - name: 'Alloy gives up on entries'
+    interval: 1m
+    input_series:
+      - series: 'loki_write_dropped_entries_total'
+        values: '0+0x10 4+4x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: AlloyWriteDropping
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: AlloyWriteDropping
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+            exp_annotations:
+              description: 'Loki was unreachable or refused them for longer than Alloy retries. The entries are lost (accepted: logs may be lost).'
+              summary: 'Alloy gave up on log entries it could not send to Loki'
+  - name: 'pushes are retried for 20 minutes'
+    interval: 1m
+    input_series:
+      - series: 'loki_write_batch_retries_total'
+        values: '0+3x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AlloyWriteRetrying
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: AlloyWriteRetrying
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+            exp_annotations:
+              description: 'Loki is unreachable, slow, or answering 429 (the byte cap) or 5xx.'
+              summary: 'Alloy keeps retrying pushes to Loki'
+  - name: 'no retries'
+    interval: 1m
+    input_series:
+      - series: 'loki_write_batch_retries_total'
+        values: '7+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: AlloyWriteRetrying
+        exp_alerts: []
+  - name: 'syslog parsing errors'
+    interval: 1m
+    input_series:
+      - series: 'loki_source_syslog_parsing_errors_total{component_id="loki.source.syslog.truenas"}'
+        values: '0+0x10 2+2x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SyslogParsingErrors
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: SyslogParsingErrors
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              component_id: 'loki.source.syslog.truenas'
+            exp_annotations:
+              description: 'A sender uses another format or framing than the listener expects (TrueNAS: RFC 5424, octet counting; UCG: RFC 3164).'
+              summary: 'Alloy cannot parse syslog messages in loki.source.syslog.truenas'
+  - name: 'no syslog parsing errors'
+    interval: 1m
+    input_series:
+      - series: 'loki_source_syslog_parsing_errors_total{component_id="loki.source.syslog.ucg"}'
+        values: '0+0x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: SyslogParsingErrors
+        exp_alerts: []
