@@ -27,11 +27,9 @@ spec:
           type: RuntimeDefault
       containers:
         - name: proxy
-          # PLACEHOLDER DIGEST, not a real image. The image does not exist
-          # until the Claude proxy workflow publishes it from main. The owner
-          # replaces the zeros with the published digest before this folder
-          # is merged; see ../README.md.
-          image: ghcr.io/mihirsamdarshi/pancakebatter/claude-proxy@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          # Published by the Claude proxy workflow from main (#800, f8899bdc).
+          # To update, pin the digest of a newer sha-<commit> tag; see ../README.md.
+          image: ghcr.io/mihirsamdarshi/pancakebatter/claude-proxy@sha256:67857a5a6567d2b4208824e647ecfa1427b5542bca38f506d3f90422b7c0916d
           env:
             - name: ALLOWED_MODELS
               value: claude-opus-5-5,claude-haiku-5-5
