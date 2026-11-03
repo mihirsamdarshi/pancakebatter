@@ -1,18 +1,11 @@
 ---
 # quilt-planner: the first app moved onto the platform from its own Git
-# Kustomization (move plan D2). While `pin` is set, the digest the provider
-# exports is ignored: the workload runs exactly the pinned image.
+# Kustomization (move plan D2). Since D9b it runs the apps monorepo image at
+# its `main` tag with the copied pull Secret `apps-ghcr`, like every platform
+# app. To roll back the image, set `pin: <digest>` here.
 #
-# url: the monorepo package ghcr.io/<owner>/apps/quilt-planner does not exist
-# yet (it appears at D8). A provider whose package is missing exports nothing,
-# so the app would not render. Until D9b this entry therefore watches the
-# existing deploy bundle package, whose `main` tag is known to exist (the old
-# OCIRepository follows it). Its digest is never used because of `pin`. D9b
-# switches url to the monorepo package in the same PR that removes `pin`.
-#
-# parts: the workload (always), the family route since D5, and the copied
-# pull Secret `apps-ghcr` since D9a (unused until D9b switches the image). The
-# internal route, backup and registry Secret stay Git-defined.
+# parts: the workload (always), the copied pull Secret `apps-ghcr` (D9a) and
+# the family route (D5). The internal route and backup stay Git-defined.
 # The default network policy has been on since D6b (the tailnet Ingress
 # that proxied into the pod is gone).
 apiVersion: fluxcd.controlplane.io/v1
@@ -26,7 +19,7 @@ metadata:
     fluxcd.controlplane.io/reconcileEvery: 2m
 spec:
   type: OCIArtifactTag
-  url: oci://ghcr.io/mihirsamdarshi/quilt-planner-deploy
+  url: oci://ghcr.io/mihirsamdarshi/apps/quilt-planner
   secretRef:
     name: ghcr-apps-read
   filter:
@@ -35,11 +28,8 @@ spec:
   defaultValues:
     name: quilt-planner
     parts: [pullsecret, family-route, family-route-legacy]
-    pin: sha256:ceddd6ccec835c4bc6f1c2ee8cc33eab140cbf127b71de5b364aee787c3217df
     vars:
       FAMILY_HOST: quilts
-      IMAGE: ghcr.io/mihirsamdarshi/quilt-planner
-      PULL_SECRET: quilt-registry
       CLAIM: quilt-data
       STORAGE: 5Gi
       STORAGE_CLASS: quilt-local-retain
