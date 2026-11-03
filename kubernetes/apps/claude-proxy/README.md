@@ -17,23 +17,27 @@ stays not ready, and Flux reports the failure, until both are fixed.
 One restricted namespace, `claude-proxy`, outside the personal app platform:
 
 - one Deployment (one replica, `Recreate`), uid 1000, read-only root, all
-  capabilities dropped, no service-account token, no PVC;
+  capabilities dropped, no service-account token, no PVC, memory limit 512Mi
+  (room for four requests in progress with bodies up to 16 MB);
 - a ClusterIP Service `claude-proxy` on port 3000, with no route or gateway;
 - the API key from the Secret `claude-proxy-credentials` (key
   `anthropic-api-key`), mounted read-only at `/run/credentials`, mode 0440;
 - a pull Secret `claude-proxy-registry` with a read-only GHCR credential;
 - a CiliumNetworkPolicy. Ingress: port 3000 from pods in the `reports`
-  namespace and from the node (kubelet probes). Egress: cluster DNS, and public
-  addresses on 443 with the private ranges excepted. The cluster uses no FQDN
-  rules, so the proxy's code is what limits the upstream to
-  `api.anthropic.com`.
+  namespace and from the node (kubelet probes). Egress: cluster DNS, and port
+  443 on Anthropic's published inbound IPv4 ranges only, `160.79.104.0/23` and
+  `153.61.224.0/22` ([IP addresses](https://platform.claude.com/docs/en/api/ip-addresses),
+  checked 2026-11-03). The cluster uses no FQDN rules; the proxy's code also
+  sends requests only to `https://api.anthropic.com`.
 
 How the proxy works, its limits and its configuration are in
-`integrations/claude-proxy/README.md`. In short: it refuses models outside
-`ALLOWED_MODELS`, refuses new requests with 403 when the estimated spend for the
-UTC day reaches `DAILY_CAP_USD` (20), and allows four upstream requests at a
-time. The spend count survives a container restart but not a new pod, so also
-set a spend limit in the Anthropic Console.
+`integrations/claude-proxy/README.md`. In short: it allows four requests at a
+time, refuses models outside `ALLOWED_MODELS` and request fields that change the
+price, and reserves each request's estimated maximum cost before sending it. A
+request whose estimate does not fit under `DAILY_CAP_USD` (20) for the UTC day,
+beside the spend so far and the reservations of requests in progress, is
+refused with 403. The spend count survives a container restart but not a new
+pod, so also set a spend limit in the Anthropic Console.
 
 ## Owner steps before activation
 
@@ -156,6 +160,11 @@ kubectl -n claude-proxy exec deploy/claude-proxy -- bun -e '
 kubectl -n claude-proxy exec deploy/claude-proxy -- bun -e '
   console.log(await (await fetch("http://127.0.0.1:3000/usage")).text())'
 ```
+
+If requests fail with 502 after a connection timeout while DNS and the key
+are fine, check whether Anthropic's published ranges have changed, and update
+`app/networkpolicy.yaml`. The policy fails closed: nothing reaches another
+address.
 
 ## Key rotation and retirement
 

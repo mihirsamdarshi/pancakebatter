@@ -5,12 +5,15 @@
 # runs the agent) and from the node (kubelet probes). The reports app reaches
 # this Service through the platform's `egress: claude-proxy` mode.
 #
-# Egress: cluster DNS, and public IPv4 addresses on 443 with the private and
-# reserved ranges excepted (the same CIDR set as deal-watch-integrations).
-# The cluster uses no toFQDNs rules, so this policy does not pin the
-# destination to api.anthropic.com: the proxy's code does. It sends requests
-# only to the fixed https://api.anthropic.com upstream in src/index.ts, with
-# redirects disabled.
+# Egress: cluster DNS, and port 443 on Anthropic's published inbound IPv4
+# ranges only (the cluster is IPv4-only):
+#   https://platform.claude.com/docs/en/api/ip-addresses
+# (checked 2026-11-03: 160.79.104.0/23 and 153.61.224.0/22; the page says the
+# addresses will not change without notice). The cluster uses no toFQDNs rules;
+# the proxy's code also sends requests only to the fixed
+# https://api.anthropic.com upstream in src/index.ts, with redirects disabled.
+# If Anthropic's ranges change, the proxy fails closed: the dropped
+# connection times out and requests get a 502 until these ranges are updated.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -41,20 +44,9 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
-    - toCIDRSet:
-        - cidr: 0.0.0.0/0
-          except:
-            - 0.0.0.0/8
-            - 10.0.0.0/8
-            - 100.64.0.0/10
-            - 127.0.0.0/8
-            - 169.254.0.0/16
-            - 172.16.0.0/12
-            - 192.0.0.0/24
-            - 192.168.0.0/16
-            - 198.18.0.0/15
-            - 224.0.0.0/4
-            - 240.0.0.0/4
+    - toCIDR:
+        - 160.79.104.0/23
+        - 153.61.224.0/22
       toPorts:
         - ports:
             - port: "443"
