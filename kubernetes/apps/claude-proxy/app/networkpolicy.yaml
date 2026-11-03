@@ -1,0 +1,61 @@
+---
+# Default deny in both directions for every pod in the namespace.
+#
+# Ingress: port 3000 from pods in the reports namespace (the platform app that
+# runs the agent) and from the node (kubelet probes). The reports app reaches
+# this Service through the platform's `egress: claude-proxy` mode.
+#
+# Egress: cluster DNS, and public IPv4 addresses on 443 with the private and
+# reserved ranges excepted (the same CIDR set as deal-watch-integrations).
+# The cluster uses no toFQDNs rules, so this policy does not pin the
+# destination to api.anthropic.com: the proxy's code does. It sends requests
+# only to the fixed https://api.anthropic.com upstream in src/index.ts, with
+# redirects disabled.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: claude-proxy
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: reports
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    - fromEntities: [host]
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toCIDRSet:
+        - cidr: 0.0.0.0/0
+          except:
+            - 0.0.0.0/8
+            - 10.0.0.0/8
+            - 100.64.0.0/10
+            - 127.0.0.0/8
+            - 169.254.0.0/16
+            - 172.16.0.0/12
+            - 192.0.0.0/24
+            - 192.168.0.0/16
+            - 198.18.0.0/15
+            - 224.0.0.0/4
+            - 240.0.0.0/4
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

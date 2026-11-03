@@ -1,0 +1,11 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: claude-proxy
+resources:
+  - ./deployment.yaml
+  - ./service.yaml
+  - ./networkpolicy.yaml
+  # Created and encrypted by the owner; see ../README.md.
+  - ./registry.sops.yaml
+  - ./credentials.sops.yaml

@@ -1,0 +1,88 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: claude-proxy
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: claude-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: claude-proxy
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: claude-proxy-registry
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: proxy
+          # PLACEHOLDER DIGEST, not a real image. The image does not exist
+          # until the Claude proxy workflow publishes it from main. The owner
+          # replaces the zeros with the published digest before this folder
+          # is merged; see ../README.md.
+          image: ghcr.io/mihirsamdarshi/pancakebatter/claude-proxy@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          env:
+            - name: ALLOWED_MODELS
+              value: claude-opus-5-5,claude-haiku-5-5
+            - name: DAILY_CAP_USD
+              value: "20"
+          ports:
+            - name: http
+              containerPort: 3000
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            failureThreshold: 12
+          # Ready only while the key file is readable and non-empty. No
+          # liveness probe: a missing key or an upstream outage is not fixed
+          # by a restart.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            # The whole directory, not a subPath, so a rotated Secret reaches
+            # the file without a restart. The proxy reads the key on every
+            # request, so no rollout checksum is needed.
+            - name: credentials
+              mountPath: /run/credentials
+              readOnly: true
+      volumes:
+        # Holds the daily spend file; it survives container restarts, not pod
+        # replacement.
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: credentials
+          secret:
+            secretName: claude-proxy-credentials
+            defaultMode: 288 # 0440
+            items:
+              - key: anthropic-api-key
+                path: anthropic-api-key

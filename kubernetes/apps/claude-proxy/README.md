@@ -1,0 +1,169 @@
+# Claude proxy
+
+**Activation proposal.** Do not merge or apply before complete validation,
+independent review and owner approval. This folder is not ready to merge yet:
+
+- `app/kustomization.yaml` lists two SOPS files that the owner creates
+  (steps 2 and 3 below). Until they exist, `scripts/validate-kubernetes.sh`
+  fails at `kustomize build` and Flux cannot build the app.
+- `app/deployment.yaml` pins a **placeholder digest** (all zeros). The image
+  does not exist until the workflow publishes it from main (step 1).
+
+The Flux Kustomization has `wait: true`, so if this folder is merged early it
+stays not ready, and Flux reports the failure, until both are fixed.
+
+## What it deploys
+
+One restricted namespace, `claude-proxy`, outside the personal app platform:
+
+- one Deployment (one replica, `Recreate`), uid 1000, read-only root, all
+  capabilities dropped, no service-account token, no PVC;
+- a ClusterIP Service `claude-proxy` on port 3000, with no route or gateway;
+- the API key from the Secret `claude-proxy-credentials` (key
+  `anthropic-api-key`), mounted read-only at `/run/credentials`, mode 0440;
+- a pull Secret `claude-proxy-registry` with a read-only GHCR credential;
+- a CiliumNetworkPolicy. Ingress: port 3000 from pods in the `reports`
+  namespace and from the node (kubelet probes). Egress: cluster DNS, and public
+  addresses on 443 with the private ranges excepted. The cluster uses no FQDN
+  rules, so the proxy's code is what limits the upstream to
+  `api.anthropic.com`.
+
+How the proxy works, its limits and its configuration are in
+`integrations/claude-proxy/README.md`. In short: it refuses models outside
+`ALLOWED_MODELS`, refuses new requests with 403 when the estimated spend for the
+UTC day reaches `DAILY_CAP_USD` (20), and allows four upstream requests at a
+time. The spend count survives a container restart but not a new pod, so also
+set a spend limit in the Anthropic Console.
+
+## Owner steps before activation
+
+Run every command from the repository root, in bash or zsh, with the repo's
+mise tools on the `PATH` (or prefix each tool with `mise exec --`).
+
+### 1. Publish the image and pin its digest
+
+Merge `integrations/claude-proxy/` and `.github/workflows/claude-proxy.yaml`
+first, in a change without this folder. The push to main publishes
+`ghcr.io/<owner>/<homelab-repo>/claude-proxy:sha-<sha>`. Read its digest from
+the "Publish proxy" job log (the `digest: sha256:...` line), or with a token
+that has `read:packages`:
+
+```sh
+gh api "/users/<owner>/packages/container/<homelab-repo>%2Fclaude-proxy/versions" \
+  --jq '.[] | select(.metadata.container.tags | index("sha-<sha>")) | .name'
+```
+
+Replace the zeros in `app/deployment.yaml` with that digest, and delete the
+placeholder comment above the `image:` line.
+
+### 2. Create `app/credentials.sops.yaml` (the API key)
+
+Use a key made only for this proxy, so it can be revoked alone. A Console
+workspace with its own spend limit is the best place for it.
+
+The plaintext key is never written to a file: `sops encrypt` reads it from the
+pipe and writes to `<file>.tmp`. Only when every stage succeeded and the output
+holds `ENC[` does `mv` put it in place. A failure leaves no new file and keeps
+an existing one. The subshell keeps `pipefail` out of your shell. Replace the
+`op://` reference with the 1Password item that holds the key:
+
+```sh
+( set -o pipefail
+  f=kubernetes/apps/claude-proxy/app/credentials.sops.yaml
+  op read 'op://<vault>/<item>/<field>' \
+    | kubectl create secret generic claude-proxy-credentials --namespace claude-proxy --from-file=anthropic-api-key=/dev/stdin --dry-run=client -o yaml \
+    | yq '.type = "Opaque" | .stringData = (.data | map_values(@base64d)) | del(.data) | del(.metadata.creationTimestamp)' \
+    | sops encrypt --filename-override "$f" --input-type yaml --output-type yaml /dev/stdin > "$f.tmp" \
+    && grep -q 'ENC\[' "$f.tmp" && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
+```
+
+`--filename-override` makes sops apply the `.sops.yaml` rule for that path,
+which encrypts `data` and `stringData` only. A trailing newline from `op read`
+is harmless: the proxy trims the key.
+
+Check the shape only, never the value:
+
+```sh
+sops decrypt kubernetes/apps/claude-proxy/app/credentials.sops.yaml | yq '.stringData | keys'
+# - anthropic-api-key
+sops decrypt kubernetes/apps/claude-proxy/app/credentials.sops.yaml | yq '.stringData["anthropic-api-key"] | length'
+# the key's length, not 0
+```
+
+### 3. Create `app/registry.sops.yaml` (read-only GHCR pull credential)
+
+The same pipeline as the platform's `ghcr-apps-read`. Use a classic token with
+`read:packages` only (the token `ghcr-apps-read` already holds is fine), never
+one with write scopes. Set `GHCR_READ_USER` to `<owner>` and `GHCR_READ_TOKEN`
+to the token, preferably with `op read` inside the same subshell rather than an
+exported variable. The token appears in `kubectl`'s arguments while it runs.
+
+```sh
+( set -o pipefail
+  f=kubernetes/apps/claude-proxy/app/registry.sops.yaml
+  kubectl create secret docker-registry claude-proxy-registry --namespace claude-proxy --docker-server=ghcr.io --docker-username="${GHCR_READ_USER:?set GHCR_READ_USER}" --docker-password="${GHCR_READ_TOKEN:?set GHCR_READ_TOKEN}" --dry-run=client -o yaml \
+    | yq '.stringData[".dockerconfigjson"] = (.data[".dockerconfigjson"] | @base64d) | del(.data) | del(.metadata.creationTimestamp)' \
+    | sops encrypt --filename-override "$f" --input-type yaml --output-type yaml /dev/stdin > "$f.tmp" \
+    && grep -q 'ENC\[' "$f.tmp" && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
+```
+
+Check the shape only:
+
+```sh
+sops decrypt kubernetes/apps/claude-proxy/app/registry.sops.yaml | yq '.type, (.stringData | keys)'
+# kubernetes.io/dockerconfigjson
+# - .dockerconfigjson
+sops decrypt kubernetes/apps/claude-proxy/app/registry.sops.yaml | yq '.stringData[".dockerconfigjson"] | from_json | .auths | keys'
+# - ghcr.io
+```
+
+### 4. Validate
+
+```sh
+git status --short kubernetes/apps/claude-proxy   # the two .sops.yaml files, no .tmp file
+bash scripts/validate-kubernetes.sh
+```
+
+It passes only when both SOPS files exist.
+
+### 5. Let the reports app reach the proxy
+
+This policy admits the `reports` namespace. The reports entry sets
+`egress: claude-proxy`, a platform egress mode that adds only these pods on
+3000/TCP to the app's default-deny policy
+(`kubernetes/components/app-platform/netpol-egress-claude-proxy/`). The app
+calls `http://claude-proxy.claude-proxy.svc.cluster.local:3000` and sends a
+placeholder key that this proxy replaces, so the app namespace holds no key.
+
+## Checks after the merge
+
+```sh
+flux get ks claude-proxy -n flux-system
+kubectl -n claude-proxy get deploy,pod,svc
+kubectl -n claude-proxy logs deploy/claude-proxy   # a "listening" line; never a key
+```
+
+A free upstream test (token counting is not billed) proves the key and the
+egress path:
+
+```sh
+kubectl -n claude-proxy exec deploy/claude-proxy -- bun -e '
+  const r = await fetch("http://127.0.0.1:3000/v1/messages/count_tokens", {method: "POST",
+    headers: {"content-type": "application/json", "anthropic-version": "2023-06-01"},
+    body: JSON.stringify({model: "claude-haiku-5-5", messages: [{role: "user", content: "hi"}]})});
+  console.log(r.status, await r.text());'
+# 200 {"input_tokens":...}
+kubectl -n claude-proxy exec deploy/claude-proxy -- bun -e '
+  console.log(await (await fetch("http://127.0.0.1:3000/usage")).text())'
+```
+
+## Key rotation and retirement
+
+To rotate, repeat step 2 with the new key and merge. The proxy reads the key on
+every request, so the new key is used once the kubelet updates the mounted
+file (about a minute), without a restart. Then revoke the old key in the
+Console.
+
+To retire, remove `./claude-proxy` from `kubernetes/apps/kustomization.yaml`
+and this folder in one change, and revoke the key. The namespace has
+`prune: disabled`, so delete it by hand afterwards.
