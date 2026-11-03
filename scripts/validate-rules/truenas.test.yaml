@@ -1,0 +1,707 @@
+# Unit tests for prometheusrule-truenas.yaml, run by scripts/validate-kubernetes.sh with promtool.
+# Generated series use the names and labels the exporters publish (smartctl_exporter v0.15.0,
+# node_exporter v1.12.1, the zpool-textfile sidecar). The time constants (3 h, 1 d, 7 d, 30 m, 10 m ...)
+# are the real ones. The 35-day scrub-age rule is tested in truenas.long.test.yaml with a one-hour step.
+rule_files:
+  - truenas.rules.yaml
+evaluation_interval: 30s
+tests:
+  - name: 'pending sectors rise from 0 to 8: increase and level alerts fire'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_attribute{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",attribute_id="197",attribute_value_type="raw"}'
+        values: '0+0x240 8+0x3600'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x4800'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: TrueNASDiskPendingSectorsIncreasing
+        exp_alerts: []
+      - eval_time: 2h10m
+        alertname: TrueNASDiskPendingSectorsIncreasing
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              device: 'ata-DISK_2262JR66T'
+              instance: 'nas:9633'
+              job: 'truenas-smart'
+              model_name: 'M-2262JR66T'
+              protocol: 'ATA'
+              serial_number: '2262JR66T'
+              attribute_id: '197'
+              attribute_value_type: 'raw'
+            exp_annotations:
+              description: 'Sectors the disk could not read are waiting for a rewrite. Check the pool and the disk plan; this disk may be failing.'
+              summary: '2262JR66T (M-2262JR66T): pending sectors rose by 8 in 24 h'
+      - eval_time: 3h
+        alertname: TrueNASDiskPendingSectors
+        exp_alerts: []
+      - eval_time: 3h10m
+        alertname: TrueNASDiskPendingSectors
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              device: 'ata-DISK_2262JR66T'
+              instance: 'nas:9633'
+              job: 'truenas-smart'
+              model_name: 'M-2262JR66T'
+              protocol: 'ATA'
+              serial_number: '2262JR66T'
+              attribute_id: '197'
+              attribute_value_type: 'raw'
+            exp_annotations:
+              description: 'Attribute 197 (current pending sector count) is not zero.'
+              summary: '2262JR66T (M-2262JR66T): 8 sectors are pending reallocation'
+  - name: 'offline-uncorrectable constant at 5: level fires, increase does not'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_attribute{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",attribute_id="198",attribute_value_type="raw"}'
+        values: '5+0x720'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x720'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: TrueNASDiskUncorrectableSectorsIncreasing
+        exp_alerts: []
+      - eval_time: 1h10m
+        alertname: TrueNASDiskUncorrectableSectors
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              device: 'ata-DISK_2262JR66T'
+              instance: 'nas:9633'
+              job: 'truenas-smart'
+              model_name: 'M-2262JR66T'
+              protocol: 'ATA'
+              serial_number: '2262JR66T'
+              attribute_id: '198'
+              attribute_value_type: 'raw'
+            exp_annotations:
+              description: 'Attribute 198 is not zero. A silence for the known case (2262JR66T) is created in Alertmanager, with an expiry; the increase and pending alerts stay on.'
+              summary: '2262JR66T (M-2262JR66T): 5 offline-uncorrectable sectors'
+  - name: 'pending falls 8 to 0 while reallocated rises 0 to 8'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_attribute{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",attribute_id="197",attribute_value_type="raw"}'
+        values: '8+0x240 0+0x720'
+      - series: 'smartctl_device_attribute{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",attribute_id="5",attribute_value_type="raw"}'
+        values: '0+0x240 8+0x720'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x960'
+    alert_rule_test:
+      - eval_time: 2h10m
+        alertname: TrueNASDiskReallocatedSectorsIncreasing
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              device: 'ata-DISK_2262JR66T'
+              instance: 'nas:9633'
+              job: 'truenas-smart'
+              model_name: 'M-2262JR66T'
+              protocol: 'ATA'
+              serial_number: '2262JR66T'
+              attribute_id: '5'
+              attribute_value_type: 'raw'
+            exp_annotations:
+              description: 'The disk is remapping bad sectors. A rise right after a pending-sector alert is expected.'
+              summary: '2262JR66T (M-2262JR66T): reallocated sectors rose by 8 in 24 h'
+  - name: 'two disks: only the disk whose pending count rose alerts, and it carries its own serial'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_attribute{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",attribute_id="197",attribute_value_type="raw"}'
+        values: '0+0x120 3+0x360'
+      - series: 'smartctl_device_attribute{device="ata-DISK_WJG2F1MX",instance="nas:9633",job="truenas-smart",attribute_id="197",attribute_value_type="raw"}'
+        values: '0+0x480'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x480'
+      - series: 'smartctl_device{device="ata-DISK_WJG2F1MX",instance="nas:9633",job="truenas-smart",model_name="M-WJG2F1MX",protocol="ATA",serial_number="WJG2F1MX"}'
+        values: '1+0x480'
+    alert_rule_test:
+      - eval_time: 1h30m
+        alertname: TrueNASDiskPendingSectorsIncreasing
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              device: 'ata-DISK_2262JR66T'
+              instance: 'nas:9633'
+              job: 'truenas-smart'
+              model_name: 'M-2262JR66T'
+              protocol: 'ATA'
+              serial_number: '2262JR66T'
+              attribute_id: '197'
+              attribute_value_type: 'raw'
+            exp_annotations:
+              description: 'Sectors the disk could not read are waiting for a rewrite. Check the pool and the disk plan; this disk may be failing.'
+              summary: '2262JR66T (M-2262JR66T): pending sectors rose by 3 in 24 h'
+  - name: 'SMART error log gains an entry'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_error_log_count{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart"}'
+        values: '2+0x120 3+0x480'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x600'
+    alert_rule_test:
+      - eval_time: 1h10m
+        alertname: TrueNASDiskErrorLogIncreasing
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              device: 'ata-DISK_2262JR66T'
+              instance: 'nas:9633'
+              job: 'truenas-smart'
+              model_name: 'M-2262JR66T'
+              protocol: 'ATA'
+              serial_number: '2262JR66T'
+            exp_annotations:
+              description: 'The disk logged new errors.'
+              summary: '2262JR66T (M-2262JR66T): the SMART error log gained 1 entries in 24 h'
+  - name: 'SMART health check fails'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_smart_status{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x120 0+0x120'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x240'
+    alert_rule_test:
+      - eval_time: 1h4m
+        alertname: TrueNASDiskSmartFailed
+        exp_alerts: []
+      - eval_time: 1h10m
+        alertname: TrueNASDiskSmartFailed
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              device: 'ata-DISK_2262JR66T'
+              instance: 'nas:9633'
+              job: 'truenas-smart'
+              model_name: 'M-2262JR66T'
+              protocol: 'ATA'
+              serial_number: '2262JR66T'
+            exp_annotations:
+              description: 'The disk reports that it is failing. Replace it.'
+              summary: '2262JR66T (M-2262JR66T): the SMART health check reports FAILED'
+  - name: 'power-on seconds tick hourly for 4 h, then freeze: stale fires once the window is full'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_power_on_seconds{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart"}'
+        values: '3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3600000 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3603600 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3607200 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3610800 3614400 3614400+0x480'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x960'
+    alert_rule_test:
+      - eval_time: 3h50m
+        alertname: TrueNASDiskDataStale
+        exp_alerts: []
+      - eval_time: 7h30m
+        alertname: TrueNASDiskDataStale
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              device: 'ata-DISK_2262JR66T'
+              instance: 'nas:9633'
+              job: 'truenas-smart'
+              model_name: 'M-2262JR66T'
+              protocol: 'ATA'
+              serial_number: '2262JR66T'
+            exp_annotations:
+              description: 'smartctl_exporter keeps serving its last good read when a disk stops answering, so the disk may look healthy. Power-on seconds rise every hour on a working disk. The second part of the expression waits for a full 3-hour window of samples (the recording rule runs every 30 s).'
+              summary: '2262JR66T (M-2262JR66T): SMART data has not changed for 3 hours'
+  - name: 'a fresh series with 25 minutes of data and no hourly tick yet does not alert (install-time guard)'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_power_on_seconds{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart"}'
+        values: '3600000+0x50'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x50'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: TrueNASDiskDataStale
+        exp_alerts: []
+  - name: 'only the current temperature counts: lifetime maximum 59 is ignored; HDD 51 for 30 min warns; NVMe 71 warns'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_temperature{device="ata-DISK_2EHN3EWX",instance="nas:9633",job="truenas-smart",temperature_type="lifetime_max"}'
+        values: '59+0x240'
+      - series: 'smartctl_device_temperature{device="ata-DISK_2EHN3EWX",instance="nas:9633",job="truenas-smart",temperature_type="current"}'
+        values: '44+0x240'
+      - series: 'smartctl_device_temperature{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",temperature_type="current"}'
+        values: '51+0x240'
+      - series: 'smartctl_device_temperature{device="nvme0",instance="nas:9633",job="truenas-smart",temperature_type="current"}'
+        values: '71+0x240'
+      - series: 'smartctl_device{device="ata-DISK_2EHN3EWX",instance="nas:9633",job="truenas-smart",model_name="M-2EHN3EWX",protocol="ATA",serial_number="2EHN3EWX"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="nvme0",instance="nas:9633",job="truenas-smart",model_name="M-A221116NV012801084",protocol="NVMe",serial_number="A221116NV012801084"}'
+        values: '1+0x240'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: TrueNASDiskTemperatureCritical
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: TrueNASDiskTemperatureHigh
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              device: 'ata-DISK_2262JR66T'
+              instance: 'nas:9633'
+              job: 'truenas-smart'
+              model_name: 'M-2262JR66T'
+              protocol: 'ATA'
+              serial_number: '2262JR66T'
+              temperature_type: 'current'
+            exp_annotations:
+              description: 'Hard disks should stay below 50 °C. Check the closet airflow.'
+              summary: '2262JR66T (M-2262JR66T): 51 °C for 30 minutes'
+      - eval_time: 20m
+        alertname: TrueNASDiskTemperatureHigh
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: TrueNASNvmeTemperatureHigh
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              device: 'nvme0'
+              instance: 'nas:9633'
+              job: 'truenas-smart'
+              model_name: 'M-A221116NV012801084'
+              protocol: 'NVMe'
+              serial_number: 'A221116NV012801084'
+              temperature_type: 'current'
+            exp_annotations:
+              description: 'The log device is hot.'
+              summary: 'A221116NV012801084 (M-A221116NV012801084): NVMe at 71 °C'
+  - name: 'HDD at 56 for 10 min is critical'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_temperature{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",temperature_type="current"}'
+        values: '56+0x120'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x120'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: TrueNASDiskTemperatureCritical
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              device: 'ata-DISK_2262JR66T'
+              instance: 'nas:9633'
+              job: 'truenas-smart'
+              model_name: 'M-2262JR66T'
+              protocol: 'ATA'
+              serial_number: '2262JR66T'
+              temperature_type: 'current'
+            exp_annotations:
+              description: '55 °C or more. Fix the airflow now.'
+              summary: '2262JR66T (M-2262JR66T): 56 °C'
+  - name: 'temperature drops below 50: the alert is held for 30 minutes, then resolves'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_temperature{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",temperature_type="current"}'
+        values: '51+0x120 48+0x480'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x360'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: TrueNASDiskTemperatureHigh
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              device: 'ata-DISK_2262JR66T'
+              instance: 'nas:9633'
+              job: 'truenas-smart'
+              model_name: 'M-2262JR66T'
+              protocol: 'ATA'
+              serial_number: '2262JR66T'
+              temperature_type: 'current'
+            exp_annotations:
+              description: 'Hard disks should stay below 50 °C. Check the closet airflow.'
+              summary: '2262JR66T (M-2262JR66T): 51 °C for 30 minutes'
+      - eval_time: 2h
+        alertname: TrueNASDiskTemperatureHigh
+        exp_alerts: []
+  - name: 'one of nine disks vanishes: only that serial alerts'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_smart_status{device="ata-DISK_WJG2F1MX",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_WJG2F1MX",instance="nas:9633",job="truenas-smart",model_name="M-WJG2F1MX",protocol="ATA",serial_number="WJG2F1MX"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_WJG1MDQD",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_WJG1MDQD",instance="nas:9633",job="truenas-smart",model_name="M-WJG1MDQD",protocol="ATA",serial_number="WJG1MDQD"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_2262JR82T",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_2262JR82T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR82T",protocol="ATA",serial_number="2262JR82T"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_3252JVLQT",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_3252JVLQT",instance="nas:9633",job="truenas-smart",model_name="M-3252JVLQT",protocol="ATA",serial_number="3252JVLQT"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_2EHN3EWX",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_2EHN3EWX",instance="nas:9633",job="truenas-smart",model_name="M-2EHN3EWX",protocol="ATA",serial_number="2EHN3EWX"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_2EKNWAEX",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_2EKNWAEX",instance="nas:9633",job="truenas-smart",model_name="M-2EKNWAEX",protocol="ATA",serial_number="2EKNWAEX"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="nvme0",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="nvme0",instance="nas:9633",job="truenas-smart",model_name="M-A221116NV012801084",protocol="NVMe",serial_number="A221116NV012801084"}'
+        values: '1+0x240'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TrueNASDiskMissing
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: TrueNASDiskMissing
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              serial_number: '32A2JWEUT'
+            exp_annotations:
+              description: 'The disk is not in the exporter''s output, or its reads fail. Check the disk, the cabling and the smartctl-exporter container. If the disk was replaced, update the serial list in this rule.'
+              summary: '32A2JWEUT: no SMART data for 30 minutes'
+  - name: 'all nine disks present: no alert'
+    interval: 30s
+    input_series:
+      - series: 'smartctl_device_smart_status{device="ata-DISK_WJG2F1MX",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_WJG2F1MX",instance="nas:9633",job="truenas-smart",model_name="M-WJG2F1MX",protocol="ATA",serial_number="WJG2F1MX"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_WJG1MDQD",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_WJG1MDQD",instance="nas:9633",job="truenas-smart",model_name="M-WJG1MDQD",protocol="ATA",serial_number="WJG1MDQD"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_2262JR66T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR66T",protocol="ATA",serial_number="2262JR66T"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_32A2JWEUT",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_32A2JWEUT",instance="nas:9633",job="truenas-smart",model_name="M-32A2JWEUT",protocol="ATA",serial_number="32A2JWEUT"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_2262JR82T",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_2262JR82T",instance="nas:9633",job="truenas-smart",model_name="M-2262JR82T",protocol="ATA",serial_number="2262JR82T"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_3252JVLQT",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_3252JVLQT",instance="nas:9633",job="truenas-smart",model_name="M-3252JVLQT",protocol="ATA",serial_number="3252JVLQT"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_2EHN3EWX",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_2EHN3EWX",instance="nas:9633",job="truenas-smart",model_name="M-2EHN3EWX",protocol="ATA",serial_number="2EHN3EWX"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="ata-DISK_2EKNWAEX",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="ata-DISK_2EKNWAEX",instance="nas:9633",job="truenas-smart",model_name="M-2EKNWAEX",protocol="ATA",serial_number="2EKNWAEX"}'
+        values: '1+0x240'
+      - series: 'smartctl_device_smart_status{device="nvme0",instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+      - series: 'smartctl_device{device="nvme0",instance="nas:9633",job="truenas-smart",model_name="M-A221116NV012801084",protocol="NVMe",serial_number="A221116NV012801084"}'
+        values: '1+0x240'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: TrueNASDiskMissing
+        exp_alerts: []
+  - name: 'no SMART series at all: every serial is missing and the all-missing alert fires'
+    interval: 30s
+    input_series:
+      - series: 'up{instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x240'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TrueNASDisksAllMissing
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+            exp_annotations:
+              description: 'smartctl_exporter is down, unreachable or reads nothing. TrueNASExporterDown may be firing as well.'
+              summary: 'No SMART data for any TrueNAS disk'
+      - eval_time: 40m
+        alertname: TrueNASDiskMissing
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              serial_number: '2262JR66T'
+            exp_annotations:
+              description: 'The disk is not in the exporter''s output, or its reads fail. Check the disk, the cabling and the smartctl-exporter container. If the disk was replaced, update the serial list in this rule.'
+              summary: '2262JR66T: no SMART data for 30 minutes'
+          - exp_labels:
+              severity: 'warning'
+              serial_number: '2262JR82T'
+            exp_annotations:
+              description: 'The disk is not in the exporter''s output, or its reads fail. Check the disk, the cabling and the smartctl-exporter container. If the disk was replaced, update the serial list in this rule.'
+              summary: '2262JR82T: no SMART data for 30 minutes'
+          - exp_labels:
+              severity: 'warning'
+              serial_number: '2EHN3EWX'
+            exp_annotations:
+              description: 'The disk is not in the exporter''s output, or its reads fail. Check the disk, the cabling and the smartctl-exporter container. If the disk was replaced, update the serial list in this rule.'
+              summary: '2EHN3EWX: no SMART data for 30 minutes'
+          - exp_labels:
+              severity: 'warning'
+              serial_number: '2EKNWAEX'
+            exp_annotations:
+              description: 'The disk is not in the exporter''s output, or its reads fail. Check the disk, the cabling and the smartctl-exporter container. If the disk was replaced, update the serial list in this rule.'
+              summary: '2EKNWAEX: no SMART data for 30 minutes'
+          - exp_labels:
+              severity: 'warning'
+              serial_number: '3252JVLQT'
+            exp_annotations:
+              description: 'The disk is not in the exporter''s output, or its reads fail. Check the disk, the cabling and the smartctl-exporter container. If the disk was replaced, update the serial list in this rule.'
+              summary: '3252JVLQT: no SMART data for 30 minutes'
+          - exp_labels:
+              severity: 'warning'
+              serial_number: '32A2JWEUT'
+            exp_annotations:
+              description: 'The disk is not in the exporter''s output, or its reads fail. Check the disk, the cabling and the smartctl-exporter container. If the disk was replaced, update the serial list in this rule.'
+              summary: '32A2JWEUT: no SMART data for 30 minutes'
+          - exp_labels:
+              severity: 'warning'
+              serial_number: 'A221116NV012801084'
+            exp_annotations:
+              description: 'The disk is not in the exporter''s output, or its reads fail. Check the disk, the cabling and the smartctl-exporter container. If the disk was replaced, update the serial list in this rule.'
+              summary: 'A221116NV012801084: no SMART data for 30 minutes'
+          - exp_labels:
+              severity: 'warning'
+              serial_number: 'WJG1MDQD'
+            exp_annotations:
+              description: 'The disk is not in the exporter''s output, or its reads fail. Check the disk, the cabling and the smartctl-exporter container. If the disk was replaced, update the serial list in this rule.'
+              summary: 'WJG1MDQD: no SMART data for 30 minutes'
+          - exp_labels:
+              severity: 'warning'
+              serial_number: 'WJG2F1MX'
+            exp_annotations:
+              description: 'The disk is not in the exporter''s output, or its reads fail. Check the disk, the cabling and the smartctl-exporter container. If the disk was replaced, update the serial list in this rule.'
+              summary: 'WJG2F1MX: no SMART data for 30 minutes'
+  - name: 'pool nasty degrades'
+    interval: 30s
+    input_series:
+      - series: 'node_zfs_zpool_state{instance="nas:9100",job="truenas-node",state="online",zpool="nasty"}'
+        values: '1+0x60 0+0x240'
+      - series: 'node_zfs_zpool_state{instance="nas:9100",job="truenas-node",state="degraded",zpool="nasty"}'
+        values: '0+0x60 1+0x240'
+      - series: 'node_zfs_zpool_state{instance="nas:9100",job="truenas-node",state="online",zpool="boot-pool"}'
+        values: '1+0x360'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: TrueNASPoolNotOnline
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              instance: 'nas:9100'
+              job: 'truenas-node'
+              state: 'degraded'
+              zpool: 'nasty'
+            exp_annotations:
+              description: 'The pool is not ONLINE. Check zpool status on TrueNAS and the disk alerts.'
+              summary: 'TrueNAS pool nasty is degraded'
+  - name: 'pool state series disappear: the missing-state alert fires'
+    interval: 30s
+    input_series:
+      - series: 'node_zfs_zpool_state{instance="nas:9100",job="truenas-node",state="online",zpool="boot-pool"}'
+        values: '1+0x240'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: TrueNASPoolStateMissing
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: TrueNASPoolStateMissing
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'truenas-node'
+              zpool: 'nasty'
+            exp_annotations:
+              description: 'The pool is missing from node_exporter''s output, or the exporter is down.'
+              summary: 'No state for TrueNAS pool nasty'
+  - name: 'boot-pool state series disappear while nasty stays'
+    interval: 30s
+    input_series:
+      - series: 'node_zfs_zpool_state{instance="nas:9100",job="truenas-node",state="online",zpool="nasty"}'
+        values: '1+0x240'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TrueNASPoolStateMissing
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'truenas-node'
+              zpool: 'boot-pool'
+            exp_annotations:
+              description: 'The pool is missing from node_exporter''s output, or the exporter is down.'
+              summary: 'No state for TrueNAS pool boot-pool'
+  - name: 'pool data errors and scan errors'
+    interval: 30s
+    input_series:
+      - series: 'truenas_zpool_error_count{zpool="nasty"}'
+        values: '0+0x30 3+0x120'
+      - series: 'truenas_zpool_scan_errors{zpool="nasty",function="SCRUB"}'
+        values: '0+0x30 2+0x120'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TrueNASPoolErrors
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: TrueNASPoolErrors
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              zpool: 'nasty'
+            exp_annotations:
+              description: 'zpool status shows data errors. Do not ignore this.'
+              summary: 'TrueNAS pool nasty reports 3 data errors'
+      - eval_time: 25m
+        alertname: TrueNASScrubErrors
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              zpool: 'nasty'
+              function: 'SCRUB'
+            exp_annotations:
+              description: 'A scrub or resilver reported errors. zpool status -v lists the files.'
+              summary: 'TrueNAS pool nasty: the last SCRUB found 2 errors'
+  - name: 'dataset space: 8% free warns after 30 min; 4% free is critical after 10 min'
+    interval: 30s
+    input_series:
+      - series: 'node_filesystem_avail_bytes{instance="nas:9100",job="truenas-node",mountpoint="/mnt/nasty/Kubernetes"}'
+        values: '8+0x360'
+      - series: 'node_filesystem_size_bytes{instance="nas:9100",job="truenas-node",mountpoint="/mnt/nasty/Kubernetes"}'
+        values: '100+0x360'
+      - series: 'node_filesystem_avail_bytes{instance="nas:9100",job="truenas-node",mountpoint="/mnt/nasty/Data"}'
+        values: '4+0x360'
+      - series: 'node_filesystem_size_bytes{instance="nas:9100",job="truenas-node",mountpoint="/mnt/nasty/Data"}'
+        values: '100+0x360'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TrueNASDatasetFilling
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              instance: 'nas:9100'
+              job: 'truenas-node'
+              mountpoint: '/mnt/nasty/Data'
+            exp_annotations:
+              description: 'Writes to this dataset will fail soon.'
+              summary: 'TrueNAS /mnt/nasty/Data has 4% free'
+      - eval_time: 40m
+        alertname: TrueNASDatasetFilling
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              instance: 'nas:9100'
+              job: 'truenas-node'
+              mountpoint: '/mnt/nasty/Data'
+            exp_annotations:
+              description: 'Writes to this dataset will fail soon.'
+              summary: 'TrueNAS /mnt/nasty/Data has 4% free'
+          - exp_labels:
+              severity: 'warning'
+              instance: 'nas:9100'
+              job: 'truenas-node'
+              mountpoint: '/mnt/nasty/Data'
+            exp_annotations:
+              description: 'For a dataset with a quota, the size is used plus available under the quota, so a capped dataset warns before the pool is full.'
+              summary: 'TrueNAS /mnt/nasty/Data has 4% free'
+          - exp_labels:
+              severity: 'warning'
+              instance: 'nas:9100'
+              job: 'truenas-node'
+              mountpoint: '/mnt/nasty/Kubernetes'
+            exp_annotations:
+              description: 'For a dataset with a quota, the size is used plus available under the quota, so a capped dataset warns before the pool is full.'
+              summary: 'TrueNAS /mnt/nasty/Kubernetes has 8% free'
+  - name: 'exporter down for 10 minutes'
+    interval: 30s
+    input_series:
+      - series: 'up{instance="nas:9100",job="truenas-node"}'
+        values: '0+0x120'
+      - series: 'up{instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x120'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: TrueNASExporterDown
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: TrueNASExporterDown
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              instance: 'nas:9100'
+              job: 'truenas-node'
+            exp_annotations:
+              description: 'Check the truenas-monitoring app on TrueNAS and that 192.168.10.75 answers. A planned TrueNAS reboot takes less than 10 minutes.'
+              summary: 'TrueNAS exporter truenas-node has been down for 10 minutes'
+  - name: 'a removed scrape target has no up series: the target-absent alert fires'
+    interval: 30s
+    input_series:
+      - series: 'up{instance="nas:9633",job="truenas-smart"}'
+        values: '1+0x120'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: TrueNASTargetAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'truenas-node'
+            exp_annotations:
+              description: 'The ScrapeConfig is missing or Prometheus does not select it.'
+              summary: 'No scrape target for job truenas-node'
+  - name: 'the text file was never created: absent fires after 15 minutes for both pools'
+    interval: 30s
+    input_series:
+      - series: 'up{instance="nas:9100",job="truenas-node"}'
+        values: '1+0x120'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TrueNASTextfileAbsent
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: TrueNASTextfileAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              zpool: 'nasty'
+            exp_annotations:
+              description: 'The zpool-textfile sidecar did not write the pool, or it could not read it. docker logs ix-truenas-monitoring-zpool-textfile-1.'
+              summary: 'No scrub and pool-error data for TrueNAS pool nasty'
+          - exp_labels:
+              severity: 'warning'
+              zpool: 'boot-pool'
+            exp_annotations:
+              description: 'The zpool-textfile sidecar did not write the pool, or it could not read it. docker logs ix-truenas-monitoring-zpool-textfile-1.'
+              summary: 'No scrub and pool-error data for TrueNAS pool boot-pool'
+  - name: 'the text file stops being refreshed: stale fires; node_exporter read error fires'
+    interval: 30s
+    input_series:
+      - series: 'truenas_zpool_textfile_timestamp_seconds{zpool="nasty"}'
+        values: '1+0x240'
+      - series: 'node_textfile_scrape_error{instance="nas:9100",job="truenas-node"}'
+        values: '1+0x240'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: TrueNASTextfileStale
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              zpool: 'nasty'
+            exp_annotations:
+              description: 'The sidecar runs every 5 minutes. It has stopped, or a zpool command is stuck.'
+              summary: 'The scrub data for TrueNAS pool nasty is 29m 59s old'
+      - eval_time: 30m
+        alertname: TrueNASTextfileError
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              instance: 'nas:9100'
+              job: 'truenas-node'
+            exp_annotations:
+              description: 'A malformed zpool.prom. Check the sidecar''s output.'
+              summary: 'node_exporter cannot read the TrueNAS text file'

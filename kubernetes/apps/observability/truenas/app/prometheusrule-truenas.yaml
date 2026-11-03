@@ -1,0 +1,318 @@
+---
+# TrueNAS (VM 999) disks, pools and exporters. The numbers come from the
+# truenas-monitoring app on TrueNAS: node_exporter (job truenas-node) with a
+# text file written by a small sidecar (the truenas_zpool_* series), and
+# smartctl_exporter (job truenas-smart). Unit tests:
+# scripts/validate-rules/truenas*.test.yaml, run by scripts/validate-kubernetes.sh.
+#
+# Every alert name has one meaning. SMART alerts are split by attribute so that
+# a critical on one attribute never inhibits a warning on another (the chart's
+# inhibit rule mutes warnings that share the alert name and labels).
+#
+# What smartctl_exporter v0.15.0 cannot tell us:
+#   - it serves the cache of its last successful read with no age check, so a disk
+#     that stops answering keeps its old values (TrueNASDiskDataStale uses the
+#     hourly power-on counter as a freshness signal);
+#   - it does not read the self-test log, so self-test failures are covered by
+#     TrueNAS's own SMARTFailedSelfTest alert (Discord), not by a rule here.
+#
+# Logs and Loki rules ship with the logging components, not here.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: truenas
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  groups:
+    # The SMART series carry the disk by device (a by-id name, or nvme0) and the
+    # serial number only on smartctl_device. Join first, then compute.
+    - name: truenas.recording
+      interval: 30s
+      rules:
+        - record: truenas:smart_attribute_raw
+          expr: smartctl_device_attribute{job="truenas-smart",attribute_value_type="raw"} * on (instance, device) group_left (serial_number, model_name, protocol) smartctl_device
+        - record: truenas:smart_temperature_current
+          expr: smartctl_device_temperature{job="truenas-smart",temperature_type="current"} * on (instance, device) group_left (serial_number, model_name, protocol) smartctl_device
+        - record: truenas:smart_status
+          expr: smartctl_device_smart_status{job="truenas-smart"} * on (instance, device) group_left (serial_number, model_name, protocol) smartctl_device
+        - record: truenas:smart_power_on_seconds
+          expr: smartctl_device_power_on_seconds{job="truenas-smart"} * on (instance, device) group_left (serial_number, model_name, protocol) smartctl_device
+        - record: truenas:smart_error_log_count
+          expr: smartctl_device_error_log_count{job="truenas-smart"} * on (instance, device) group_left (serial_number, model_name, protocol) smartctl_device
+    - name: truenas.disks
+      rules:
+        - alert: TrueNASDiskPendingSectorsIncreasing
+          expr: delta(truenas:smart_attribute_raw{attribute_id="197"}[1d]) > 0
+          keep_firing_for: 24h
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): pending sectors rose by {{ $value | printf \"%.0f\" }} in 24 h"
+            description: "Sectors the disk could not read are waiting for a rewrite. Check the pool and the disk plan; this disk may be failing."
+        - alert: TrueNASDiskReallocatedSectorsIncreasing
+          expr: delta(truenas:smart_attribute_raw{attribute_id="5"}[1d]) > 0
+          keep_firing_for: 24h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): reallocated sectors rose by {{ $value | printf \"%.0f\" }} in 24 h"
+            description: "The disk is remapping bad sectors. A rise right after a pending-sector alert is expected."
+        - alert: TrueNASDiskUncorrectableSectorsIncreasing
+          expr: delta(truenas:smart_attribute_raw{attribute_id="198"}[1d]) > 0
+          keep_firing_for: 24h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): offline-uncorrectable sectors rose by {{ $value | printf \"%.0f\" }} in 24 h"
+            description: "The disk found sectors it cannot correct during its offline scan."
+        - alert: TrueNASDiskPendingSectors
+          expr: truenas:smart_attribute_raw{attribute_id="197"} > 0
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): {{ $value }} sectors are pending reallocation"
+            description: "Attribute 197 (current pending sector count) is not zero."
+        - alert: TrueNASDiskReallocatedSectors
+          expr: truenas:smart_attribute_raw{attribute_id="5"} > 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): {{ $value }} sectors have been reallocated"
+            description: "Attribute 5 (reallocated sector count) is not zero."
+        - alert: TrueNASDiskUncorrectableSectors
+          expr: truenas:smart_attribute_raw{attribute_id="198"} > 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): {{ $value }} offline-uncorrectable sectors"
+            description: "Attribute 198 is not zero. A silence for the known case (2262JR66T) is created in Alertmanager, with an expiry; the increase and pending alerts stay on."
+        - alert: TrueNASDiskCRCErrorsIncreasing
+          expr: delta(truenas:smart_attribute_raw{attribute_id="199"}[7d]) > 0
+          keep_firing_for: 24h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): UDMA CRC errors rose by {{ $value | printf \"%.0f\" }} in 7 days"
+            description: "Cable or connector trouble between the disk and the controller."
+        - alert: TrueNASDiskErrorLogIncreasing
+          expr: delta(truenas:smart_error_log_count[1d]) > 0
+          keep_firing_for: 24h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): the SMART error log gained {{ $value | printf \"%.0f\" }} entries in 24 h"
+            description: "The disk logged new errors."
+        - alert: TrueNASDiskSmartFailed
+          expr: truenas:smart_status == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): the SMART health check reports FAILED"
+            description: "The disk reports that it is failing. Replace it."
+        - alert: TrueNASDiskDataStale
+          expr: changes(truenas:smart_power_on_seconds[3h]) == 0 and on (device) count_over_time(truenas:smart_power_on_seconds[3h]) > 300
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): SMART data has not changed for 3 hours"
+            description: "smartctl_exporter keeps serving its last good read when a disk stops answering, so the disk may look healthy. Power-on seconds rise every hour on a working disk. The second part of the expression waits for a full 3-hour window of samples (the recording rule runs every 30 s)."
+        - alert: TrueNASDiskTemperatureHigh
+          expr: truenas:smart_temperature_current{protocol!="NVMe"} >= 50
+          for: 30m
+          keep_firing_for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): {{ $value }} °C for 30 minutes"
+            description: "Hard disks should stay below 50 °C. Check the closet airflow."
+        - alert: TrueNASDiskTemperatureCritical
+          expr: truenas:smart_temperature_current{protocol!="NVMe"} >= 55
+          for: 10m
+          keep_firing_for: 30m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): {{ $value }} °C"
+            description: "55 °C or more. Fix the airflow now."
+        - alert: TrueNASNvmeTemperatureHigh
+          expr: truenas:smart_temperature_current{protocol="NVMe"} >= 70
+          for: 15m
+          keep_firing_for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): NVMe at {{ $value }} °C"
+            description: "The log device is hot."
+        - alert: TrueNASNvmeTemperatureHigh
+          expr: truenas:smart_temperature_current{protocol="NVMe"} >= 80
+          for: 5m
+          keep_firing_for: 30m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.serial_number }} ({{ $labels.model_name }}): NVMe at {{ $value }} °C"
+            description: "The log device is very hot."
+        - alert: TrueNASDiskMissing
+          # One alert per expected serial. The list is the disk inventory (the nine
+          # serials below, read on November 2, 2026); change it in the same pull
+          # request that replaces a disk. truenas:smart_status has one series per
+          # disk that was read successfully.
+          expr: |
+            (label_replace(vector(1), "serial_number", "WJG2F1MX", "", "") or
+            label_replace(vector(1), "serial_number", "WJG1MDQD", "", "") or
+            label_replace(vector(1), "serial_number", "2262JR66T", "", "") or
+            label_replace(vector(1), "serial_number", "32A2JWEUT", "", "") or
+            label_replace(vector(1), "serial_number", "2262JR82T", "", "") or
+            label_replace(vector(1), "serial_number", "3252JVLQT", "", "") or
+            label_replace(vector(1), "serial_number", "2EHN3EWX", "", "") or
+            label_replace(vector(1), "serial_number", "2EKNWAEX", "", "") or
+            label_replace(vector(1), "serial_number", "A221116NV012801084", "", ""))
+              unless on (serial_number) truenas:smart_status
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.serial_number }}: no SMART data for 30 minutes"
+            description: "The disk is not in the exporter's output, or its reads fail. Check the disk, the cabling and the smartctl-exporter container. If the disk was replaced, update the serial list in this rule."
+        - alert: TrueNASDisksAllMissing
+          expr: absent(truenas:smart_status)
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No SMART data for any TrueNAS disk"
+            description: "smartctl_exporter is down, unreachable or reads nothing. TrueNASExporterDown may be firing as well."
+    - name: truenas.pools
+      rules:
+        - alert: TrueNASPoolNotOnline
+          expr: node_zfs_zpool_state{job="truenas-node",state!="online"} == 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "TrueNAS pool {{ $labels.zpool }} is {{ $labels.state }}"
+            description: "The pool is not ONLINE. Check zpool status on TrueNAS and the disk alerts."
+        # An exported or vanished pool has no series, so the rule above is silent.
+        - alert: TrueNASPoolStateMissing
+          expr: absent(node_zfs_zpool_state{job="truenas-node",zpool="nasty"}) or absent(node_zfs_zpool_state{job="truenas-node",zpool="boot-pool"})
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No state for TrueNAS pool {{ $labels.zpool }}"
+            description: "The pool is missing from node_exporter's output, or the exporter is down."
+        - alert: TrueNASPoolErrors
+          expr: truenas_zpool_error_count > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "TrueNAS pool {{ $labels.zpool }} reports {{ $value }} data errors"
+            description: "zpool status shows data errors. Do not ignore this."
+        - alert: TrueNASScrubErrors
+          expr: truenas_zpool_scan_errors > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "TrueNAS pool {{ $labels.zpool }}: the last {{ $labels.function }} found {{ $value }} errors"
+            description: "A scrub or resilver reported errors. zpool status -v lists the files."
+        - alert: TrueNASScanRunningLong
+          expr: truenas_zpool_scan_in_progress == 1
+          for: 36h
+          labels:
+            severity: warning
+          annotations:
+            summary: "TrueNAS pool {{ $labels.zpool }}: a {{ $labels.function }} has run for more than 36 hours"
+            description: "A scrub normally takes about 7 hours on this pool. Check for a stalled or paused scan."
+        # Reads the current series, so the 30-day metric retention cannot hide it.
+        # A running scan has no end time (the sidecar writes none) and a cancelled
+        # scan writes none either; the second part is a second guard.
+        - alert: TrueNASScrubOverdue
+          expr: |
+            (time() - truenas_zpool_scan_end_timestamp_seconds{function="SCRUB",zpool="nasty"} > 35 * 86400)
+              and on (zpool) (truenas_zpool_scan_in_progress{function="SCRUB"} == 0)
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "TrueNAS pool {{ $labels.zpool }}: the last scrub ended more than 35 days ago"
+            description: "Scrubs are scheduled monthly. Check the TrueNAS scrub task and zpool status."
+        # ZFS keeps only the latest scan, so after a resilver (the disk replacement)
+        # or a cancelled scrub there is no scrub end time. Say so after 2 days.
+        - alert: TrueNASScrubHistoryUnknown
+          expr: |
+            truenas_zpool_scan_present{zpool="nasty"} == 0
+              or (truenas_zpool_scan_present{zpool="nasty"} == 1 unless on (zpool) truenas_zpool_scan_end_timestamp_seconds{function="SCRUB",zpool="nasty"})
+          for: 2d
+          labels:
+            severity: warning
+          annotations:
+            summary: "TrueNAS pool nasty: no finished scrub on record"
+            description: "The pool was never scanned, or the latest scan is a resilver or a cancelled scrub. Run a scrub."
+        - alert: TrueNASDatasetFilling
+          expr: node_filesystem_avail_bytes{job="truenas-node"} / node_filesystem_size_bytes{job="truenas-node"} < 0.10
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "TrueNAS {{ $labels.mountpoint }} has {{ $value | humanizePercentage }} free"
+            description: "For a dataset with a quota, the size is used plus available under the quota, so a capped dataset warns before the pool is full."
+        - alert: TrueNASDatasetFilling
+          expr: node_filesystem_avail_bytes{job="truenas-node"} / node_filesystem_size_bytes{job="truenas-node"} < 0.05
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "TrueNAS {{ $labels.mountpoint }} has {{ $value | humanizePercentage }} free"
+            description: "Writes to this dataset will fail soon."
+    - name: truenas.exporters
+      rules:
+        - alert: TrueNASExporterDown
+          expr: up{job=~"truenas-node|truenas-smart"} == 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "TrueNAS exporter {{ $labels.job }} has been down for 10 minutes"
+            description: "Check the truenas-monitoring app on TrueNAS and that 192.168.10.75 answers. A planned TrueNAS reboot takes less than 10 minutes."
+        # A removed scrape target has no up series.
+        - alert: TrueNASTargetAbsent
+          expr: absent(up{job="truenas-node"}) or absent(up{job="truenas-smart"})
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No scrape target for job {{ $labels.job }}"
+            description: "The ScrapeConfig is missing or Prometheus does not select it."
+        # After a reboot the in-memory text file is empty until the sidecar's
+        # first run (a few seconds); 15 minutes means it did not run.
+        - alert: TrueNASTextfileAbsent
+          expr: absent(truenas_zpool_textfile_timestamp_seconds{zpool="nasty"}) or absent(truenas_zpool_textfile_timestamp_seconds{zpool="boot-pool"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No scrub and pool-error data for TrueNAS pool {{ $labels.zpool }}"
+            description: "The zpool-textfile sidecar did not write the pool, or it could not read it. docker logs ix-truenas-monitoring-zpool-textfile-1."
+        - alert: TrueNASTextfileStale
+          expr: time() - truenas_zpool_textfile_timestamp_seconds > 900
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The scrub data for TrueNAS pool {{ $labels.zpool }} is {{ $value | humanizeDuration }} old"
+            description: "The sidecar runs every 5 minutes. It has stopped, or a zpool command is stuck."
+        - alert: TrueNASTextfileError
+          expr: node_textfile_scrape_error{job="truenas-node"} == 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "node_exporter cannot read the TrueNAS text file"
+            description: "A malformed zpool.prom. Check the sidecar's output."

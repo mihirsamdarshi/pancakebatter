@@ -82,6 +82,8 @@ spec:
         etcdGRPCRequestsSlow: true
         # Replaced by NodeMemoryHigh (prometheusrule-guardrails.yaml).
         NodeMemoryHighUtilization: true
+        # Copied into prometheusrule-guardrails.yaml with the TrueNAS jobs excluded.
+        TargetDown: true
     windowsMonitoring:
       enabled: false
 

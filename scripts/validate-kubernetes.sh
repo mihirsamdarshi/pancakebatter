@@ -49,6 +49,17 @@
 #      actions, valuesFrom or postRenderers, and neither its kustomization.yaml
 #      nor its ks.yaml may carry patches: each bypasses or can replace that
 #      identity. A tree without that file fails: the template always renders it.
+#   9. every PrometheusRule under kubernetes/ passes `promtool check rules`, and
+#      has unit tests that pass: scripts/validate-rules/<name>.test.yaml and any
+#      <name>.<variant>.test.yaml, where <name> is the PrometheusRule's
+#      metadata.name. The validator extracts its .spec to <name>.rules.yaml next
+#      to a copy of each test file, so a test file lists `rule_files:
+#      [<name>.rules.yaml]`. A rule without tests fails unless it is in the
+#      exempt list in check_prometheus_rules (the app platform rule is tested by
+#      validate-apps.sh). `promtool check rules` accepts an expression on a
+#      metric that does not exist, so the tests feed series under the names and
+#      labels the exporters really publish and expect the alerts to fire. Rules
+#      rendered by a Helm chart are not files in this tree and are not covered.
 # archive/ and other trees outside kubernetes/ are never read.
 #
 # Schemas fail closed: there is no -ignore-missing-schemas, so a typo in
@@ -132,7 +143,7 @@ die() {
 # Fail closed: a missing tool must fail the gate, never skip it.
 require_tools() {
     local tool missing=()
-    for tool in kubeconform kustomize flux yq git flux-operator jq gitleaks; do
+    for tool in kubeconform kustomize flux yq git flux-operator jq gitleaks promtool; do
         command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
     done
     ((${#missing[@]} == 0)) || die "missing tools: ${missing[*]} (run via 'mise exec --' or 'mise install')"
@@ -143,6 +154,66 @@ setup_cache() {
     local cache="${KUBECONFORM_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/kubeconform}"
     mkdir -p "$cache"
     kubeconform_args+=("-cache" "$cache")
+}
+
+# Check 9: promtool check and unit tests for every PrometheusRule file.
+# $1 is a scratch directory. Runs from the repository root.
+check_prometheus_rules() {
+    local tmp="$1" rules_dir="$1/rules" test_dir="scripts/validate-rules"
+    # Rules with no unit tests yet. app-platform is tested by validate-apps.sh.
+    local exempt=" app-platform certificates volsync "
+    local file name t tests orphan
+    mkdir -p "$rules_dir"
+    find kubernetes -type f -name '*.yaml' ! -name kustomization.yaml ! -name '*.sops.yaml' -print0 \
+        | sort -z >"$tmp/rule.files"
+    : >"$tmp/rule.names"
+    while IFS= read -r -d '' file; do
+        yq -N 'select(.kind == "PrometheusRule") | .metadata.name' "$file" >"$tmp/rule.found"
+        while IFS= read -r name; do
+            [[ -n "$name" ]] || continue
+            [[ "$name" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] \
+                || die "$file: PrometheusRule name '$name' is not a lowercase RFC 1123 label"
+            [[ ! -e "$rules_dir/$name.rules.yaml" ]] \
+                || die "$file: a second PrometheusRule named $name (the unit tests are keyed by name)"
+            NAME="$name" yq -N 'select(.kind == "PrometheusRule" and .metadata.name == strenv(NAME)) | .spec' "$file" \
+                >"$rules_dir/$name.rules.yaml"
+            promtool check rules "$rules_dir/$name.rules.yaml" >"$tmp/promtool.out" 2>&1 \
+                || die "$file ($name): promtool check rules failed: $(cat "$tmp/promtool.out")"
+            echo "$name" >>"$tmp/rule.names"
+            echo "--- $file ($name): promtool check rules passes"
+        done <"$tmp/rule.found"
+    done <"$tmp/rule.files"
+
+    shopt -s nullglob
+    while IFS= read -r name; do
+        tests=()
+        for t in "$test_dir/$name".test.yaml "$test_dir/$name".*.test.yaml; do
+            [[ -e "$t" ]] && tests+=("$t")
+        done
+        if ((${#tests[@]} == 0)); then
+            [[ "$exempt" == *" $name "* ]] \
+                || die "PrometheusRule $name has no unit tests: add $test_dir/$name.test.yaml with 'rule_files: [$name.rules.yaml]'"
+            echo "--- $name: no unit tests here (exempt)"
+            continue
+        fi
+        for t in "${tests[@]}"; do
+            cp "$t" "$rules_dir/"
+            (cd "$rules_dir" && promtool test rules "$(basename "$t")") >"$tmp/promtool.out" 2>&1 \
+                || die "$t: promtool test rules failed: $(cat "$tmp/promtool.out")"
+            echo "--- $t: promtool unit tests pass"
+        done
+    done <"$tmp/rule.names"
+    # A test file for a rule that no longer exists would silently stop testing.
+    for t in "$test_dir"/*.test.yaml; do
+        orphan=1
+        while IFS= read -r name; do
+            if [[ "$(basename "$t")" == "$name.test.yaml" || "$(basename "$t")" == "$name".*.test.yaml ]]; then
+                orphan=0
+            fi
+        done <"$tmp/rule.names"
+        ((orphan == 0)) || die "$t does not belong to any PrometheusRule under kubernetes/"
+    done
+    shopt -u nullglob
 }
 
 validate_tree() {
@@ -364,6 +435,9 @@ validate_tree() {
             fi
             echo "--- $file (web UI sends requests as '$name')"
         fi
+
+        echo "=== PrometheusRule files: promtool check and unit tests ==="
+        check_prometheus_rules "$tmp"
     )
     echo "=== kubernetes manifests are valid ==="
 }
