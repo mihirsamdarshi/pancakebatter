@@ -185,8 +185,8 @@ The generated Deployment assumes it; the `apps` template enforces it.
   value into an integer, which the API rejects for an environment value.
 - **Keeps idle HTTP connections open for longer than 60 s.** The gateway closes
   its idle connections to the app at 60 s (`connectionIdleTimeout` on the
-  `writes` policy) and never retries a write, so the app must close later. Bun's
-  default is 10 s; the template sets `idleTimeout: 75`.
+  `writes` policy) and never retries a write, so the app must close later, which makes
+  a failed write very unlikely. Bun's default is 10 s; the template sets `idleTimeout: 75`.
 - Writes only under `$DATA_DIR` (the PVC) and `/tmp` (a 128 Mi `emptyDir`). The
   root filesystem is read-only. Runs as a non-root uid, all capabilities dropped,
   `linux/amd64`, one replica with strategy `Recreate` (SQLite is single-writer).

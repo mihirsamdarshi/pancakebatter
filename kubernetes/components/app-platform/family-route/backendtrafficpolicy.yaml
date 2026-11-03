@@ -10,7 +10,8 @@ spec:
   retry:
     numRetries: 0
   # Envoy closes an idle upstream connection at 60 s, before the app's keep-alive
-  # (the template sets 75 s), so a write never lands on a closing connection.
+  # (the template sets 75 s), so a write is very unlikely to land on a closing
+  # connection.
   timeout:
     http:
       connectionIdleTimeout: 60s
