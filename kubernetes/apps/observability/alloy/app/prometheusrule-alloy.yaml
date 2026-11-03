@@ -15,12 +15,12 @@ spec:
     - name: alloy
       rules:
         - alert: AlloyLinesRateLimited
-          expr: sum by (component_id) (increase(loki_process_dropped_lines_total[1h])) > 0
+          expr: sum by (component_id) (increase(loki_process_dropped_lines_total{reason!="source_not_allowed"}[1h])) > 0
           labels:
             severity: warning
           annotations:
             summary: "Alloy dropped log lines in {{ $labels.component_id }}"
-            description: "A source went over its line-rate cap or sent lines over the size limit. Expect this once after a TrueNAS reboot (boot burst); otherwise find the noisy source."
+            description: "A source went over its line-rate cap or sent lines over the size limit (lines from an address that is not an allowed sender are not counted here). Expect this once after a TrueNAS reboot (boot burst); otherwise find the noisy source."
         - alert: AlloyWriteDropping
           expr: sum(increase(loki_write_dropped_entries_total[15m])) > 0
           labels:

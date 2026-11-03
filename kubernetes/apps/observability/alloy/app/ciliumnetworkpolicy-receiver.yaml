@@ -4,10 +4,17 @@
 # Without a policy that port would answer anyone on VLAN 10 and the LAN. Selecting
 # the pod turns on default-deny for ingress only.
 #
-# Allowed: syslog on 1514/UDP and 1515/TCP from anywhere that can reach the
-# address (the senders are the UCG and TrueNAS; the Alloy filters check the
-# source address); Prometheus on 12345; the kubelet probes (host) on 12345.
-# Nothing else, so 192.168.10.12:12345 does not answer.
+# Allowed: syslog on 1515/TCP only from TrueNAS (192.168.10.75) and on 1514/UDP
+# only from the UCG (192.168.10.1 and 192.168.1.1): the same addresses the Alloy
+# source filter in helmrelease-receiver.yaml trusts, so a forged or stray sender
+# is stopped here and does not reach Alloy. Keep the two lists in step. This
+# works because the Service uses externalTrafficPolicy: Local: the client address
+# is kept and Cilium gives an outside sender the `world` identity, which CIDR
+# rules match (a forward from another node would show as `remote-node` instead).
+# Tailscale clients enter VLAN 10 as 192.168.10.1 (the UCG subnet router), so
+# they pass the UDP rule; that residual risk is accepted (see the rate caps in
+# the Alloy config). Also allowed: Prometheus on 12345; the kubelet probes
+# (host) on 12345. Nothing else, so 192.168.10.12:12345 does not answer.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -19,15 +26,19 @@ spec:
       app.kubernetes.io/name: alloy
       app.kubernetes.io/instance: alloy-receiver
   ingress:
-    - fromEntities:
-        - world
-        - cluster
+    - fromCIDRSet:
+        - cidr: 192.168.10.75/32
+      toPorts:
+        - ports:
+            - port: "1515"
+              protocol: TCP
+    - fromCIDRSet:
+        - cidr: 192.168.10.1/32
+        - cidr: 192.168.1.1/32
       toPorts:
         - ports:
             - port: "1514"
               protocol: UDP
-            - port: "1515"
-              protocol: TCP
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: observability

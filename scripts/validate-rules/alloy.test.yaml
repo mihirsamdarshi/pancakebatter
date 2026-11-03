@@ -8,7 +8,7 @@ tests:
   - name: 'a source goes over its line cap: dropped lines alert, per component'
     interval: 1m
     input_series:
-      - series: 'loki_process_dropped_lines_total{component_id="loki.process.syslog"}'
+      - series: 'loki_process_dropped_lines_total{component_id="loki.process.syslog",reason="ratelimit_drop_stage"}'
         values: '0+0x10 5+5x50'
     alert_rule_test:
       - eval_time: 5m
@@ -21,8 +21,35 @@ tests:
               severity: 'warning'
               component_id: 'loki.process.syslog'
             exp_annotations:
-              description: 'A source went over its line-rate cap or sent lines over the size limit. Expect this once after a TrueNAS reboot (boot burst); otherwise find the noisy source.'
+              description: 'A source went over its line-rate cap or sent lines over the size limit (lines from an address that is not an allowed sender are not counted here). Expect this once after a TrueNAS reboot (boot burst); otherwise find the noisy source.'
               summary: 'Alloy dropped log lines in loki.process.syslog'
+  - name: 'size-limit drops also alert'
+    interval: 1m
+    input_series:
+      - series: 'loki_process_dropped_lines_total{component_id="loki.process.syslog",reason="drop_stage"}'
+        values: '0+0x10 5+5x50'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: AlloyLinesRateLimited
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              component_id: 'loki.process.syslog'
+            exp_annotations:
+              description: 'A source went over its line-rate cap or sent lines over the size limit (lines from an address that is not an allowed sender are not counted here). Expect this once after a TrueNAS reboot (boot burst); otherwise find the noisy source.'
+              summary: 'Alloy dropped log lines in loki.process.syslog'
+  - name: 'only source-filter drops: nothing fires'
+    interval: 1m
+    input_series:
+      - series: 'loki_process_dropped_lines_total{component_id="loki.process.truenas",reason="source_not_allowed"}'
+        values: '0+0x10 50+50x50'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: AlloyLinesRateLimited
+        exp_alerts: []
+      - eval_time: 55m
+        alertname: AlloyLinesRateLimited
+        exp_alerts: []
   - name: 'no dropped lines: quiet'
     interval: 1m
     input_series:
