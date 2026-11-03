@@ -197,6 +197,10 @@ spec:
                     icon: mdi-needle
                     href: https://quilts.${SECRET_FAMILY_DOMAIN}
                     description: Plan a quilt
+                - Reports:
+                    icon: mdi-file-document-multiple
+                    href: https://reports.${SECRET_FAMILY_DOMAIN}
+                    description: Research reports
                 - Jellyfin:
                     icon: jellyfin.png
                     href: https://jellyfin.${SECRET_FAMILY_DOMAIN}
