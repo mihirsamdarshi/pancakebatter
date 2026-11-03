@@ -11,7 +11,8 @@
 # switches url to the monorepo package in the same PR that removes `pin`.
 #
 # parts: the workload (always) plus the family route since D5. The internal
-# route, backup and registry Secret stay Git-defined until later steps. netpol is off until D6, because the `quilts` tailnet Ingress proxies
+# route, backup and registry Secret stay Git-defined until later steps.
+# netpol is off until D6, because the `quilts` tailnet Ingress proxies
 # into the pod and the default policy would block it.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSetInputProvider
