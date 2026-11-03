@@ -1,0 +1,63 @@
+---
+# Loki's own alerts. The chart's rules are off (monitoring.rules.enabled:
+# false), so these replace them. No alert reads log text: there is no Loki
+# ruler. The Alloy side (write drops and retries, syslog parsing) is in the
+# alloy rule. Unit tests: scripts/validate-rules/loki.test.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: loki
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  groups:
+    - name: loki
+      rules:
+        - alert: LokiDown
+          expr: absent(up{job="loki"}) or up{job="loki"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Loki is down or not scraped"
+            description: "No logs are stored while Loki is down. Alloy retries for a while, then drops. kubectl -n observability describe pod loki-0."
+        - alert: LokiRequestErrors
+          expr: sum(rate(loki_request_duration_seconds_count{status_code=~"5.."}[10m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki is answering requests with 5xx errors"
+            description: "Pushes or queries are failing inside Loki. Check its log."
+        # The hard byte cap (limits_config.ingestion_rate_mb) answers 429.
+        - alert: LokiIngestRateLimited
+          expr: sum by (reason) (rate(loki_discarded_samples_total{reason="rate_limited"}[10m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki is rate limiting pushes (the 50 KB/s cap is being hit)"
+            description: "Some log lines are being refused. Find the noisy source in the Logs dashboard, or raise the cap with the measured volume."
+        - alert: LokiDiscarding
+          expr: sum by (reason) (rate(loki_discarded_samples_total{reason!="rate_limited"}[10m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki is discarding log lines ({{ $labels.reason }})"
+            description: "Lines are refused for a reason other than the rate cap, for example too old, too long or too many streams."
+        - alert: LokiDailyIngestHigh
+          expr: sum(increase(loki_distributor_bytes_received_total[24h])) > 2e9
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki received more than 2 GB in 24 hours"
+            description: "The hard cap allows 4.3 GB a day raw; this is 45% of it. Storage on talos-03 is the limit: check LocalPathFilling."
+        - alert: LokiStreamsHigh
+          expr: sum(loki_ingester_memory_streams) > 1000
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki holds more than 1000 active streams"
+            description: "A label with changing values is the usual cause. logcli series '{}' --analyze-labels."

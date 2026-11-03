@@ -1,0 +1,16 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: loki
+spec:
+  interval: 15m
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    # 19.0.x on purpose: chart 20.0 removes the MinIO subchart and rejects
+    # unknown top-level values (the `minio` key below). Move to 20.x in a
+    # separate change. Chart and app image (3.7.9) are at least 14 days old.
+    tag: 19.0.3
+  url: oci://ghcr.io/grafana-community/helm-charts/loki

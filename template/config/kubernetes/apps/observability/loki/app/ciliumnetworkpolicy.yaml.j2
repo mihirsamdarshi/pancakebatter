@@ -1,0 +1,64 @@
+---
+# Loki runs with auth_enabled: false, so without this any pod in the cluster
+# could read the logs or push lines straight into Loki, past Alloy's limits
+# (Grafana's login does not protect Loki's API). Selecting the pod turns on
+# default-deny for ingress only; egress is unchanged. Replies to allowed
+# connections need no rule.
+#
+# Allowed on 3100 (HTTP: push, query, metrics, probes): Grafana, Prometheus,
+# alloy-receiver, and the Alloy DaemonSet. The DaemonSet uses host networking,
+# so Cilium sees it as the `host` / `remote-node` entities (the same entity
+# carries kubelet probes). That also lets another host-network pod in:
+# accepted, and narrower than "every pod".
+#
+# Allowed on 9095 and 7946 from Loki itself: Loki reaches its own compactor
+# through the Service name (compactor_grpc_address loki.observability.svc:9095)
+# and joins its memberlist (loki-memberlist) with abort_if_cluster_join_fails.
+# Without these two the pod fails to start, or retention compaction fails
+# hours later without an alert.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: loki
+spec:
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: observability
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/component: single-binary
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: grafana
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alloy
+            app.kubernetes.io/instance: alloy-receiver
+      toPorts:
+        - ports:
+            - port: "3100"
+              protocol: TCP
+    - fromEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "3100"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: loki
+            app.kubernetes.io/component: single-binary
+      toPorts:
+        - ports:
+            - port: "9095"
+              protocol: TCP
+            - port: "7946"
+              protocol: TCP
+            - port: "7946"
+              protocol: UDP
