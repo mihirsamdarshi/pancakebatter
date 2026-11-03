@@ -1,0 +1,10 @@
+# Add this item under `spec.egress` of the worker's CiliumNetworkPolicy
+# (deal-watch-integrations) in the activation step. Not a standalone manifest.
+- toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: deal-watch-integrations
+        app.kubernetes.io/name: deal-watch-browser
+  toPorts:
+    - ports:
+        - port: "3000"
+          protocol: TCP

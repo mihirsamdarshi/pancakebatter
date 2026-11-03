@@ -1,0 +1,89 @@
+{
+ "retailer": "target",
+ "productId": "93620188",
+ "startedAt": 1793744179312,
+ "finishedAt": 1793744195284,
+ "status": 200,
+ "finalUrl": "https://www.target.com/p/-/A-93620188",
+ "blocked": false,
+ "error": null,
+ "title": "PlayStation 5 Pro Console : Target",
+ "h1": [
+  "PlayStation 5 Pro Console"
+ ],
+ "responses": [
+  {
+   "path": "/cdui_orchestrations/v1/pages/pdp/deferred_enrichment/modules",
+   "status": 200,
+   "body": {
+    "modules": [
+     {
+      "module_data": {
+       "data": {
+        "product": {
+         "__typename": "Product",
+         "tcin": "93620188",
+         "notify_me_eligible": true,
+         "fulfillment": {
+          "product_id": "93620188",
+          "is_out_of_stock_in_all_store_locations": false,
+          "sold_out": false,
+          "shipping_options": {
+           "availability_status": "OUT_OF_STOCK",
+           "loyalty_availability_status": "OUT_OF_STOCK",
+           "available_to_promise_quantity": 0,
+           "reason_code": "INVENTORY_UNAVAILABLE",
+           "services": []
+          },
+          "scheduled_delivery": {
+           "location_id": "3262",
+           "availability_status": "UNAVAILABLE",
+           "location_available_to_promise_quantity": 0
+          }
+         }
+        }
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "path": "/cdui_orchestrations/v1/pages/pdp/deferred_enrichment/modules",
+   "status": 200,
+   "body": {
+    "modules": [
+     {
+      "module_data": {
+       "data": {
+        "product": {
+         "__typename": "Product",
+         "tcin": "93620188",
+         "price": {
+          "display_was_now": false,
+          "formatted_current_price": "$899.99",
+          "formatted_current_price_type": "reg",
+          "location_id": 3991,
+          "current_retail": 899.99,
+          "external_system_id": "93620188-3991-899.99-2026080906",
+          "reg_retail": 899.99
+         },
+         "free_shipping": {
+          "enabled": true
+         },
+         "esp": {
+          "tcin": "51552513",
+          "price": {
+           "formatted_current_price": "$97.00",
+           "formatted_current_price_type": "reg"
+          }
+         }
+        }
+       }
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

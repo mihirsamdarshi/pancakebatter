@@ -1,0 +1,82 @@
+---
+# REVIEW TEMPLATE ONLY: outside the Flux-watched kubernetes tree.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deal-watch-browser
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: deal-watch-browser
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: deal-watch-browser
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: deal-watch-integrations-registry
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: browser
+          # Required substitution in the activation PR: a real published digest.
+          image: ${DEAL_WATCH_BROWSER_IMAGE}
+          ports:
+            - name: http
+              containerPort: 3000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+          # /healthz is 503 when Chromium or Xvfb is gone, or an observation is stuck over 130 s.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            failureThreshold: 4
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/pwuser
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+        - name: home
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi

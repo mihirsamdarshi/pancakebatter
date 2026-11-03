@@ -1,0 +1,13 @@
+{
+  "name": "deal-watch-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "One-page-load browser observation service for Deal Watch",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "playwright-core": "1.64.1"
+  }
+}

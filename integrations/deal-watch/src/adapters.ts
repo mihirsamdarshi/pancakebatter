@@ -1,5 +1,6 @@
 import { parseOffer, purchaseUrl, type Offer, type Watch, type Binding } from "./vendor/domain.ts";
 import { getPublic, UpstreamError, type Fetcher } from "./http.ts";
+import { observe, parseBestBuy, parseTarget } from "./browser-adapters.ts";
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 function price(value: unknown): number {
@@ -238,6 +239,7 @@ export async function collect(
   fetcher?: Fetcher,
   now = Date.now(),
   references: ReferenceMap = new Map(),
+  browserUrl?: string,
 ): Promise<Offer> {
   if (b.retailer === "sony") {
     const url = new URL(
@@ -249,5 +251,10 @@ export async function collect(
   }
   if (b.retailer === "costco")
     return parseCostco(await getPublic(purchaseUrl(b), fetcher), w, b, now, references);
+  if (b.retailer === "target" || b.retailer === "bestbuy") {
+    if (!browserUrl) throw new UpstreamError("unsupported");
+    const observation = await observe(browserUrl, b.retailer, b.productId, b.pagePath, fetcher);
+    return (b.retailer === "target" ? parseTarget : parseBestBuy)(observation, w, b, now);
+  }
   throw new UpstreamError("unsupported");
 }

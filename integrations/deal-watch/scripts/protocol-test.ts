@@ -157,3 +157,76 @@ try {
     database.close();
   }
 }
+
+// Exercise Target and Best Buy through a mocked browser service: no real retailer or network access.
+{
+  const config = structuredClone(watches);
+  const zip = config[0]!.zip;
+  config[0]!.bindings = [
+    {
+      id: "bestbuy-console",
+      retailer: "bestbuy",
+      productId: "6601524",
+      pagePath: "/product/playstation-5-pro-console/JXHQ37TR86/sku/6601524",
+      enabled: true,
+      shippingPolicyZips: [zip],
+      note: "Synthetic browser protocol fixture",
+    },
+    {
+      id: "target-console",
+      retailer: "target",
+      productId: "93620188",
+      pagePath: "/p/-/A-93620188",
+      enabled: true,
+      shippingPolicyZips: [zip],
+      note: "Synthetic browser protocol fixture",
+    },
+  ];
+  const read = (name: string) =>
+    JSON.parse(readFileSync(new URL(`../fixtures/${name}.json`, import.meta.url), "utf8"));
+  const docs: Record<string, any> = {
+    target: read("target-in-stock-synthetic"),
+    bestbuy: read("bestbuy-in-stock-synthetic"),
+  };
+  const database = openDb(":memory:"),
+    state = new Store(database, config),
+    handler = createHandler(database, state);
+  let time = realNow(),
+    loads = 0;
+  Date.now = () => time;
+  const fetcher = async (req: Request) => {
+    const url = new URL(req.url);
+    if (url.hostname === "app.test") return handler(req);
+    if (url.hostname !== "browser.test") throw Error("Unexpected synthetic host");
+    loads++;
+    return Response.json(docs[(await req.json()).retailer]);
+  };
+  try {
+    const worker = new Worker({
+      baseUrl: "https://app.test",
+      watches: config,
+      fetcher,
+      browserUrl: "http://browser.test:3000",
+      startupDelay: false,
+      now: () => time,
+      random: () => 0,
+    });
+    await worker.runOnce();
+    time += 1_800_000;
+    await worker.runOnce();
+    const sources = state.dashboard(time).watches[0]!.sources;
+    const offers = sources.flatMap((s: any) => s.offers);
+    if (loads !== 4 || offers.length < 2 || !offers.every((o: any) => o.qualification.eligible))
+      throw Error("Browser-backed Target/Best Buy protocol failed");
+    console.log(
+      JSON.stringify({
+        result: "pass",
+        syntheticBrowserLoads: loads,
+        browserSourcesEligible: offers.length,
+      }),
+    );
+  } finally {
+    Date.now = realNow;
+    database.close();
+  }
+}
