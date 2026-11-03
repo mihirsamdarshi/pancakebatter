@@ -1,0 +1,45 @@
+---
+# Delivery alerts for the log collectors. Receipt at Alloy is not storage in
+# Loki: these show when Alloy cannot hand lines to Loki, or drops them on
+# purpose. Loki's own alerts are in the loki rule. TrueNASLogsSilent (no
+# syslog from TrueNAS) ships with the step that points TrueNAS at the receiver.
+# Unit tests: scripts/validate-rules/alloy.test.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: alloy
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  groups:
+    - name: alloy
+      rules:
+        - alert: AlloyLinesRateLimited
+          expr: sum by (component_id) (increase(loki_process_dropped_lines_total[1h])) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alloy dropped log lines in {{ $labels.component_id }}"
+            description: "A source went over its line-rate cap or sent lines over the size limit. Expect this once after a TrueNAS reboot (boot burst); otherwise find the noisy source."
+        - alert: AlloyWriteDropping
+          expr: sum(increase(loki_write_dropped_entries_total[15m])) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alloy gave up on log entries it could not send to Loki"
+            description: "Loki was unreachable or refused them for longer than Alloy retries. The entries are lost (accepted: logs may be lost)."
+        - alert: AlloyWriteRetrying
+          expr: sum(rate(loki_write_batch_retries_total[10m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alloy keeps retrying pushes to Loki"
+            description: "Loki is unreachable, slow, or answering 429 (the byte cap) or 5xx."
+        - alert: SyslogParsingErrors
+          expr: sum by (component_id) (increase(loki_source_syslog_parsing_errors_total[1h])) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alloy cannot parse syslog messages in {{ $labels.component_id }}"
+            description: "A sender uses another format or framing than the listener expects (TrueNAS: RFC 5424, octet counting; UCG: RFC 3164)."

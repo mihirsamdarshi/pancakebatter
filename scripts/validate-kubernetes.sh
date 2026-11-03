@@ -60,6 +60,13 @@
 #      metric that does not exist, so the tests feed series under the names and
 #      labels the exporters really publish and expect the alerts to fire. Rules
 #      rendered by a Helm chart are not files in this tree and are not covered.
+#  10. every Alloy configuration embedded in a HelmRelease
+#      (spec.values.alloy.configMap.content) passes `alloy validate` and
+#      `alloy fmt`, which catch a syntax or argument error before Flux applies
+#      it (a one-line block `rule { a = ... b = ... }` does not parse). It uses
+#      an `alloy` binary if there is one, else the pinned image in the local
+#      Docker cache (docker pull grafana/alloy:v1.21.1, 700 MB); with neither
+#      it is skipped with a message, because CI does not carry Alloy.
 # archive/ and other trees outside kubernetes/ are never read.
 #
 # Schemas fail closed: there is no -ignore-missing-schemas, so a typo in
@@ -214,6 +221,33 @@ check_prometheus_rules() {
         ((orphan == 0)) || die "$t does not belong to any PrometheusRule under kubernetes/"
     done
     shopt -u nullglob
+}
+
+# Check 10: Alloy configs. $1 is a scratch directory.
+check_alloy_configs() {
+    local tmp="$1" image="grafana/alloy:v1.21.1" file n=0 base cfg
+    local -a runner
+    mkdir -p "$tmp/alloy"
+    if command -v alloy >/dev/null 2>&1; then
+        runner=(alloy); base="$tmp/alloy"
+    elif command -v docker >/dev/null 2>&1 && docker image inspect "$image" >/dev/null 2>&1; then
+        runner=(docker run --rm -v "$tmp/alloy:/cfg:ro" "$image"); base=/cfg
+    else
+        echo "--- skipped: no alloy binary and $image is not in the local Docker cache"
+        return 0
+    fi
+    find kubernetes -type f -name '*.yaml' ! -name kustomization.yaml ! -name '*.sops.yaml' -print0 | sort -z >"$tmp/alloy.files"
+    while IFS= read -r -d '' file; do
+        yq -N 'select(.kind == "HelmRelease") | .spec.values.alloy.configMap.content // ""' "$file" >"$tmp/alloy.content"
+        [[ -n "$(tr -d '[:space:]' <"$tmp/alloy.content")" ]] || continue
+        n=$((n + 1)); cfg="$tmp/alloy/$n.alloy"
+        cp "$tmp/alloy.content" "$cfg"
+        "${runner[@]}" validate "$base/$n.alloy" >"$tmp/alloy.out" 2>&1 \
+            || die "$file: alloy validate failed: $(cat "$tmp/alloy.out")"
+        "${runner[@]}" fmt "$base/$n.alloy" >"$tmp/alloy.out" 2>&1 \
+            || die "$file: alloy fmt failed: $(cat "$tmp/alloy.out")"
+        echo "--- $file: alloy validate and fmt pass"
+    done <"$tmp/alloy.files"
 }
 
 validate_tree() {
@@ -438,6 +472,9 @@ validate_tree() {
 
         echo "=== PrometheusRule files: promtool check and unit tests ==="
         check_prometheus_rules "$tmp"
+
+        echo "=== Alloy configurations: alloy validate and fmt ==="
+        check_alloy_configs "$tmp"
     )
     echo "=== kubernetes manifests are valid ==="
 }

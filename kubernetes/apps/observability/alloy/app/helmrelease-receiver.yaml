@@ -1,0 +1,224 @@
+---
+# One Alloy pod that receives syslog from the network and pushes it to Loki.
+# Its Service takes the load-balancer address 192.168.10.12 (Cilium LB IPAM
+# pool 192.168.10.10-.19; announced by the l2-policy on every Linux node):
+#   TCP 514 -> 1515  TrueNAS (RFC 5424 from syslog-ng, octet-counted framing)
+#   UDP 514 -> 1514  the UniFi gateway (RFC 3164)
+# One listener has one format, so the two sources have separate listeners.
+#
+# Anyone who can reach 192.168.10.12 can send lines, so nothing is trusted:
+# job and host are fixed by the listener, `app` is an allowlist (everything else
+# becomes "other"), `level` has at most 8 values, lines over 4 KB are dropped
+# and counted, and each source has a line-rate cap. A webhook token that a failed
+# Discord send writes into a TrueNAS log line is replaced by <redacted> before
+# the line is stored.
+#
+# externalTrafficPolicy: Local keeps the sender's address, so the connection
+# address filter works (a relabel `keep` rule plus the drop stage in the
+# loki.process blocks): the TrueNAS storage leg (192.168.10.75) for TCP, the UCG
+# for UDP. For UDP the source address can be forged, so there the rate caps and
+# fixed labels are the real protection; the filter only guards against accidents.
+# A Local Service is served by the node that runs the pod; if the pod moves, the
+# address follows it (L2 announcement), which is checked after the merge.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alloy-receiver
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: alloy
+  interval: 1h
+  values:
+    controller:
+      type: deployment
+      replicas: 1
+      volumes:
+        extra:
+          - name: data
+            emptyDir: {}
+    alloy:
+      enableReporting: false
+      clustering:
+        enabled: false
+      storagePath: /var/lib/alloy
+      mounts:
+        extra:
+          - name: data
+            mountPath: /var/lib/alloy
+      extraPorts:
+        - name: syslog-tcp
+          port: 514
+          targetPort: 1515
+          protocol: TCP
+        - name: syslog-udp
+          port: 514
+          targetPort: 1514
+          protocol: UDP
+      resources:
+        requests:
+          cpu: 20m
+          memory: 64Mi
+        limits:
+          memory: 192Mi
+      securityContext:
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        runAsNonRoot: true
+        # The image has no USER and would run as root, which runAsNonRoot refuses.
+        # 473 is the image's alloy user.
+        runAsUser: 473
+        runAsGroup: 473
+        capabilities:
+          drop: [ALL]
+      configMap:
+        content: |
+          loki.write "default" {
+            endpoint {
+              url = "http://loki.observability.svc.cluster.local:3100/loki/api/v1/push"
+            }
+          }
+
+          // ---------- TrueNAS: RFC 5424 over TCP ----------
+          loki.source.syslog "truenas" {
+            listener {
+              address                = "0.0.0.0:1515"
+              protocol               = "tcp"
+              syslog_format          = "rfc5424"
+              idle_timeout           = "24h"
+              use_incoming_timestamp = true
+              labels = {
+                job  = "truenas",
+                host = "truenas",
+              }
+            }
+            relabel_rules = loki.relabel.truenas.rules
+            forward_to    = [loki.process.truenas.receiver]
+          }
+
+          loki.relabel "truenas" {
+            rule {
+              source_labels = ["__syslog_connection_ip_address"]
+              regex         = "192\\.168\\.10\\.75"
+              action        = "keep"
+            }
+            rule {
+              target_label = "app"
+              replacement  = "other"
+            }
+            rule {
+              source_labels = ["__syslog_message_app_name"]
+              regex         = "(MIDDLEWARE|APP_LIFECYCLE|ZETTAREPL|DOCKER_IMAGE|kernel|systemd|smartd|zed|syslog-ng|sshd|nginx|dockerd|containerd|cron|CRON|qemu-ga|nscd)"
+              target_label  = "app"
+              replacement   = "$1"
+            }
+            rule {
+              source_labels = ["__syslog_message_severity"]
+              target_label  = "level"
+            }
+            forward_to = []
+          }
+
+          // ---------- UniFi gateway: RFC 3164 over UDP ----------
+          loki.source.syslog "ucg" {
+            listener {
+              address        = "0.0.0.0:1514"
+              protocol       = "udp"
+              syslog_format  = "rfc3164"
+              udp_queue_size = 1000
+              labels = {
+                job  = "ucg",
+                host = "ucg",
+              }
+            }
+            relabel_rules = loki.relabel.ucg.rules
+            forward_to    = [loki.process.ucg.receiver]
+          }
+
+          loki.relabel "ucg" {
+            rule {
+              source_labels = ["__syslog_connection_ip_address"]
+              regex         = "192\\.168\\.10\\.1|192\\.168\\.1\\.1"
+              action        = "keep"
+            }
+            rule {
+              target_label = "app"
+              replacement  = "other"
+            }
+            rule {
+              source_labels = ["__syslog_message_app_name"]
+              regex         = "(kernel|systemd|sshd|dnsmasq|dhcpd|hostapd|ubios-udapi-server|ulogd|ips|suricata|unifi-core|ucore|mongod|cron|CRON)"
+              target_label  = "app"
+              replacement   = "$1"
+            }
+            rule {
+              source_labels = ["__syslog_message_severity"]
+              target_label  = "level"
+            }
+            forward_to = []
+          }
+
+          // ---------- size, redaction and rate cap, one pipeline per source ----------
+          // Separate limiters: a flood of forged UDP lines cannot use up TrueNAS's
+          // budget.
+          loki.process "truenas" {
+            stage.match {
+              // The source-address filter. A `keep` rule in the relabel step does NOT
+              // drop the line (Alloy v1.21.1 stores it under the listener's fixed
+              // labels); it only skips the relabel rules, so the line has no `app`
+              // label. This stage drops every line without `app`.
+              selector            = "{job=~\".+\", app=\"\"}"
+              action              = "drop"
+              drop_counter_reason = "source_not_allowed"
+            }
+            stage.drop {
+              longer_than = "4KB"
+            }
+            stage.replace {
+              expression = "/api/webhooks/[0-9]+/([A-Za-z0-9_-]+)"
+              replace    = "<redacted>"
+            }
+            stage.limit {
+              rate  = 5
+              burst = 100
+              drop  = true
+            }
+            forward_to = [loki.write.default.receiver]
+          }
+
+          loki.process "ucg" {
+            stage.match {
+              // The source-address filter. A `keep` rule in the relabel step does NOT
+              // drop the line (Alloy v1.21.1 stores it under the listener's fixed
+              // labels); it only skips the relabel rules, so the line has no `app`
+              // label. This stage drops every line without `app`.
+              selector            = "{job=~\".+\", app=\"\"}"
+              action              = "drop"
+              drop_counter_reason = "source_not_allowed"
+            }
+            stage.drop {
+              longer_than = "4KB"
+            }
+            stage.replace {
+              expression = "/api/webhooks/[0-9]+/([A-Za-z0-9_-]+)"
+              replace    = "<redacted>"
+            }
+            stage.limit {
+              rate  = 20
+              burst = 200
+              drop  = true
+            }
+            forward_to = [loki.write.default.receiver]
+          }
+    service:
+      type: LoadBalancer
+      externalTrafficPolicy: Local
+      annotations:
+        lbipam.cilium.io/ips: 192.168.10.12
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          action: keep
+          regex: loki_(source_syslog_.*|process_dropped_lines_total|write_(sent|dropped)_(bytes|entries)_total|write_batch_retries_total|write_request_duration_seconds_(sum|count))|alloy_build_info|alloy_resources_(process_resident_memory_bytes|process_cpu_seconds_total)

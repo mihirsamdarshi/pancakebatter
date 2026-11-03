@@ -1,0 +1,17 @@
+---
+# Grafana's own chart repository is HTTP-only for Alloy (the OCI path
+# ghcr.io/grafana/helm-charts/alloy refuses anonymous pulls), so the chart comes
+# from the home-operations mirror. Chart 1.14.1 carries Alloy v1.21.1; chart and
+# image were published on 2026-10-21.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: alloy
+spec:
+  interval: 15m
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: 1.14.1
+  url: oci://ghcr.io/home-operations/charts-mirror/alloy

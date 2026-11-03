@@ -1,0 +1,44 @@
+---
+# The receiver's Service is a LoadBalancer on 192.168.10.12, and the chart puts
+# Alloy's own UI and /metrics port (12345, no auth) on every Service port list.
+# Without a policy that port would answer anyone on VLAN 10 and the LAN. Selecting
+# the pod turns on default-deny for ingress only.
+#
+# Allowed: syslog on 1514/UDP and 1515/TCP from anywhere that can reach the
+# address (the senders are the UCG and TrueNAS; the Alloy filters check the
+# source address); Prometheus on 12345; the kubelet probes (host) on 12345.
+# Nothing else, so 192.168.10.12:12345 does not answer.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: alloy-receiver
+spec:
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: observability
+      app.kubernetes.io/name: alloy
+      app.kubernetes.io/instance: alloy-receiver
+  ingress:
+    - fromEntities:
+        - world
+        - cluster
+      toPorts:
+        - ports:
+            - port: "1514"
+              protocol: UDP
+            - port: "1515"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "12345"
+              protocol: TCP
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "12345"
+              protocol: TCP
