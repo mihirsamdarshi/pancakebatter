@@ -10,8 +10,9 @@
 # OCIRepository follows it). Its digest is never used because of `pin`. D9b
 # switches url to the monorepo package in the same PR that removes `pin`.
 #
-# parts: the workload (always) plus the family route since D5. The internal
-# route, backup and registry Secret stay Git-defined until later steps.
+# parts: the workload (always), the family route since D5, and the copied
+# pull Secret `apps-ghcr` since D9a (unused until D9b switches the image). The
+# internal route, backup and registry Secret stay Git-defined.
 # The default network policy has been on since D6b (the tailnet Ingress
 # that proxied into the pod is gone).
 apiVersion: fluxcd.controlplane.io/v1
@@ -33,7 +34,7 @@ spec:
     limit: 1
   defaultValues:
     name: quilt-planner
-    parts: [family-route, family-route-legacy]
+    parts: [pullsecret, family-route, family-route-legacy]
     pin: sha256:ceddd6ccec835c4bc6f1c2ee8cc33eab140cbf127b71de5b364aee787c3217df
     vars:
       FAMILY_HOST: quilts
