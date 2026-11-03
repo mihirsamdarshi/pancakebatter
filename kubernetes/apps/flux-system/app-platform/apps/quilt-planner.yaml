@@ -10,9 +10,8 @@
 # OCIRepository follows it). Its digest is never used because of `pin`. D9b
 # switches url to the monorepo package in the same PR that removes `pin`.
 #
-# parts is empty at D2: the workload only. The internal route, backup and
-# registry Secret stay Git-defined until later steps; the family route joins at
-# D5. netpol is off until D6, because the `quilts` tailnet Ingress proxies
+# parts: the workload (always) plus the family route since D5. The internal
+# route, backup and registry Secret stay Git-defined until later steps. netpol is off until D6, because the `quilts` tailnet Ingress proxies
 # into the pod and the default policy would block it.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSetInputProvider
@@ -33,11 +32,12 @@ spec:
     limit: 1
   defaultValues:
     name: quilt-planner
-    parts: []
+    parts: [family-route, family-route-legacy]
     pin: sha256:ceddd6ccec835c4bc6f1c2ee8cc33eab140cbf127b71de5b364aee787c3217df
     netpol: false
     netpolReason: "tailnet Ingress proxies until D6"
     vars:
+      FAMILY_HOST: quilts
       IMAGE: ghcr.io/mihirsamdarshi/quilt-planner
       PULL_SECRET: quilt-registry
       CLAIM: quilt-data
