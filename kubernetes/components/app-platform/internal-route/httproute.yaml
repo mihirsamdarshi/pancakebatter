@@ -3,6 +3,24 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: ${APP}-internal
+  # The LAN dashboard (personal-apps/homepage, Gateway API discovery) lists
+  # every platform app from these annotations; only the internal route carries
+  # them, so the family start page never shows platform apps. `external` makes
+  # Homepage skip the pod-status lookup (it needs no access to pods or
+  # namespaces); the status dot comes from siteMonitor instead, like the
+  # hand-written tiles. DASHBOARD: "false" hides the tile. TITLE, DESCRIPTION
+  # and ICON are entry vars; the values
+  # are quoted because Flux substitutes into YAML text, and the validator keeps
+  # `"`, `\`, `$` and control characters out of them.
+  annotations:
+    gethomepage.dev/enabled: "${DASHBOARD:=true}"
+    gethomepage.dev/group: Apps
+    gethomepage.dev/name: "${TITLE:=${APP}}"
+    gethomepage.dev/description: "${DESCRIPTION:=Platform app}"
+    gethomepage.dev/icon: "${ICON:=mdi-application}"
+    gethomepage.dev/href: "https://${HOST:=${APP}}.${SECRET_DOMAIN_LOCAL}"
+    gethomepage.dev/siteMonitor: "https://${HOST:=${APP}}.${SECRET_DOMAIN_LOCAL}"
+    gethomepage.dev/external: "true"
 spec:
   parentRefs:
     - name: envoy-internal

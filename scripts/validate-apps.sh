@@ -294,7 +294,7 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
 | (if ($d.parts | type) == "array" then $d.parts else ["pullsecret", "internal-route", "backup"] end) as $parts
 | ["pullsecret", "internal-route", "family-route", "family-route-legacy", "backup", "backup-sqlite"] as $known
 | ["name", "namespace", "parts", "netpol", "netpolReason", "egress", "pin", "env", "path", "vars"] as $topkeys
-| ["CLAIM", "STORAGE", "STORAGE_CLASS", "HEALTH_PATH", "APP_UID", "APP_GID", "DATA_PATH", "CPU", "MEMORY", "MEMORY_LIMIT", "IMAGE", "PULL_SECRET", "HOST", "FAMILY_HOST", "SQLITE_DBS", "VOLSYNC_SCHEDULE", "SQLITE_SCHEDULE"] as $varkeys
+| ["CLAIM", "STORAGE", "STORAGE_CLASS", "HEALTH_PATH", "APP_UID", "APP_GID", "DATA_PATH", "CPU", "MEMORY", "MEMORY_LIMIT", "IMAGE", "PULL_SECRET", "HOST", "FAMILY_HOST", "DASHBOARD", "TITLE", "DESCRIPTION", "ICON", "SQLITE_DBS", "VOLSYNC_SCHEDULE", "SQLITE_SCHEDULE"] as $varkeys
 | ["APP", "IMAGE_DIGEST", "APP_NAMESPACE", "VOLSYNC_NAMESPACE", "VOLSYNC_CLAIM"] as $reserved
 | [
     (if $e.apiVersion != "fluxcd.controlplane.io/v1" or $e.kind != "ResourceSetInputProvider" then "must be a fluxcd.controlplane.io/v1 ResourceSetInputProvider" else empty end),
@@ -353,7 +353,7 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
          elif (.key | IN($varkeys[]) | not) then "unknown vars key \(.key) (allowed: \($varkeys | join(", ")))"
          else empty end),
         (if .key != "PULL_SECRET" and (.key | secretish) then "vars.\(.key) looks like a credential name (apps hold no credentials)" else empty end),
-        (if ((.value | isstr) or (.value | type) == "number") | not then "vars.\(.key) must be a string or a number" else empty end)),
+        (if ((.value | isstr) or (.value | type) == "number" or (.key == "DASHBOARD" and (.value | type) == "boolean")) | not then "vars.\(.key) must be a string, a number or (DASHBOARD only) a boolean" else empty end)),
     (("APP_UID", "APP_GID") as $k
       | if ($v | has($k)) then ($v[$k] | tostring) as $s
           | (if ($s | test("^[0-9]+$") | not) or ($s | test("^0+$")) then "vars.\($k) must be a positive integer (0 is rejected)" else empty end)
@@ -368,6 +368,11 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
     (("HOST", "FAMILY_HOST") as $k
       | if ($v | has($k)) and ($v[$k] | lbl | not) then "vars.\($k) must be a lowercase DNS label" else empty end),
     (if ($v | has("IMAGE")) and (($v.IMAGE | isstr | not) or ($v.IMAGE | test("^[a-z0-9][a-z0-9./_:-]*$") | not)) then "vars.IMAGE is not an image name" else empty end),
+    # dashboard tile: the route template quotes these, so printable ASCII only and no quote, backslash or dollar
+    (if ($v | has("DASHBOARD")) and (($v.DASHBOARD | tostring) | IN("true", "false") | not) then "vars.DASHBOARD must be true or false" else empty end),
+    (("TITLE", "DESCRIPTION") as $k
+      | if ($v | has($k)) and (($v[$k] | isstr | not) or ($v[$k] | test("^[\\x20-\\x7e]{1,80}$") | not) or ($v[$k] | test("[\"\\\\$]"))) then "vars.\($k) must be 1 to 80 printable ASCII characters without a double quote, backslash or $" else empty end),
+    (if ($v | has("ICON")) and (($v.ICON | isstr | not) or ($v.ICON | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$") | not)) then "vars.ICON must be an icon name such as mdi-<name>, si-<name> or <name>.png" else empty end),
     # backup
     (if ($parts | index("backup")) != null and (($v.VOLSYNC_SCHEDULE | cron) | not) then "backup needs vars.VOLSYNC_SCHEDULE, an explicit UTC cron string" else empty end),
     (if ($parts | index("backup-sqlite")) != null then
