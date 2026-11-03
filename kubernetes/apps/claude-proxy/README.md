@@ -94,31 +94,30 @@ sops decrypt kubernetes/apps/claude-proxy/app/credentials.sops.yaml | yq '.strin
 # the key's length, not 0
 ```
 
-### 3. Create `app/registry.sops.yaml` (read-only GHCR pull credential)
+### 3. `app/registry.sops.yaml` (read-only GHCR pull credential)
 
-The same pipeline as the platform's `ghcr-apps-read`. Use a classic token with
-`read:packages` only (the token `ghcr-apps-read` already holds is fine), never
-one with write scopes. Set `GHCR_READ_USER` to `<owner>` and `GHCR_READ_TOKEN`
-to the token, preferably with `op read` inside the same subshell rather than an
-exported variable. The token appears in `kubectl`'s arguments while it runs.
+This is a copy of `deal-watch-integrations/app/registry.sops.yaml` with only
+`metadata.name` and `metadata.namespace` changed. It pulls from the same
+`ghcr.io/<owner>/<homelab-repo>/*` packages. The repo's sops rule sets
+`mac_only_encrypted`, so the MAC covers the encrypted value only and the
+copy decrypts without re-encryption. To make it again (no plaintext involved):
 
 ```sh
-( set -o pipefail
-  f=kubernetes/apps/claude-proxy/app/registry.sops.yaml
-  kubectl create secret docker-registry claude-proxy-registry --namespace claude-proxy --docker-server=ghcr.io --docker-username="${GHCR_READ_USER:?set GHCR_READ_USER}" --docker-password="${GHCR_READ_TOKEN:?set GHCR_READ_TOKEN}" --dry-run=client -o yaml \
-    | yq '.stringData[".dockerconfigjson"] = (.data[".dockerconfigjson"] | @base64d) | del(.data) | del(.metadata.creationTimestamp)' \
-    | sops encrypt --filename-override "$f" --input-type yaml --output-type yaml /dev/stdin > "$f.tmp" \
-    && grep -q 'ENC\[' "$f.tmp" && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
+yq '.metadata.name = "claude-proxy-registry" | .metadata.namespace = "claude-proxy"' \
+  kubernetes/apps/deal-watch-integrations/app/registry.sops.yaml \
+  > kubernetes/apps/claude-proxy/app/registry.sops.yaml
 ```
+
+When the deal-watch token is rotated, copy it again. To give the proxy its own
+token instead, use the `kubectl create secret docker-registry` pipeline from
+`personal-apps/README.md` ("Creating ghcr-apps-read") with this file's name and
+namespace.
 
 Check the shape only:
 
 ```sh
-sops decrypt kubernetes/apps/claude-proxy/app/registry.sops.yaml | yq '.type, (.stringData | keys)'
+sops decrypt kubernetes/apps/claude-proxy/app/registry.sops.yaml | yq '.type'
 # kubernetes.io/dockerconfigjson
-# - .dockerconfigjson
-sops decrypt kubernetes/apps/claude-proxy/app/registry.sops.yaml | yq '.stringData[".dockerconfigjson"] | from_json | .auths | keys'
-# - ghcr.io
 ```
 
 ### 4. Validate
