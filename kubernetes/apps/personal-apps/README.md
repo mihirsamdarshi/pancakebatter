@@ -20,6 +20,14 @@ app. There are two ways to run one:
   that `home/` keeps; the workloads run in `homepage`, which holds no
   cluster-wide Secret. `home` itself is reserved for Home Assistant and its
   neighbours.
+- **Deal Watch worker** (`deal-watch/integrations/`): the integration worker
+  for the Deal Watch platform app. Its code is `integrations/deal-watch/` in
+  this repo. It holds credentials (the Discord webhook, the watch policy and a
+  GHCR pull credential, all SOPS-encrypted), so it runs outside the platform in
+  its own Namespace `deal-watch-integrations`. Its Flux Kustomization
+  `deal-watch-integrations` stays in `flux-system` and is listed on its own in
+  `personal-apps/kustomization.yaml`, so the dashboard's `namespace: deal-watch`
+  does not apply to it.
 
 ## Platform apps
 

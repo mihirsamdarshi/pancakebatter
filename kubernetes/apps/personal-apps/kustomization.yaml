@@ -5,6 +5,10 @@ resources:
   - ./quilt-planner
   - ./hello
   - ./deal-watch
+  # The Deal Watch worker keeps its Flux Kustomization in flux-system and its own
+  # Namespace deal-watch-integrations. It is listed on its own so the
+  # `namespace: deal-watch` in deal-watch/kustomization.yaml does not apply to it.
+  - ./deal-watch/integrations
   - ./scratch
   - ./reports
   - ./homepage
