@@ -1,0 +1,14 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deal-watch-browser
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: deal-watch-browser
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP

@@ -5,5 +5,8 @@ namespace: deal-watch-integrations
 resources:
   - ./deployment.yaml
   - ./networkpolicy.yaml
+  - ./browser-deployment.yaml
+  - ./browser-service.yaml
+  - ./browser-networkpolicy.yaml
   - ./registry.sops.yaml
   - ./credentials.sops.yaml

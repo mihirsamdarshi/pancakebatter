@@ -13,7 +13,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/runtime-config: dde4f89d11bde31bd30b834eb9f897151d6a01bd6f331bfb314268bc94f5a324
+        checksum/runtime-config: d1b73b580c0ed1b77a80d49d75102b30d77e012b809bd0dd3b6c2f2db54bb271
       labels:
         app.kubernetes.io/name: deal-watch-integrations
     spec:
@@ -29,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: worker
-          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-integrations@sha256:3770e5892c3f9920ab6449bdae8e4bb80dbe2a6f7cc17b5ee255aa86259ef5f5
+          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-integrations@sha256:7b719df0227eddf181ca24af553a679b0f631ce5540da02d6a183816851f9b2e
           env:
             - name: APP_BASE_URL
               value: https://deal-watch.${SECRET_DOMAIN_LOCAL}
@@ -37,6 +37,8 @@ spec:
               value: /run/credentials/watch-policy.json
             - name: DISCORD_WEBHOOK_FILE
               value: /run/credentials/discord-webhook
+            - name: BROWSER_URL
+              value: http://deal-watch-browser.deal-watch-integrations.svc.cluster.local:3000
           ports:
             - name: health
               containerPort: 3000

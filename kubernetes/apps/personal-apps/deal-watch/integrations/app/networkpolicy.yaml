@@ -4,7 +4,9 @@ kind: CiliumNetworkPolicy
 metadata:
   name: deal-watch-integrations
 spec:
-  endpointSelector: {}
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: deal-watch-integrations
   ingress:
     - fromEntities: [host]
       toPorts:
@@ -12,6 +14,14 @@ spec:
             - port: "3000"
               protocol: TCP
   egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: deal-watch-integrations
+            app.kubernetes.io/name: deal-watch-browser
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: kube-system
