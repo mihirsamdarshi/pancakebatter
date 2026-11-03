@@ -28,6 +28,13 @@ app. There are two ways to run one:
   `deal-watch-integrations` stays in `flux-system` and is listed on its own in
   `personal-apps/kustomization.yaml`, so the dashboard's `namespace: deal-watch`
   does not apply to it.
+- **Claude API proxy** (`claude-proxy/`): holds the Anthropic API key and caps
+  daily spend for platform apps that run a Claude agent (`egress:
+  claude-proxy`). Its code is `integrations/claude-proxy/` in this repo. It
+  holds credentials (the API key and a GHCR pull credential, both
+  SOPS-encrypted), so it runs outside the platform in its own Namespace
+  `claude-proxy`. Its Flux Kustomization `claude-proxy` stays in `flux-system`
+  and is listed in `personal-apps/kustomization.yaml`.
 
 ## Platform apps
 
@@ -216,7 +223,7 @@ Egress goes only to cluster DNS and the namespace's own pods. `egress: internet`
 adds public addresses on every port, never the private ranges (LAN, VLANs,
 Tailscale, cluster). `egress: claude-proxy` adds only the claude-proxy pods on
 3000/TCP, for an app that runs a Claude agent: the proxy, outside the platform,
-holds the Anthropic API key and caps daily spend (`kubernetes/apps/claude-proxy/`,
+holds the Anthropic API key and caps daily spend (`kubernetes/apps/personal-apps/claude-proxy/`,
 added by its own change),
 and admits only the namespaces its own policy lists. Nothing reaches the Kubernetes API, the NAS or other
 namespaces. DNS remains a tunnelling channel for a compromised app. Prometheus
