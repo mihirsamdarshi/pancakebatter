@@ -44,3 +44,36 @@ spec:
         certificateRefs:
           - kind: Secret
             name: family-production-tls
+    # Previous family names (*.family.local.<zone>), kept while clients move to
+    # *.family.<zone>. Remove this listener, its Certificate and the legacy DNS
+    # record together. It has its own Secret: two listeners sharing one Secret
+    # overlap in TLS config, and with h2 on browsers could reuse a connection
+    # across the old and new names and get a 404.
+    - name: https-legacy
+      protocol: HTTPS
+      port: 443
+      hostname: "*.family.${SECRET_DOMAIN_LOCAL}"
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: family-legacy-production-tls
+    # The bare family name (family.<zone>), which the wildcard listener above
+    # does not cover. The family homepage route attaches here. Its own
+    # Certificate and Secret keep the SANs of the two listeners disjoint:
+    # Envoy Gateway flags overlapping SANs, and with h2 a browser going from
+    # the homepage to an app could reuse one connection across both names and
+    # get a 404.
+    - name: https-landing
+      protocol: HTTPS
+      port: 443
+      hostname: "${SECRET_FAMILY_DOMAIN}"
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: family-landing-production-tls
