@@ -48,7 +48,7 @@ spec:
     <<- $netpol := true >>
     <<- if hasKey inputs "netpol" >><<- $netpol = inputs.netpol >><<- end >>
     <<- $egress := get inputs "egress" | default "none" >>
-    <<- if $netpol >><<- $comps = append $comps "netpol" >><<- if eq $egress "internet" >><<- $comps = append $comps "netpol-egress-internet" >><<- end >><<- end >>
+    <<- if $netpol >><<- $comps = append $comps "netpol" >><<- if eq $egress "internet" >><<- $comps = append $comps "netpol-egress-internet" >><<- end >><<- if eq $egress "claude-proxy" >><<- $comps = append $comps "netpol-egress-claude-proxy" >><<- end >><<- end >>
     <<- $reserved := list "APP" "IMAGE_DIGEST" "VOLSYNC_NAMESPACE" "VOLSYNC_CLAIM" "APP_UID" "APP_GID" "APP_NAMESPACE" >>
     <<- if $name >>
     ---

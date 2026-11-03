@@ -1,0 +1,25 @@
+---
+# `egress: claude-proxy`: the claude-proxy pods on 3000/TCP, nothing else. The
+# app gets no internet: model calls go to the proxy, which holds the Anthropic
+# API key outside the platform and caps daily spend
+# (kubernetes/apps/claude-proxy/). The proxy admits only the namespaces its own
+# policy lists. Must come after `netpol`, which creates the policy this patches.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target:
+      group: cilium.io
+      kind: CiliumNetworkPolicy
+      name: "[$][{]APP[}]"
+    patch: |-
+      - op: add
+        path: /spec/egress/-
+        value:
+          toEndpoints:
+            - matchLabels:
+                io.kubernetes.pod.namespace: claude-proxy
+                app.kubernetes.io/name: claude-proxy
+          toPorts:
+            - ports:
+                - port: "3000"
+                  protocol: TCP
