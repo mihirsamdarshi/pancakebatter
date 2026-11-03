@@ -284,6 +284,7 @@ def isstr: type == "string";
 def secretish: test("TOKEN|SECRET|PASSWORD|PASSWD|PASS|PWD|KEY|CREDENTIAL|AUTH|PRIVATE|CERT"; "i");
 def cron: isstr and test("^[^ ]+( [^ ]+){4}$");
 def lbl: isstr and test("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$");
+def yamlword: isstr and (ascii_downcase | IN("y", "yes", "n", "no", "true", "false", "on", "off", "null"));
 def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+)?(m|k|M|G|T|Ki|Mi|Gi|Ti)?$"));
 . as $e
 | (if ($e.spec.defaultValues | type) == "object" then $e.spec.defaultValues else {} end) as $d
@@ -294,7 +295,7 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
 | (if ($d.parts | type) == "array" then $d.parts else ["pullsecret", "internal-route", "backup"] end) as $parts
 | ["pullsecret", "internal-route", "family-route", "family-route-legacy", "backup", "backup-sqlite"] as $known
 | ["name", "namespace", "parts", "netpol", "netpolReason", "egress", "pin", "env", "path", "vars"] as $topkeys
-| ["CLAIM", "STORAGE", "STORAGE_CLASS", "HEALTH_PATH", "APP_UID", "APP_GID", "DATA_PATH", "CPU", "MEMORY", "MEMORY_LIMIT", "IMAGE", "PULL_SECRET", "HOST", "FAMILY_HOST", "DASHBOARD", "TITLE", "DESCRIPTION", "ICON", "SQLITE_DBS", "VOLSYNC_SCHEDULE", "SQLITE_SCHEDULE"] as $varkeys
+| ["CLAIM", "STORAGE", "STORAGE_CLASS", "HEALTH_PATH", "APP_UID", "APP_GID", "DATA_PATH", "CPU", "MEMORY", "MEMORY_LIMIT", "IMAGE", "PULL_SECRET", "HOST", "FAMILY_HOST", "TITLE", "DESCRIPTION", "ICON", "SQLITE_DBS", "VOLSYNC_SCHEDULE", "SQLITE_SCHEDULE"] as $varkeys
 | ["APP", "IMAGE_DIGEST", "APP_NAMESPACE", "VOLSYNC_NAMESPACE", "VOLSYNC_CLAIM"] as $reserved
 | [
     (if $e.apiVersion != "fluxcd.controlplane.io/v1" or $e.kind != "ResourceSetInputProvider" then "must be a fluxcd.controlplane.io/v1 ResourceSetInputProvider" else empty end),
@@ -303,6 +304,7 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
     (if ($e.metadata.labels["platform/apps"] // "") != "true" then "label platform/apps: \"true\" is required (both ResourceSets select on it)" else empty end),
     (if ($d.name | isstr | not) then "defaultValues.name is required"
      elif ($name | test("^[a-z][a-z0-9-]*$") | not) then "name \($name) must match ^[a-z][a-z0-9-]*$ (a numeric name would become an integer after substitution)"
+     elif ($name | yamlword) then "name \($name) is a YAML boolean or null word (it would not stay a string after substitution)"
      else empty end),
     (if $name != $stem then "file name \($stem).yaml must equal defaultValues.name \($name)" else empty end),
     (if $e.metadata.name != "app-" + $name then "metadata.name must be app-\($name), not \($e.metadata.name)" else empty end),
@@ -353,7 +355,7 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
          elif (.key | IN($varkeys[]) | not) then "unknown vars key \(.key) (allowed: \($varkeys | join(", ")))"
          else empty end),
         (if .key != "PULL_SECRET" and (.key | secretish) then "vars.\(.key) looks like a credential name (apps hold no credentials)" else empty end),
-        (if ((.value | isstr) or (.value | type) == "number" or (.key == "DASHBOARD" and (.value | type) == "boolean")) | not then "vars.\(.key) must be a string, a number or (DASHBOARD only) a boolean" else empty end)),
+        (if ((.value | isstr) or (.value | type) == "number") | not then "vars.\(.key) must be a string or a number" else empty end)),
     (("APP_UID", "APP_GID") as $k
       | if ($v | has($k)) then ($v[$k] | tostring) as $s
           | (if ($s | test("^[0-9]+$") | not) or ($s | test("^0+$")) then "vars.\($k) must be a positive integer (0 is rejected)" else empty end)
@@ -368,11 +370,13 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
     (("HOST", "FAMILY_HOST") as $k
       | if ($v | has($k)) and ($v[$k] | lbl | not) then "vars.\($k) must be a lowercase DNS label" else empty end),
     (if ($v | has("IMAGE")) and (($v.IMAGE | isstr | not) or ($v.IMAGE | test("^[a-z0-9][a-z0-9./_:-]*$") | not)) then "vars.IMAGE is not an image name" else empty end),
-    # dashboard tile: the route template quotes these, so printable ASCII only and no quote, backslash or dollar
-    (if ($v | has("DASHBOARD")) and (($v.DASHBOARD | tostring) | IN("true", "false") | not) then "vars.DASHBOARD must be true or false" else empty end),
+    # dashboard tile: Flux substitutes after kustomize has re-serialized the route, so any quotes
+    # around ${TITLE} are gone and the value must read as a plain one-line YAML string (go-yaml,
+    # YAML 1.1: yes/no/on/off/y/n are booleans). Start with a letter, a small character set, no
+    # trailing space, and never a YAML 1.1 boolean or null word.
     (("TITLE", "DESCRIPTION") as $k
-      | if ($v | has($k)) and (($v[$k] | isstr | not) or ($v[$k] | test("^[\\x20-\\x7e]{1,80}$") | not) or ($v[$k] | test("[\"\\\\$]"))) then "vars.\($k) must be 1 to 80 printable ASCII characters without a double quote, backslash or $" else empty end),
-    (if ($v | has("ICON")) and (($v.ICON | isstr | not) or ($v.ICON | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$") | not)) then "vars.ICON must be an icon name such as mdi-<name>, si-<name> or <name>.png" else empty end),
+      | if ($v | has($k)) and (($v[$k] | isstr | not) or ($v[$k] | test("^[A-Za-z]([A-Za-z0-9 .,()'&/+!?-]{0,78}[A-Za-z0-9.)!?])?$") | not) or ($v[$k] | yamlword)) then "vars.\($k) must start with a letter, use only letters, digits, spaces and .,()'&/+!?- (at most 80), and not be a YAML boolean or null word" else empty end),
+    (if ($v | has("ICON")) and (($v.ICON | isstr | not) or ($v.ICON | test("^((mdi|si|sh)-[a-z0-9]+(-[a-z0-9]+)*|[a-z0-9][a-z0-9._-]*[.](png|svg|webp))$") | not)) then "vars.ICON must be mdi-<name>, si-<name>, sh-<name> or <name>.png/.svg/.webp" else empty end),
     # backup
     (if ($parts | index("backup")) != null and (($v.VOLSYNC_SCHEDULE | cron) | not) then "backup needs vars.VOLSYNC_SCHEDULE, an explicit UTC cron string" else empty end),
     (if ($parts | index("backup-sqlite")) != null then
