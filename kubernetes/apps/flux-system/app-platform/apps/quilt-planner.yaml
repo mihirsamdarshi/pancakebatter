@@ -12,8 +12,8 @@
 #
 # parts: the workload (always) plus the family route since D5. The internal
 # route, backup and registry Secret stay Git-defined until later steps.
-# netpol is off until D6, because the `quilts` tailnet Ingress proxies
-# into the pod and the default policy would block it.
+# The default network policy has been on since D6b (the tailnet Ingress
+# that proxied into the pod is gone).
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSetInputProvider
 metadata:
@@ -35,8 +35,6 @@ spec:
     name: quilt-planner
     parts: [family-route, family-route-legacy]
     pin: sha256:ceddd6ccec835c4bc6f1c2ee8cc33eab140cbf127b71de5b364aee787c3217df
-    netpol: false
-    netpolReason: "tailnet Ingress proxies until D6"
     vars:
       FAMILY_HOST: quilts
       IMAGE: ghcr.io/mihirsamdarshi/quilt-planner
