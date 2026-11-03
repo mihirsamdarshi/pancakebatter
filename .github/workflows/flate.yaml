@@ -52,6 +52,16 @@ jobs:
 
       - name: Run Flate
         id: flate
+        # Full mode on purpose. The install action exports FLATE_BASE (the
+        # default branch), which switches Flate to changed-only mode. That mode
+        # never renders a dependsOn target that only an unchanged parent
+        # produces (for example quilt-planner/quilt-planner, emitted by the
+        # personal-app component), so a leaf-only PR fails with "blocked by ...
+        # (not found)". A full run takes about a second here (still true in
+        # v0.6.5 and on Flate main, no newer release exists). Empty value
+        # turns changed-only mode off.
+        env:
+          FLATE_BASE: ""
         # CI cannot decrypt SOPS auth values for private app artifacts. Skip
         # unavailable auth/values refs; the separate Kubernetes gate still
         # validates manifest schemas and exact OCI source references.
