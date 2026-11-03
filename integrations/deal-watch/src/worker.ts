@@ -11,7 +11,7 @@ import {
 } from "./vendor/domain.ts";
 import { EbayClient } from "./ebay.ts";
 import { discoveryIds, parseEbay } from "./ebay-adapter.ts";
-import { collect } from "./adapters.ts";
+import { collect, fetchReferences, referenceCodes } from "./adapters.ts";
 import { boundedText, nativeFetch, UpstreamError, type Fetcher } from "./http.ts";
 import { sendDiscord, message, type Delivery } from "./discord.ts";
 interface QueueEvent {
@@ -53,6 +53,8 @@ export class Worker {
   readonly cache = new Map<string, Map<string, Offer>>();
   readonly sent = new Map<string, string>();
   readonly cursor = new Map<Retailer, number>();
+  readonly references = new Map<string, { cents: number; at: number }>();
+  nextReferenceAt = 0;
   nextDelivery = 0;
   lastSuccessfulCycle = 0;
   constructor(readonly options: Options) {
@@ -102,6 +104,29 @@ export class Worker {
     const data: unknown = JSON.parse(await boundedText(res, 1024 * 1024));
     if (!isObject(data)) throw new Error("Invalid app response");
     return data;
+  }
+  /** Extra-item reference prices for enabled bindings; one request per 6 hours after success, per 30 minutes otherwise. Never throws. */
+  async refreshReferences(): Promise<void> {
+    const now = this.now();
+    if (now < this.nextReferenceAt) return;
+    const ids = [
+      ...new Set(
+        this.watches.flatMap((w) =>
+          w.bindings.filter((b) => b.enabled).flatMap((b) => b.bundleExtraIds ?? []),
+        ),
+      ),
+    ].filter((id) => referenceCodes([id]).length > 0);
+    if (ids.length === 0) return;
+    let outcome: string;
+    try {
+      const found = await fetchReferences(ids, this.fetcher);
+      for (const [id, cents] of found) this.references.set(id, { cents, at: now });
+      outcome = found.size === ids.length ? "ok" : found.size > 0 ? "partial" : "none";
+    } catch (error) {
+      outcome = error instanceof UpstreamError ? error.code : "invalid-data";
+    }
+    this.nextReferenceAt = now + (outcome === "ok" ? 21_600_000 : 1_800_000);
+    console.log(JSON.stringify({ event: "reference", outcome }));
   }
   async runOnce(): Promise<{ checked: number; delivered: number }> {
     const snapshot = await this.api("/api/dashboard");
@@ -187,7 +212,7 @@ export class Worker {
                     itemId!,
                     this.now(),
                   )
-                : await collect(watch, binding, this.fetcher, this.now());
+                : await collect(watch, binding, this.fetcher, this.now(), this.references);
             result = retailer === "ebay" ? { offers: [offer], mode: "upsert" } : { offer };
             const cache =
               retailer === "ebay"
@@ -226,6 +251,8 @@ export class Worker {
           ...result,
         });
         checked++;
+        // Only after a successful Sony check: a failed one must not be followed by a second request to the same host.
+        if (retailer === "sony" && "offer" in result) await this.refreshReferences();
         break;
       }
     }
