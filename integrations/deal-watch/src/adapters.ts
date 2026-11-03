@@ -129,11 +129,68 @@ async function productJsonLd(body: string): Promise<Record<string, unknown>[]> {
   }
   return products;
 }
+/** Extra-item reference prices younger than this are usable (matches `qualify`'s 24 hour rule). */
+export const REFERENCE_MAX_AGE_MS = 86_400_000;
+export type ReferenceMap = ReadonlyMap<string, { cents: number; at: number }>;
+/**
+ * Sony Direct product codes whose price is the reference price of a bundle extra, in preference order.
+ * 1000050331 is the Gray Camouflage controller part number and is unverified on Sony Direct.
+ * 1000050328 is the standard white DualSense (a real Sony response showed USD 74.00, in stock).
+ * The white controller is a fallback only: it is used when the exact gray product is not valid in the response.
+ */
+export const EXTRA_REFERENCE_CODES: Readonly<Record<string, readonly string[]>> = {
+  "dualsense-grey-camo": ["1000050331", "1000050328"],
+};
+/** Distinct Sony codes needed for the given extra IDs, in mapping order. */
+export function referenceCodes(extraIds: readonly string[]): string[] {
+  const codes: string[] = [];
+  for (const id of extraIds)
+    for (const c of EXTRA_REFERENCE_CODES[id] ?? []) if (!codes.includes(c)) codes.push(c);
+  return codes;
+}
+/** Pure parser: per extra ID, the price of the first mapped code that is valid with a USD price. Never throws. */
+export function parseReferences(body: string, extraIds: readonly string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  let products: unknown[];
+  try {
+    const data: unknown = JSON.parse(body);
+    if (!object(data) || !Array.isArray(data.products)) return out;
+    products = data.products;
+  } catch {
+    return out;
+  }
+  for (const id of extraIds)
+    for (const code of EXTRA_REFERENCE_CODES[id] ?? []) {
+      const p = products.find((x) => object(x) && x.code === code);
+      if (!object(p) || p.validProductCode !== true || !object(p.price)) continue;
+      if (p.price.currencyIso !== "USD") continue;
+      try {
+        out.set(id, price(p.price.value));
+        break;
+      } catch {
+        /* invalid price: try the next preferred code */
+      }
+    }
+  return out;
+}
+/** One request for all codes. Stock is irrelevant for a reference price. Throws only UpstreamError from transport. */
+export async function fetchReferences(
+  extraIds: readonly string[],
+  fetcher?: Fetcher,
+): Promise<Map<string, number>> {
+  const codes = referenceCodes(extraIds);
+  if (codes.length === 0) return new Map();
+  const url =
+    "https://api.direct.playstation.com/commercewebservices/ps-direct-us/products/productList" +
+    `?fields=BASIC&productCodes=${codes.join(",")}`;
+  return parseReferences(await getPublic(url, fetcher), extraIds);
+}
 export async function parseCostco(
   body: string,
   w: Watch,
   b: Binding,
   now = Date.now(),
+  references: ReferenceMap = new Map(),
 ): Promise<Offer> {
   if (/<title>\s*(Robot or human|Access Denied|Just a moment)/i.test(body))
     throw new UpstreamError("access-denied");
@@ -157,8 +214,22 @@ export async function parseCostco(
     : /\/InStock$/.test(value.availability)
       ? "in-stock"
       : "unknown";
-  // Public JSON-LD does not establish ZIP shipping, mandatory membership cost or fresh bundle component values.
-  // Keep those unknown; this adapter cannot generate a qualifying Costco deal yet.
+  // Assumption (owner decision): the listing says standard shipping is included, the owner holds an active
+  // membership, and free policy shipping means zero other mandatory fees, as in the Sony adapter. The
+  // California recycling fee is outside the owner's ceiling. Other ZIPs stay unknown.
+  if (b.shippingPolicyZips?.includes(w.zip) && o.priceCents > 4000) {
+    o.shippingCents = 0;
+    o.feesCents = 0;
+    o.shipping = "policy-supported";
+  }
+  // Extras carry a reference only while the entry is fresh; otherwise qualify() reports it missing or stale.
+  for (const e of o.extras) {
+    const r = references.get(e.id);
+    if (r && r.at <= now && r.at >= now - REFERENCE_MAX_AGE_MS) {
+      e.referenceCents = r.cents;
+      e.referenceAt = r.at;
+    }
+  }
   return parseOffer(o, now);
 }
 export async function collect(
@@ -166,6 +237,7 @@ export async function collect(
   b: Binding,
   fetcher?: Fetcher,
   now = Date.now(),
+  references: ReferenceMap = new Map(),
 ): Promise<Offer> {
   if (b.retailer === "sony") {
     const url = new URL(
@@ -176,6 +248,6 @@ export async function collect(
     return parseSony(await getPublic(url.href, fetcher), w, b, now);
   }
   if (b.retailer === "costco")
-    return parseCostco(await getPublic(purchaseUrl(b), fetcher), w, b, now);
+    return parseCostco(await getPublic(purchaseUrl(b), fetcher), w, b, now, references);
   throw new UpstreamError("unsupported");
 }
