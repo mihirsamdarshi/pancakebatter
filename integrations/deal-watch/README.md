@@ -2,7 +2,8 @@
 
 Outbound collection and fixed-channel Discord delivery for the credential-free
 Deal Watch app. This is infrastructure outside the personal app platform.
-No browser runtime, retailer login state, generic URL proxy or purchasing is included.
+No retailer login state, generic URL proxy or purchasing is included. Target and Best Buy
+use a separate browser service (see below); this worker has no browser itself.
 
 ## Implemented and gated
 
@@ -32,8 +33,48 @@ the next attempt follows after 6 hours on success, otherwise after 30 minutes.
 A reference older than 24 hours is ignored, and the offer then reports
 `Bundle reference price missing or stale`. Whether the Costco binding is enabled
 depends on the owner's private policy.
-Best Buy, Target and eBay are also disabled pending access/extraction proof;
-there is no claim that these sources are implemented or continuously monitored.
+eBay is disabled pending access/extraction proof; there is no claim that it is
+continuously monitored.
+
+### Browser-backed sources: Target and Best Buy
+
+These two retailers do not offer a usable public JSON endpoint, so the worker asks a
+separate browser service for one public product page load per check
+(`POST ${BROWSER_URL}/observe` with `{retailer, productId, path}`, where `path` is the binding's `pagePath`, checked by the worker and again by the service; 120 s timeout; response
+read capped at 13 MiB). The service returns only allowlisted JSON responses with
+secret-like keys removed. The worker keeps all scheduling, floors, backoff, parsing
+and qualification. `BROWSER_URL` must be an `http(s)` origin with no credentials,
+path or query. When it is unset these bindings fail as `unsupported` and make no request.
+A service 429 is `throttled`, a human-check page is `access-denied`, a page error is
+`network`, and unparseable or oversize data is `invalid-data`.
+
+- Target: product objects whose own `tcin` is the binding's TCIN. Price is
+  `price.formatted_current_price` (cross-checked with `current_retail`). Stock is
+  `fulfillment.shipping_options.availability_status`: `IN_STOCK`, `OUT_OF_STOCK`, else
+  unknown; a `sold_out` flag or zero available quantity contradicting `IN_STOCK` gives unknown.
+  Target's data has no first-party seller field. The product is treated as Target's own
+  only while it holds no seller, vendor, marketplace or partner value; any such value
+  rejects the offer. The binding's TCIN must be Target's own listing: Target Plus partner
+  items use separate TCINs and the data carries no seller field to tell them apart.
+  Target `pagePath` is `/p/-/A-<TCIN>`; Best Buy's is
+  `/product/<slug>/<code>/sku/<SKU>` (the short `/site/<SKU>.p` form failed in a browser).
+- Best Buy: `productBySkuId` objects whose own `skuId` is the binding's SKU. Price is
+  `price.customerPrice`. Stock is the `NEW` button state: `ADD_TO_CART`, `SOLD_OUT`, else
+  unknown, and explicit `shippingEligible: false` never gives in-stock. First-party proof is
+  `seller.classification` `1P` or `seller.id` `bby` with `marketplaceSeller` null; no seller
+  data, another seller or any marketplace seller rejects. The page JSON-LD is never used
+  because it said `InStock` while the product was sold out.
+- Shipping and fees: the same owner-accepted assumption as Sony and Costco. When the
+  binding's `shippingPolicyZips` lists the watch ZIP and the price is over $40, the offer takes
+  free standard shipping (free over $35) and zero other mandatory fees, marked
+  `policy-supported`. The owner's ceiling excludes the California recycling fee. The ship-to
+  ZIP the retailer shows comes from the browser's IP address, not from the watch ZIP, and is
+  not used. Without the ZIP in the list, shipping and fees stay unknown.
+
+Fixtures `target-out-of-stock.json` and `bestbuy-out-of-stock.json` are trimmed copies of
+real service-shaped responses captured 2026-11-03 (subtrees the parsers read, with
+store addresses and the IP-derived ZIP removed). The `*-in-stock-synthetic.json` files are
+synthetic: only the stock fields were edited.
 
 The sample policy uses an example destination, not the owner's private policy.
 Fixtures are factual subsets of public Sony/Costco responses captured October

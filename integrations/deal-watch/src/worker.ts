@@ -12,6 +12,7 @@ import {
 import { EbayClient } from "./ebay.ts";
 import { discoveryIds, parseEbay } from "./ebay-adapter.ts";
 import { collect, fetchReferences, referenceCodes } from "./adapters.ts";
+import { parseBrowserUrl } from "./browser-adapters.ts";
 import { boundedText, nativeFetch, UpstreamError, type Fetcher } from "./http.ts";
 import { sendDiscord, message, type Delivery } from "./discord.ts";
 interface QueueEvent {
@@ -35,6 +36,8 @@ export interface Options {
   ebay?: EbayClient;
   webhook?: string;
   fetcher?: Fetcher;
+  /** Browser service origin for Target and Best Buy; those retailers are unsupported without it. */
+  browserUrl?: string;
   now?: () => number;
   random?: () => number;
   watches: Watch[];
@@ -59,6 +62,7 @@ export class Worker {
   lastSuccessfulCycle = 0;
   constructor(readonly options: Options) {
     this.base = new URL(options.baseUrl);
+    if (options.browserUrl !== undefined) parseBrowserUrl(options.browserUrl);
     this.fetcher = options.fetcher ?? nativeFetch;
     this.now = options.now ?? Date.now;
     this.random = options.random ?? Math.random;
@@ -212,7 +216,14 @@ export class Worker {
                     itemId!,
                     this.now(),
                   )
-                : await collect(watch, binding, this.fetcher, this.now(), this.references);
+                : await collect(
+                    watch,
+                    binding,
+                    this.fetcher,
+                    this.now(),
+                    this.references,
+                    this.options.browserUrl,
+                  );
             result = retailer === "ebay" ? { offers: [offer], mode: "upsert" } : { offer };
             const cache =
               retailer === "ebay"

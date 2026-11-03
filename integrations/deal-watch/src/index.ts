@@ -14,6 +14,7 @@ const worker = new Worker({
     ? new EbayClient(readEbayCredentials(process.env.EBAY_CREDENTIALS_FILE))
     : undefined,
   webhook,
+  browserUrl: process.env.BROWSER_URL || undefined,
   watches,
   allowLocalHttp: process.env.ALLOW_LOCAL_HTTP === "1",
 });

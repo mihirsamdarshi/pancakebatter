@@ -43,6 +43,15 @@ jobs:
         run: docker build --platform linux/amd64 -t deal-watch-integrations:test .
       - name: Non-root, read-only, offline smoke test
         run: bash scripts/smoke-worker.sh deal-watch-integrations:test
+      - name: Browser service tests
+        working-directory: integrations/deal-watch/browser
+        run: |
+          npm ci --ignore-scripts
+          npm test
+      - name: Build amd64 browser image
+        run: docker build --platform linux/amd64 -t deal-watch-browser:test browser
+      - name: Browser non-root, read-only, offline smoke test
+        run: bash scripts/smoke-browser.sh deal-watch-browser:test
   publish:
     name: Publish worker
     needs: check
@@ -69,3 +78,10 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ghcr.io/${{ github.repository }}/deal-watch-integrations:sha-${{ github.sha }}
+      - name: Publish browser image; deployments pin the resulting digest
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: integrations/deal-watch/browser
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository }}/deal-watch-browser:sha-${{ github.sha }}

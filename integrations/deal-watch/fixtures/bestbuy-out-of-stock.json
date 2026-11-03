@@ -1,0 +1,195 @@
+{
+ "retailer": "bestbuy",
+ "productId": "6601524",
+ "startedAt": 1793743864005,
+ "finishedAt": 1793743880930,
+ "status": 200,
+ "finalUrl": "https://www.bestbuy.com/product/playstation-5-pro-console/JXHQ37TR86/sku/6601524",
+ "blocked": false,
+ "error": null,
+ "title": "PlayStation 5 Pro Console - Best Buy",
+ "h1": [
+  "PlayStation 5 Pro Console"
+ ],
+ "responses": [
+  {
+   "path": "/gateway/graphql/fulfillment",
+   "status": 200,
+   "body": {
+    "data": {
+     "fulfillmentOptions": {
+      "__typename": "FulfillmentOptionsList",
+      "buttonStates": [
+       {
+        "__typename": "ButtonState",
+        "buttonState": "SOLD_OUT",
+        "condition": "NEW",
+        "displayText": "Sold Out",
+        "fulfillmentOption": null,
+        "hyperlinkUrl": null,
+        "planButtonState": null,
+        "planDisplayText": null,
+        "secondaryButtonState": null,
+        "secondaryDisplayText": null,
+        "skuId": "6601524"
+       }
+      ],
+      "shippingDetails": [
+       {
+        "__typename": "FulfillmentShippingDetail",
+        "destinationZipCode": null,
+        "sku": "6601524",
+        "abTestMetadata": null,
+        "shippingAvailability": [
+         {
+          "__typename": "FulfillmentShippingAvailability",
+          "backordered": null,
+          "condition": "NEW",
+          "customerLOSGroup": null,
+          "defaultCustomerLosGroupId": null,
+          "directToBoxEligible": null,
+          "downloadEligible": null,
+          "fulfillByVendor": null,
+          "inStoreOnly": null,
+          "installationEligible": null,
+          "levelOfServices": null,
+          "preorderable": null,
+          "promiseByStreetDate": null,
+          "restrictions": null,
+          "shippingEligible": null,
+          "whenAvailableFlag": null
+         }
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "path": "/gateway/graphql",
+   "status": 200,
+   "body": {
+    "data": {
+     "productBySkuId": {
+      "name": {
+       "short": "PlayStation 5 Pro Console",
+       "__typename": "ProductName"
+      },
+      "price": {
+       "currentPrice": 899.99,
+       "__typename": "ItemPrice"
+      },
+      "skuId": "6601524"
+     }
+    }
+   }
+  },
+  {
+   "path": "/gateway/graphql",
+   "status": 200,
+   "body": {
+    "data": {
+     "productBySkuId": {
+      "price": {
+       "displayableCustomerPrice": 899.99,
+       "customerPrice": 899.99,
+       "regularPrice": 899.99,
+       "isMAP": false,
+       "__typename": "ItemPrice"
+      },
+      "__typename": "Product",
+      "skuId": "6601524"
+     }
+    }
+   }
+  },
+  {
+   "path": "/gateway/graphql",
+   "status": 200,
+   "body": {
+    "data": {
+     "productBySkuId": {
+      "skuId": "6601524",
+      "seller": {
+       "classification": "1P"
+      }
+     }
+    }
+   }
+  },
+  {
+   "path": "/gateway/graphql",
+   "status": 200,
+   "body": {
+    "data": {
+     "productBySkuId": {
+      "seller": {
+       "marketplaceSeller": null,
+       "id": "bby",
+       "__typename": "Seller"
+      },
+      "__typename": "Product",
+      "skuId": "6601524",
+      "openBoxCondition": null
+     },
+     "__typename": "Query"
+    }
+   }
+  },
+  {
+   "path": "/gateway/graphql/fulfillment",
+   "status": 200,
+   "body": {
+    "data": {
+     "fulfillmentOptions": {
+      "__typename": "FulfillmentOptionsList",
+      "buttonStates": [
+       {
+        "__typename": "ButtonState",
+        "buttonState": "SOLD_OUT",
+        "condition": "NEW",
+        "displayText": "Sold Out",
+        "fulfillmentOption": null,
+        "hyperlinkUrl": null,
+        "planButtonState": null,
+        "planDisplayText": null,
+        "secondaryButtonState": null,
+        "secondaryDisplayText": null,
+        "skuId": "6601524"
+       }
+      ],
+      "shippingDetails": [
+       {
+        "__typename": "FulfillmentShippingDetail",
+        "destinationZipCode": null,
+        "sku": "6601524",
+        "abTestMetadata": null,
+        "shippingAvailability": [
+         {
+          "__typename": "FulfillmentShippingAvailability",
+          "backordered": null,
+          "condition": "NEW",
+          "customerLOSGroup": null,
+          "defaultCustomerLosGroupId": null,
+          "directToBoxEligible": false,
+          "downloadEligible": false,
+          "fulfillByVendor": false,
+          "inStoreOnly": false,
+          "installationEligible": false,
+          "levelOfServices": null,
+          "preorderable": false,
+          "promiseByStreetDate": null,
+          "restrictions": null,
+          "shippingEligible": false,
+          "whenAvailableFlag": null
+         }
+        ]
+       }
+      ]
+     }
+    }
+   }
+  }
+ ]
+}
