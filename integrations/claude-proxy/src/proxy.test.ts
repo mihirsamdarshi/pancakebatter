@@ -2,12 +2,14 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { configFromEnv, createHandler, type HandlerOptions } from "./proxy.ts";
+import { estimateUsd } from "./prices.ts";
+import { configFromEnv, createHandler, MAX_BODY_BYTES, type HandlerOptions } from "./proxy.ts";
 
 // Dummy values only. Neither is, or looks like, a real Anthropic key.
 const KEY = "test-proxy-key-not-real";
 const CALLER_KEY = "caller-key-must-be-dropped";
 const NOW = new Date("2026-11-03T12:00:00Z");
+const encoder = new TextEncoder();
 
 interface Seen {
   method: string;
@@ -90,6 +92,7 @@ const SSE_BODY = [
   "",
   "",
 ].join("\n");
+const SSE_HEAD = SSE_BODY.slice(0, SSE_BODY.indexOf("event: content_block_start"));
 
 function jsonReply(): Response {
   return new Response(JSON_BODY, {
@@ -103,7 +106,7 @@ function jsonReply(): Response {
 }
 
 function sseReply(chunkSize = 13): Response {
-  const bytes = new TextEncoder().encode(SSE_BODY);
+  const bytes = encoder.encode(SSE_BODY);
   let offset = 0;
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -116,6 +119,33 @@ function sseReply(chunkSize = 13): Response {
   return new Response(body, {
     headers: { "content-type": "text/event-stream; charset=utf-8", "request-id": "req_sse" },
   });
+}
+
+// Sends message_start, then waits for `gate` before sending the rest.
+function gatedSseReply(gate: Promise<void>, onCancel: () => void): Response {
+  let sentHead = false;
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (!sentHead) {
+        sentHead = true;
+        controller.enqueue(encoder.encode(SSE_HEAD));
+        return;
+      }
+      await gate;
+      controller.enqueue(encoder.encode(SSE_BODY.slice(SSE_HEAD.length)));
+      controller.close();
+    },
+    cancel: onCancel,
+  });
+  return new Response(body, {
+    headers: { "content-type": "text/event-stream", "request-id": "req_sse" },
+  });
+}
+
+function makeGate() {
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => (open = resolve));
+  return { gate, open };
 }
 
 let dir: string;
@@ -143,12 +173,28 @@ function handler(overrides: Partial<HandlerOptions> = {}, target = upstream) {
   });
 }
 
-function post(path: string, body: unknown, headers: Record<string, string> = {}) {
+function post(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+  signal?: AbortSignal,
+) {
   return new Request(`http://proxy.test${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: typeof body === "string" ? body : JSON.stringify(body),
+    signal,
   });
+}
+
+// A request whose body is a stream the test controls.
+function postStream(path: string, body: ReadableStream<Uint8Array>, headers = {}) {
+  return new Request(`http://proxy.test${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body,
+    duplex: "half",
+  } as RequestInit);
 }
 
 const message = (model = "claude-opus-5-5", extra: Record<string, unknown> = {}) => ({
@@ -158,29 +204,46 @@ const message = (model = "claude-opus-5-5", extra: Record<string, unknown> = {})
   ...extra,
 });
 
+// The reservation the proxy makes for message(model, extra).
+function estimateOf(model = "claude-opus-5-5", extra: Record<string, unknown> = {}) {
+  const body = message(model, extra);
+  return estimateUsd(model, encoder.encode(JSON.stringify(body)).byteLength, body.max_tokens);
+}
+
 async function usage(h: ReturnType<typeof handler>) {
   return (await h.fetch(new Request("http://proxy.test/usage"))).json();
 }
 
+function entries() {
+  return logs.map((line) => JSON.parse(line));
+}
+
 function forwardedLogs() {
-  return logs.map((line) => JSON.parse(line)).filter((entry) => entry.event === "forwarded");
+  return entries().filter((entry) => entry.event === "forwarded");
 }
 
 async function waitFor(condition: () => boolean) {
-  for (let i = 0; i < 200 && !condition(); i++) await Bun.sleep(5);
+  for (let i = 0; i < 400 && !condition(); i++) await Bun.sleep(5);
   expect(condition()).toBe(true);
+}
+
+async function expectError(response: Response, status: number, type: string, retry?: "false") {
+  expect(response.status).toBe(status);
+  expect(response.headers.get("x-should-retry")).toBe(retry ?? null);
+  const body = await response.json();
+  expect(body).toMatchObject({ type: "error", error: { type } });
+  return body.error.message as string;
 }
 
 describe("forwarding", () => {
   test("rewrites credentials and passes only the allowed headers both ways", async () => {
-    const body = JSON.stringify(message());
     const response = await handler().fetch(
-      post("/v1/messages", body, {
+      post("/v1/messages", message(), {
         "x-api-key": CALLER_KEY,
         authorization: `Bearer ${CALLER_KEY}`,
         cookie: "session=caller",
         "anthropic-version": "2023-06-01",
-        "anthropic-beta": "some-beta-2026-01-01",
+        "anthropic-beta": "beta-one-2026-01-01,beta-two-2026-02-01",
         "user-agent": "claude-cli/test",
         accept: "application/json",
         connection: "keep-alive",
@@ -191,6 +254,7 @@ describe("forwarding", () => {
     expect(await response.text()).toBe(JSON_BODY);
     expect(response.headers.get("content-type")).toBe("application/json");
     expect(response.headers.get("request-id")).toBe("req_json");
+    expect(response.headers.get("connection")).toBe("close");
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(response.headers.get("anthropic-organization-id")).toBeNull();
 
@@ -198,17 +262,47 @@ describe("forwarding", () => {
     const forwarded = seen[0]!;
     expect(forwarded.method).toBe("POST");
     expect(forwarded.path).toBe("/v1/messages");
-    expect(forwarded.body).toBe(body);
+    expect(JSON.parse(forwarded.body)).toEqual(message());
     expect(forwarded.headers["x-api-key"]).toBe(KEY);
     expect(forwarded.headers.authorization).toBeUndefined();
     expect(forwarded.headers.cookie).toBeUndefined();
     expect(forwarded.headers["x-stainless-retry-count"]).toBeUndefined();
     expect(forwarded.headers["anthropic-version"]).toBe("2023-06-01");
-    expect(forwarded.headers["anthropic-beta"]).toBe("some-beta-2026-01-01");
+    expect(forwarded.headers["anthropic-beta"]).toBe("beta-one-2026-01-01,beta-two-2026-02-01");
     expect(forwarded.headers["user-agent"]).toBe("claude-cli/test");
     expect(forwarded.headers.accept).toBe("application/json");
     expect(forwarded.headers["content-type"]).toBe("application/json");
     expect(JSON.stringify(forwarded.headers)).not.toContain(CALLER_KEY);
+  });
+
+  test("forwards the parsed JSON, so a duplicated model key cannot run another model", async () => {
+    const h = handler();
+    const rest = '"max_tokens":5,"messages":[{"role":"user","content":"hi"}]';
+    // JSON.parse keeps the last key: this one is checked as Opus...
+    const response = await h.fetch(
+      post("/v1/messages", `{"model":"claude-fable-5-1","model":"claude-opus-5-5",${rest}}`),
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+    // ...and the upstream sees only Opus.
+    expect(seen[0]?.body).toBe(
+      JSON.stringify({
+        model: "claude-opus-5-5",
+        max_tokens: 5,
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    );
+    expect(seen[0]?.body).not.toContain("claude-fable-5-1");
+    // The other order is checked as Fable and refused.
+    await expectError(
+      await h.fetch(
+        post("/v1/messages", `{"model":"claude-opus-5-5","model":"claude-fable-5-1",${rest}}`),
+      ),
+      400,
+      "invalid_request_error",
+      "false",
+    );
+    expect(seen).toHaveLength(1);
   });
 
   test("drops the query string", async () => {
@@ -221,17 +315,23 @@ describe("forwarding", () => {
     expect(seen[0]?.search).toBe("");
   });
 
-  test("forwards count_tokens without charging it", async () => {
+  test("forwards count_tokens without charging or checking it", async () => {
     reply = () => Response.json({ input_tokens: 123 }, { headers: { "request-id": "req_count" } });
-    const h = handler();
+    const h = handler({ dailyCapUsd: 0 });
     const response = await h.fetch(
-      post("/v1/messages/count_tokens?x=1", message("claude-sonnet-5-5")),
+      post("/v1/messages/count_tokens?x=1", message("claude-sonnet-5-5", { speed: "fast" })),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ input_tokens: 123 });
     expect(seen[0]?.path).toBe("/v1/messages/count_tokens");
     expect(seen[0]?.search).toBe("");
-    expect(await usage(h)).toEqual({ day: "2026-11-03", spentUsd: 0, capUsd: 20, requests: 0 });
+    expect(await usage(h)).toEqual({
+      day: "2026-11-03",
+      spentUsd: 0,
+      reservedUsd: 0,
+      capUsd: 0,
+      requests: 0,
+    });
     expect(forwardedLogs()[0]).toMatchObject({
       path: "/v1/messages/count_tokens",
       status: 200,
@@ -239,7 +339,7 @@ describe("forwarding", () => {
     });
   });
 
-  test("passes upstream errors through unchanged", async () => {
+  test("passes upstream errors through unchanged and charges nothing for them", async () => {
     const error = JSON.stringify({
       type: "error",
       error: { type: "overloaded_error", message: "Overloaded" },
@@ -258,7 +358,8 @@ describe("forwarding", () => {
     expect(response.status).toBe(529);
     expect(response.headers.get("x-should-retry")).toBe("true");
     expect(await response.text()).toBe(error);
-    expect(await usage(h)).toMatchObject({ spentUsd: 0, requests: 1 });
+    expect(await usage(h)).toMatchObject({ spentUsd: 0, reservedUsd: 0, requests: 1 });
+    expect(forwardedLogs()[0]).toMatchObject({ charge: "none", costUsd: 0 });
   });
 
   test("answers 404 for every other path and method, without calling upstream", async () => {
@@ -272,75 +373,236 @@ describe("forwarding", () => {
       new Request("http://proxy.test/v1/messages"),
       new Request("http://proxy.test/healthz", { method: "POST" }),
       post("/v1/files", {}),
-    ]) {
-      const response = await h.fetch(request);
-      expect(response.status).toBe(404);
-      expect(await response.json()).toMatchObject({
-        type: "error",
-        error: { type: "not_found_error" },
-      });
-    }
+    ])
+      await expectError(await h.fetch(request), 404, "not_found_error");
     expect(seen).toHaveLength(0);
-    expect(logs.map((line) => JSON.parse(line))).toContainEqual(
+    expect(entries()).toContainEqual(
       expect.objectContaining({ event: "refused", method: "GET", path: "/v1/models", status: 404 }),
     );
   });
 
-  test("returns 502 in the error shape when upstream cannot be reached", async () => {
+  test("returns 502 when upstream cannot be reached, and releases the slot and reservation", async () => {
     const h = handler({ maxConcurrent: 1 }, "http://127.0.0.1:1");
     for (let i = 0; i < 2; i++) {
       // A second 502 rather than a 429 shows the slot was released.
       const response = await h.fetch(post("/v1/messages", message()));
-      expect(response.status).toBe(502);
-      expect(await response.json()).toMatchObject({ type: "error", error: { type: "api_error" } });
+      expect(response.headers.get("connection")).toBe("close");
+      await expectError(response, 502, "api_error");
     }
-    expect(await usage(h)).toMatchObject({ requests: 0 });
-    expect(logs.map((line) => JSON.parse(line))).toContainEqual(
+    expect(await usage(h)).toMatchObject({ requests: 0, reservedUsd: 0 });
+    expect(entries()).toContainEqual(
       expect.objectContaining({ event: "upstream-failed", status: 502 }),
     );
   });
 });
 
-describe("model allowlist", () => {
-  test("refuses a model that is not allowed, with the Anthropic error shape", async () => {
-    const response = await handler().fetch(post("/v1/messages", message("claude-fable-5-1")));
-    expect(response.status).toBe(400);
-    const body = await response.json();
-    expect(body).toMatchObject({ type: "error", error: { type: "invalid_request_error" } });
-    expect(body.error.message).toContain("claude-fable-5-1");
+describe("request checks", () => {
+  test("refuses a model that is not allowed, without a retry", async () => {
+    const text = await expectError(
+      await handler().fetch(post("/v1/messages", message("claude-fable-5-1"))),
+      400,
+      "invalid_request_error",
+      "false",
+    );
+    expect(text).toContain("claude-fable-5-1");
     expect(seen).toHaveLength(0);
   });
 
-  test("refuses a missing model and a body that is not JSON", async () => {
+  test("refuses a missing model and a body that is not a JSON object", async () => {
     const h = handler();
-    for (const body of [{ max_tokens: 1, messages: [] }, "{not json", "[]", { model: 5 }]) {
-      const response = await h.fetch(post("/v1/messages", body));
-      expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({
-        type: "error",
-        error: { type: "invalid_request_error" },
-      });
+    for (const body of [{ max_tokens: 1, messages: [] }, "{not json", "[]", { model: 5 }])
+      await expectError(
+        await h.fetch(post("/v1/messages", body)),
+        400,
+        "invalid_request_error",
+        "false",
+      );
+    expect(seen).toHaveLength(0);
+  });
+
+  test("refuses request fields that change the price", async () => {
+    const h = handler();
+    const refused: Record<string, unknown>[] = [
+      { speed: "fast" },
+      { speed: "standard" },
+      { fallbacks: "default" },
+      { fallbacks: [{ model: "claude-opus-4-8" }] },
+      { mcp_servers: [] },
+      { inference_geo: "us" },
+      { inference_geo: null },
+      { tools: [{ type: "advisor_20260301", name: "advisor", model: "claude-opus-5-5" }] },
+      { tools: [{ type: "advisor_20260301", name: "advisor" }] },
+      { tools: [{ name: "mine", input_schema: { type: "object" }, model: "claude-haiku-5-5" }] },
+      { tools: [{ type: "mcp_toolset", mcp_server_name: "server" }] },
+    ];
+    for (const extra of refused) {
+      const text = await expectError(
+        await h.fetch(post("/v1/messages", message("claude-opus-5-5", extra))),
+        400,
+        "invalid_request_error",
+        "false",
+      );
+      expect(text).toContain("changes the price");
     }
     expect(seen).toHaveLength(0);
+    expect(entries().filter((e) => e.reason === "price-changing-field")).toHaveLength(
+      refused.length,
+    );
   });
 
-  test("refuses a body over 32 MB", async () => {
+  test("allows global inference, ordinary tools and any anthropic-beta header", async () => {
+    const h = handler();
+    const extra = {
+      inference_geo: "global",
+      tools: [
+        { type: "web_search_20260209", name: "web_search" },
+        { name: "mine", input_schema: { type: "object" } },
+      ],
+    };
+    const response = await h.fetch(
+      post("/v1/messages", message("claude-opus-5-5", extra), {
+        "anthropic-beta": "fast-mode-2026-02-01,mcp-client-2025-11-20",
+      }),
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(seen[0]?.headers["anthropic-beta"]).toBe("fast-mode-2026-02-01,mcp-client-2025-11-20");
+  });
+
+  test("refuses a body over 16 MB while reading it", async () => {
     const response = await handler().fetch(
       new Request("http://proxy.test/v1/messages", {
         method: "POST",
-        body: new Uint8Array(32 * 1024 * 1024 + 1),
+        body: new Uint8Array(MAX_BODY_BYTES + 1),
       }),
     );
-    expect(response.status).toBe(413);
-    expect(await response.json()).toMatchObject({
-      type: "error",
-      error: { type: "request_too_large" },
+    expect(MAX_BODY_BYTES).toBe(16 * 1024 * 1024);
+    await expectError(response, 413, "request_too_large", "false");
+    expect(seen).toHaveLength(0);
+  });
+
+  test("refuses a declared content-length over 16 MB before reading anything", async () => {
+    let pulls = 0;
+    // This body never delivers a byte: only the content-length check can
+    // answer before the 60 s body deadline.
+    const stalled = new ReadableStream<Uint8Array>({
+      pull() {
+        pulls++;
+        return new Promise(() => {});
+      },
     });
+    const response = await handler().fetch(
+      postStream("/v1/messages", stalled, { "content-length": String(MAX_BODY_BYTES + 1) }),
+    );
+    await expectError(response, 413, "request_too_large", "false");
+    expect(pulls).toBeLessThanOrEqual(1);
     expect(seen).toHaveLength(0);
   });
 
   test("startup fails for an allowed model without a price", () => {
     expect(() => handler({ allowedModels: ["claude-sonnet-5-5"] })).toThrow("no price");
+  });
+});
+
+describe("slots and slow callers", () => {
+  test("the slot is taken before the body is read", async () => {
+    const { gate, open } = makeGate();
+    const bytes = encoder.encode(JSON.stringify(message()));
+    let sent = false;
+    const slowBody = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(bytes.slice(0, 10));
+          return;
+        }
+        await gate;
+        controller.enqueue(bytes.slice(10));
+        controller.close();
+      },
+    });
+    const h = handler({ maxConcurrent: 1 });
+    const first = h.fetch(postStream("/v1/messages", slowBody));
+    await Bun.sleep(20);
+    const refused = await h.fetch(post("/v1/messages", message()));
+    expect(refused.headers.get("retry-after")).toBe("5");
+    await expectError(refused, 429, "rate_limit_error");
+    open();
+    const response = await first;
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(seen).toHaveLength(1);
+  });
+
+  test("a body that does not arrive within the deadline is refused and frees the slot", async () => {
+    const stalled = new ReadableStream<Uint8Array>({
+      pull() {
+        return new Promise(() => {});
+      },
+    });
+    const h = handler({ maxConcurrent: 1, bodyTimeoutMs: 50 });
+    const started = Date.now();
+    await expectError(
+      await h.fetch(postStream("/v1/messages", stalled)),
+      408,
+      "invalid_request_error",
+    );
+    expect(Date.now() - started).toBeLessThan(2000);
+    const next = await h.fetch(post("/v1/messages", message()));
+    expect(next.status).toBe(200);
+    await next.text();
+  });
+
+  test("the idle timeout is turned off only after the body is read", async () => {
+    const calls: { seconds: number; bodyRead: boolean }[] = [];
+    let bodyRead = false;
+    const server = { timeout: (_: Request, seconds: number) => calls.push({ seconds, bodyRead }) };
+    const bytes = encoder.encode(JSON.stringify(message()));
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes);
+      },
+      async pull(controller) {
+        await Bun.sleep(10);
+        bodyRead = true;
+        controller.close();
+      },
+    });
+    const h = handler();
+    const response = await h.fetch(postStream("/v1/messages", body), server);
+    await response.text();
+    expect(calls).toEqual([{ seconds: 0, bodyRead: true }]);
+
+    // A refused request never turns it off.
+    await h.fetch(post("/v1/messages", message("claude-fable-5-1")), server);
+    await h.fetch(
+      postStream("/v1/messages", new ReadableStream(), { "content-length": "999999999" }),
+      server,
+    );
+    expect(calls).toHaveLength(1);
+  });
+
+  test("answers 429 with retry-after beyond MAX_CONCURRENT, and frees the slot afterwards", async () => {
+    const { gate, open } = makeGate();
+    reply = async () => {
+      await gate;
+      return jsonReply();
+    };
+    const h = handler({ maxConcurrent: 1 });
+    const first = h.fetch(post("/v1/messages", message()));
+    await waitFor(() => seen.length === 1);
+
+    const refused = await h.fetch(post("/v1/messages", message()));
+    expect(refused.headers.get("retry-after")).toBe("5");
+    await expectError(refused, 429, "rate_limit_error");
+    expect(seen).toHaveLength(1);
+
+    open();
+    await (await first).text();
+    reply = jsonReply;
+    const after = await h.fetch(post("/v1/messages", message()));
+    expect(after.status).toBe(200);
+    await after.text();
   });
 });
 
@@ -351,6 +613,7 @@ describe("usage and cost", () => {
     await response.text();
     const spend = await usage(h);
     expect(spend.requests).toBe(1);
+    expect(spend.reservedUsd).toBe(0);
     expect(spend.spentUsd).toBeCloseTo(JSON_COST, 9);
     const [entry] = forwardedLogs();
     expect(entry).toMatchObject({
@@ -358,6 +621,7 @@ describe("usage and cost", () => {
       model: "claude-opus-5-5",
       status: 200,
       stream: false,
+      charge: "usage",
       inputTokens: 1000,
       outputTokens: 500,
       cacheWrite5mTokens: 1000,
@@ -368,6 +632,7 @@ describe("usage and cost", () => {
     });
     expect(entry.costUsd).toBeCloseTo(JSON_COST, 6);
     expect(entry.dayTotalUsd).toBeCloseTo(JSON_COST, 6);
+    expect(entry.estimatedMaxUsd).toBeCloseTo(estimateOf(), 6);
     expect(typeof entry.time).toBe("string");
   });
 
@@ -379,12 +644,13 @@ describe("usage and cost", () => {
     );
     expect(response.headers.get("content-type")).toBe("text/event-stream; charset=utf-8");
     expect(response.headers.get("request-id")).toBe("req_sse");
+    expect(response.headers.get("connection")).toBe("close");
     expect(await response.text()).toBe(SSE_BODY);
-    const spend = await usage(h);
-    expect(spend.spentUsd).toBeCloseTo(SSE_COST, 9);
+    expect((await usage(h)).spentUsd).toBeCloseTo(SSE_COST, 9);
     expect(forwardedLogs()[0]).toMatchObject({
       model: "claude-haiku-5-5",
       stream: true,
+      charge: "usage",
       inputTokens: 2000,
       outputTokens: 40,
       cacheWrite5mTokens: 1000,
@@ -395,22 +661,57 @@ describe("usage and cost", () => {
     });
   });
 
-  test("a caller that disconnects mid-stream is still charged and frees its slot", async () => {
-    // Upstream sends message_start, then stalls as if the model were thinking.
-    const head = SSE_BODY.slice(0, SSE_BODY.indexOf("event: content_block_start"));
-    let upstreamCancelled = false;
+  test("reads usage from the end of a large JSON response", async () => {
+    const big = JSON.stringify({
+      type: "message",
+      content: [{ type: "text", text: "w".repeat(2 * 1024 * 1024) }],
+      usage: { input_tokens: 100, output_tokens: 50 },
+    });
+    reply = () => new Response(big, { headers: { "content-type": "application/json" } });
+    const h = handler();
+    const response = await h.fetch(post("/v1/messages", message()));
+    expect((await response.text()).length).toBe(big.length);
+    expect((await usage(h)).spentUsd).toBeCloseTo((100 * 4 + 50 * 20) / 1e6, 12);
+  });
+
+  test("a success without usage is charged the estimate (JSON and SSE)", async () => {
+    for (const body of [
+      new Response('{"type":"message","content":[]}', {
+        headers: { "content-type": "application/json" },
+      }),
+      new Response('event: message_stop\ndata: {"type":"message_stop"}\n\n', {
+        headers: { "content-type": "text/event-stream" },
+      }),
+      new Response("not json", { headers: { "content-type": "text/plain" } }),
+    ]) {
+      logs = [];
+      rmSync(join(dir, "spend.json"), { force: true });
+      reply = () => body;
+      const h = handler();
+      await (await h.fetch(post("/v1/messages", message()))).text();
+      expect((await usage(h)).spentUsd).toBeCloseTo(estimateOf(), 6);
+      expect(forwardedLogs()[0]).toMatchObject({ charge: "estimate" });
+    }
+  });
+
+  test("response usage reporting fast mode or US inference is priced up", async () => {
     reply = () =>
-      new Response(
-        new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode(head));
-          },
-          cancel() {
-            upstreamCancelled = true;
-          },
-        }),
-        { headers: { "content-type": "text/event-stream" } },
-      );
+      Response.json({
+        type: "message",
+        usage: { input_tokens: 1000, output_tokens: 500, speed: "fast", inference_geo: "us" },
+      });
+    const h = handler();
+    await (await h.fetch(post("/v1/messages", message()))).text();
+    expect((await usage(h)).spentUsd).toBeCloseTo(((1000 * 4 + 500 * 20) / 1e6) * 2 * 1.1, 9);
+    expect(forwardedLogs()[0]).toMatchObject({ speed: "fast", inferenceGeo: "us" });
+  });
+});
+
+describe("client disconnects", () => {
+  test("a caller that leaves mid-stream: the upstream is read to the end and fully charged", async () => {
+    const { gate, open } = makeGate();
+    let upstreamCancelled = false;
+    reply = () => gatedSseReply(gate, () => (upstreamCancelled = true));
     const h = handler({ maxConcurrent: 1 });
     const response = await h.fetch(
       post("/v1/messages", message("claude-haiku-5-5", { stream: true })),
@@ -418,47 +719,157 @@ describe("usage and cost", () => {
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     let text = "";
-    while (text !== head) {
+    while (text !== SSE_HEAD) {
       const chunk = await reader.read();
       if (chunk.done) break;
       text += decoder.decode(chunk.value, { stream: true });
     }
-    expect(text).toBe(head);
     await reader.cancel();
-    await waitFor(() => upstreamCancelled);
-    const [entry] = forwardedLogs();
-    expect(entry).toMatchObject({
+    open();
+    await waitFor(() => forwardedLogs().length === 1);
+    expect(forwardedLogs()[0]).toMatchObject({
       outcome: "client-closed",
-      inputTokens: 2000,
-      cacheReadTokens: 3000,
+      charge: "usage",
+      outputTokens: 40,
+      webSearchRequests: 1,
     });
-    expect((await usage(h)).requests).toBe(1);
+    expect(upstreamCancelled).toBe(false);
+    expect((await usage(h)).spentUsd).toBeCloseTo(SSE_COST, 9);
 
     reply = jsonReply;
     const next = await h.fetch(post("/v1/messages", message()));
     expect(next.status).toBe(200);
     await next.text();
   });
+
+  test("a caller that leaves before the upstream headers arrive is still charged", async () => {
+    const { gate, open } = makeGate();
+    reply = async () => {
+      await gate;
+      return jsonReply();
+    };
+    const h = handler({ maxConcurrent: 1 });
+    const caller = new AbortController();
+    const pending = h.fetch(post("/v1/messages", message(), {}, caller.signal));
+    await waitFor(() => seen.length === 1);
+    caller.abort();
+    open();
+    await pending; // nobody reads this response
+    await waitFor(() => forwardedLogs().length === 1);
+    expect(forwardedLogs()[0]).toMatchObject({ outcome: "client-closed", charge: "usage" });
+    expect(await usage(h)).toMatchObject({ requests: 1, reservedUsd: 0 });
+    expect((await usage(h)).spentUsd).toBeCloseTo(JSON_COST, 9);
+    const next = await h.fetch(post("/v1/messages", message()));
+    expect(next.status).toBe(200);
+    await next.text();
+  });
+
+  test("through a real server, a disconnect mid-stream is drained and charged", async () => {
+    const { gate, open } = makeGate();
+    let upstreamCancelled = false;
+    reply = () => gatedSseReply(gate, () => (upstreamCancelled = true));
+    const h = handler();
+    const proxy = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: h.fetch });
+    try {
+      const caller = new AbortController();
+      const response = await fetch(`http://127.0.0.1:${proxy.port}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(message("claude-haiku-5-5", { stream: true })),
+        signal: caller.signal,
+      });
+      expect(response.headers.get("connection")).toBe("close");
+      await response.body!.getReader().read();
+      caller.abort();
+      await Bun.sleep(50);
+      open();
+      await waitFor(() => forwardedLogs().length === 1);
+      expect(forwardedLogs()[0]).toMatchObject({ outcome: "client-closed", outputTokens: 40 });
+      expect(upstreamCancelled).toBe(false);
+      expect((await usage(h)).spentUsd).toBeCloseTo(SSE_COST, 9);
+    } finally {
+      await proxy.stop(true);
+    }
+  });
 });
 
-describe("daily cap", () => {
-  test("lets an in-flight request pass the cap, then refuses with 403 and no upstream call", async () => {
+describe("daily cap and reservations", () => {
+  test("concurrent in-flight requests may pass the cap; later ones get 403 and no upstream call", async () => {
+    const { gate, open } = makeGate();
+    reply = async () => {
+      await gate;
+      return jsonReply();
+    };
+    // Each request reserves about $0.0206, so both fit under $0.05; each then
+    // costs $0.0558.
     const h = handler({ dailyCapUsd: 0.05 });
-    await (await h.fetch(post("/v1/messages", message()))).text(); // $0.0558, over the cap
-    expect(seen).toHaveLength(1);
+    const first = h.fetch(post("/v1/messages", message()));
+    const second = h.fetch(post("/v1/messages", message()));
+    await waitFor(() => seen.length === 2);
+    expect((await usage(h)).reservedUsd).toBeCloseTo(2 * estimateOf(), 6);
+    open();
+    await Promise.all([(await first).text(), (await second).text()]);
+    expect(await usage(h)).toMatchObject({ reservedUsd: 0, requests: 2 });
+    expect((await usage(h)).spentUsd).toBeCloseTo(2 * JSON_COST, 9);
 
-    const refused = await h.fetch(post("/v1/messages", message()));
-    expect(refused.status).toBe(403);
-    const body = await refused.json();
-    expect(body).toMatchObject({ type: "error", error: { type: "permission_error" } });
-    expect(body.error.message).toContain("$0.05");
-    expect(seen).toHaveLength(1);
+    const message403 = await expectError(
+      await h.fetch(post("/v1/messages", message())),
+      403,
+      "permission_error",
+      "false",
+    );
+    expect(message403).toContain("$0.05");
+    expect(message403).not.toContain("model:");
+    expect(seen).toHaveLength(2);
 
     // count_tokens is neither charged nor blocked.
     reply = () => Response.json({ input_tokens: 5 });
     expect((await h.fetch(post("/v1/messages/count_tokens", message()))).status).toBe(200);
-    expect(seen).toHaveLength(2);
-    expect(await usage(h)).toMatchObject({ capUsd: 0.05, requests: 1 });
+    expect(seen).toHaveLength(3);
+  });
+
+  test("a request whose estimate does not fit beside the reservations is refused", async () => {
+    const { gate, open } = makeGate();
+    reply = async () => {
+      await gate;
+      return Response.json({ type: "message", usage: { input_tokens: 10, output_tokens: 10 } });
+    };
+    const h = handler({ dailyCapUsd: 0.03 });
+    const first = h.fetch(post("/v1/messages", message()));
+    await waitFor(() => seen.length === 1);
+    const text = await expectError(
+      await h.fetch(post("/v1/messages", message())),
+      403,
+      "permission_error",
+      "false",
+    );
+    expect(text).toContain("held by requests in progress");
+    expect(text).not.toContain("model:");
+    expect(seen).toHaveLength(1);
+
+    open();
+    await (await first).text();
+    // Settled at its real cost ($0.00024), the reservation is gone.
+    expect((await usage(h)).reservedUsd).toBe(0);
+    const third = await h.fetch(post("/v1/messages", message()));
+    expect(third.status).toBe(200);
+    await third.text();
+  });
+
+  test("a single request larger than the cap is refused before it is sent", async () => {
+    const h = handler({ dailyCapUsd: 1 });
+    // 128,000 output tokens on Opus: $2.56.
+    await expectError(
+      await h.fetch(post("/v1/messages", message("claude-opus-5-5", { max_tokens: 128_000 }))),
+      403,
+      "permission_error",
+      "false",
+    );
+    // No max_tokens: the estimate assumes 128,000.
+    const { max_tokens: _, ...noMax } = message();
+    await expectError(await h.fetch(post("/v1/messages", noMax)), 403, "permission_error", "false");
+    expect(seen).toHaveLength(0);
+    expect((await usage(h)).reservedUsd).toBe(0);
   });
 
   test("a new UTC day starts from zero", async () => {
@@ -467,7 +878,13 @@ describe("daily cap", () => {
     await (await h.fetch(post("/v1/messages", message()))).text();
     expect((await h.fetch(post("/v1/messages", message()))).status).toBe(403);
     now = new Date("2026-11-04T00:00:01Z");
-    expect(await usage(h)).toEqual({ day: "2026-11-04", spentUsd: 0, capUsd: 0.05, requests: 0 });
+    expect(await usage(h)).toEqual({
+      day: "2026-11-04",
+      spentUsd: 0,
+      reservedUsd: 0,
+      capUsd: 0.05,
+      requests: 0,
+    });
     const response = await h.fetch(post("/v1/messages", message()));
     expect(response.status).toBe(200);
     await response.text();
@@ -478,8 +895,7 @@ describe("persistence", () => {
   test("a new handler on the same spend file keeps today's total", async () => {
     const first = handler();
     await (await first.fetch(post("/v1/messages", message()))).text();
-    const second = handler();
-    const spend = await usage(second);
+    const spend = await usage(handler());
     expect(spend.requests).toBe(1);
     expect(spend.spentUsd).toBeCloseTo(JSON_COST, 9);
   });
@@ -492,6 +908,7 @@ describe("persistence", () => {
     expect(await usage(handler())).toEqual({
       day: "2026-11-03",
       spentUsd: 0,
+      reservedUsd: 0,
       capUsd: 20,
       requests: 0,
     });
@@ -504,46 +921,11 @@ describe("persistence", () => {
     ]) {
       logs = [];
       writeFileSync(join(dir, "spend.json"), content);
-      expect(await usage(handler())).toEqual({
-        day: "2026-11-03",
-        spentUsd: 0,
-        capUsd: 20,
-        requests: 0,
-      });
-      expect(logs.map((line) => JSON.parse(line))).toContainEqual(
+      expect(await usage(handler())).toMatchObject({ spentUsd: 0, requests: 0 });
+      expect(entries()).toContainEqual(
         expect.objectContaining({ event: "spend-file-ignored", reason: "corrupt" }),
       );
     }
-  });
-});
-
-describe("concurrency", () => {
-  test("answers 429 with retry-after beyond MAX_CONCURRENT, and frees the slot afterwards", async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
-    reply = async () => {
-      await gate;
-      return jsonReply();
-    };
-    const h = handler({ maxConcurrent: 1 });
-    const first = h.fetch(post("/v1/messages", message()));
-    await waitFor(() => seen.length === 1);
-
-    const refused = await h.fetch(post("/v1/messages", message()));
-    expect(refused.status).toBe(429);
-    expect(refused.headers.get("retry-after")).toBe("5");
-    expect(await refused.json()).toMatchObject({
-      type: "error",
-      error: { type: "rate_limit_error" },
-    });
-    expect(seen).toHaveLength(1);
-
-    release();
-    await (await first).text();
-    reply = jsonReply;
-    const after = await h.fetch(post("/v1/messages", message()));
-    expect(after.status).toBe(200);
-    await after.text();
   });
 });
 
@@ -555,22 +937,15 @@ describe("credential handling", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ ok: false });
     writeFileSync(join(dir, "empty"), " \n");
-    expect(
-      (
-        await handler({ keyFile: join(dir, "empty") }).fetch(
-          new Request("http://proxy.test/healthz"),
-        )
-      ).status,
-    ).toBe(503);
+    const empty = handler({ keyFile: join(dir, "empty") });
+    expect((await empty.fetch(new Request("http://proxy.test/healthz"))).status).toBe(503);
   });
 
-  test("without a key nothing is forwarded", async () => {
-    const response = await handler({ keyFile: join(dir, "missing") }).fetch(
-      post("/v1/messages", message()),
-    );
-    expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({ type: "error", error: { type: "api_error" } });
+  test("without a key nothing is forwarded, and the caller is told not to retry", async () => {
+    const h = handler({ keyFile: join(dir, "missing") });
+    await expectError(await h.fetch(post("/v1/messages", message())), 503, "api_error", "false");
     expect(seen).toHaveLength(0);
+    expect((await usage(h)).reservedUsd).toBe(0);
   });
 
   test("a rotated key file is used without a restart", async () => {
@@ -585,13 +960,23 @@ describe("credential handling", () => {
     const bodies: string[] = [];
     const collect = async (response: Response | Promise<Response>) =>
       bodies.push(await (await response).text());
-    const h = handler({ dailyCapUsd: 0.05, maxConcurrent: 1 });
+    const h = handler();
     await collect(h.fetch(post("/v1/messages", message(), { "x-api-key": KEY })));
     reply = () => sseReply();
     await collect(h.fetch(post("/v1/messages/count_tokens", message())));
     await collect(h.fetch(post("/v1/messages", message("not-allowed"))));
-    await collect(h.fetch(post("/v1/messages", message())));
+    await collect(h.fetch(post("/v1/messages", message("claude-opus-5-5", { speed: "fast" }))));
+    // 403: the first request already spent more than this cap.
+    await collect(handler({ dailyCapUsd: 0.05 }).fetch(post("/v1/messages", message())));
     await collect(h.fetch(post("/v1/messages", "{bad json")));
+    await collect(
+      h.fetch(
+        new Request("http://proxy.test/v1/messages", {
+          method: "POST",
+          body: new Uint8Array(MAX_BODY_BYTES + 1),
+        }),
+      ),
+    );
     await collect(h.fetch(new Request("http://proxy.test/v1/models")));
     await collect(h.fetch(new Request("http://proxy.test/healthz")));
     await collect(h.fetch(new Request("http://proxy.test/usage")));
@@ -599,8 +984,7 @@ describe("credential handling", () => {
     await collect(
       handler({ keyFile: join(dir, "missing") }).fetch(post("/v1/messages", message())),
     );
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
+    const { gate, open } = makeGate();
     reply = async () => {
       await gate;
       return jsonReply();
@@ -608,12 +992,12 @@ describe("credential handling", () => {
     const busy = handler({ maxConcurrent: 1 });
     const pending = busy.fetch(post("/v1/messages", message()));
     await waitFor(() => seen.length === 3);
-    await collect(busy.fetch(post("/v1/messages", message())));
-    release();
+    await collect(busy.fetch(post("/v1/messages", message()))); // 429
+    open();
     await (await pending).text();
 
     const proxyErrors = bodies.filter((b) => b.includes('"type":"error"'));
-    expect(proxyErrors.length).toBeGreaterThanOrEqual(5);
+    expect(proxyErrors.length).toBeGreaterThanOrEqual(8);
     for (const text of [...bodies, ...logs]) expect(text).not.toContain(KEY);
     for (const line of logs) {
       expect(line).not.toContain("the prompt text");

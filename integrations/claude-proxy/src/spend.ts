@@ -30,8 +30,13 @@ function isSpendState(value: unknown): value is SpendState {
 // Today's estimated spend. Kept in memory and written to a small JSON file
 // after every charge, so a container restart inside the same pod (the file
 // lives on the pod's emptyDir) keeps the count. A new pod starts from zero.
+//
+// Requests in flight also hold a reservation: their estimated maximum cost,
+// counted against the cap until they finish. Reservations are memory only;
+// a restart ends the requests that held them.
 export class SpendLedger {
   private state: SpendState;
+  private reservedUsd = 0;
 
   constructor(
     private readonly file: string,
@@ -53,6 +58,20 @@ export class SpendLedger {
     this.state.requests += 1;
     this.persist();
     return { ...this.state };
+  }
+
+  reserved(): number {
+    return this.reservedUsd;
+  }
+
+  reserve(usd: number): void {
+    this.reservedUsd += usd;
+  }
+
+  release(usd: number): void {
+    this.reservedUsd -= usd;
+    // Floating-point leftovers once every reservation is released.
+    if (this.reservedUsd < 1e-9) this.reservedUsd = 0;
   }
 
   private load(): SpendState {

@@ -31,14 +31,15 @@ output="$(docker run --platform linux/amd64 --rm --network none --read-only --us
       if(response.status!==status)throw new Error(`${what}: expected ${status}, got ${response.status}`);
       console.log(JSON.stringify({smoke:what,status:response.status,body}));
     };
-    const message=(model)=>({method:"POST",headers:{"content-type":"application/json","x-api-key":"caller"},
-      body:JSON.stringify({model,max_tokens:1,messages:[{role:"user",content:"hi"}]})});
+    const message=(model,extra={})=>({method:"POST",headers:{"content-type":"application/json","x-api-key":"caller"},
+      body:JSON.stringify({model,max_tokens:1,messages:[{role:"user",content:"hi"}],...extra})});
     // The real entrypoint, listening on 3000.
     await import("./src/index.ts");
     const proxy="http://127.0.0.1:3000";
     await check("healthz",await fetch(`${proxy}/healthz`),200);
     await check("/v1/models is not proxied",await fetch(`${proxy}/v1/models`),404);
     await check("model allowlist",await fetch(`${proxy}/v1/messages`,message("claude-fable-5-1")),400);
+    await check("price-changing field",await fetch(`${proxy}/v1/messages`,message("claude-haiku-5-5",{speed:"fast"})),400);
     await check("no network: upstream unreachable",await fetch(`${proxy}/v1/messages`,message("claude-haiku-5-5")),502);
     await check("usage",await fetch(`${proxy}/usage`),200);
     // A charged request against a loopback mock, to show the spend file is
