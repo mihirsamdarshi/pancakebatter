@@ -12,6 +12,11 @@ spec:
   mergeType: StrategicMerge
   retry:
     numRetries: 0
+  # Envoy closes an idle upstream connection at 60 s, before the app's keep-alive
+  # (the template sets 75 s), so a write never lands on a closing connection.
+  timeout:
+    http:
+      connectionIdleTimeout: 60s
   targetRefs:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
