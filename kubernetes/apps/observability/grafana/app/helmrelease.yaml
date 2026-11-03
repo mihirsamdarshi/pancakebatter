@@ -41,6 +41,11 @@ spec:
             url: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090
             jsonData:
               timeInterval: 30s
+          - name: Loki
+            uid: loki
+            type: loki
+            access: proxy
+            url: http://loki.observability.svc.cluster.local:3100
           - name: Alertmanager
             uid: alertmanager
             type: alertmanager

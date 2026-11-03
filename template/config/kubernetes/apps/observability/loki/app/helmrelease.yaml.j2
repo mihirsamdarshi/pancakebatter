@@ -1,0 +1,154 @@
+---
+# Loki, Monolithic mode (one pod), TSDB v13 index on the filesystem, on a
+# local-path volume of talos-03. 14 days of logs. Nothing is replicated or
+# backed up: logs may be lost.
+#
+# Storage is bounded in Loki itself, because Loki on a filesystem never deletes
+# by free space and local-path has no quota: limits_config.ingestion_rate_mb is
+# the hard cap (50 KB/s = 4.3 GB a day raw, about 25 GB stored at 14 days in
+# the worst case). Alloy adds line-length and line-rate limits per source for
+# fairness. If the cap is hit, Loki answers 429 and Alloy retries, then drops.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: loki
+  interval: 1h
+  values:
+    deploymentMode: Monolithic
+    loki:
+      auth_enabled: false
+      commonConfig:
+        replication_factor: 1
+      storage:
+        type: filesystem
+      schemaConfig:
+        configs:
+          - from: "2026-11-01"
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: loki_index_
+              period: 24h
+      limits_config:
+        retention_period: 14d
+        max_query_lookback: 14d
+        reject_old_samples: true
+        reject_old_samples_max_age: 168h
+        # The hard byte cap (0.05 MB/s) and its burst.
+        ingestion_rate_mb: 0.05
+        ingestion_burst_size_mb: 1
+        per_stream_rate_limit: 25KB
+        per_stream_rate_limit_burst: 256KB
+        max_global_streams_per_user: 2000
+        max_label_names_per_series: 10
+        max_label_value_length: 256
+        max_line_size: 16KB
+        max_line_size_truncate: true
+        allow_structured_metadata: true
+        max_structured_metadata_entries_count: 32
+        discover_log_levels: true
+        volume_enabled: true
+      compactor:
+        working_directory: /var/loki/compactor
+        compaction_interval: 10m
+        retention_enabled: true
+        retention_delete_delay: 2h
+        delete_request_store: filesystem
+      ingester:
+        wal:
+          flush_on_shutdown: true
+          # The default (4 GiB) is above the container limit; replay flushes
+          # to disk before it can reach the limit.
+          replay_memory_ceiling: 400MB
+      pattern_ingester:
+        enabled: false
+      analytics:
+        reporting_enabled: false
+    singleBinary:
+      replicas: 1
+      persistence:
+        enabled: true
+        storageClass: local-path
+        # Nominal: local-path does not enforce it.
+        size: 8Gi
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+      extraEnv:
+        - name: GOMEMLIMIT
+          value: 900MiB
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: [talos-03]
+    # Other deployment modes off, as in the chart's monolithic-values.yaml.
+    backend:
+      replicas: 0
+    read:
+      replicas: 0
+    write:
+      replicas: 0
+    ingester:
+      replicas: 0
+    querier:
+      replicas: 0
+    queryFrontend:
+      replicas: 0
+    queryScheduler:
+      replicas: 0
+    distributor:
+      replicas: 0
+    compactor:
+      replicas: 0
+    indexGateway:
+      replicas: 0
+    bloomCompactor:
+      replicas: 0
+    bloomGateway:
+      replicas: 0
+    bloomPlanner:
+      replicas: 0
+    chunksCache:
+      enabled: false
+    resultsCache:
+      enabled: false
+    gateway:
+      enabled: false
+    lokiCanary:
+      enabled: false
+    test:
+      enabled: false
+    # Rules are our own (prometheusrule-loki.yaml); the chart's stay off, and
+    # so does the ruler sidecar (there is no Loki ruler in this plan).
+    sidecar:
+      rules:
+        enabled: false
+    monitoring:
+      rules:
+        enabled: false
+      serviceMonitor:
+        enabled: true
+        interval: 30s
+        jobPrefix: ""
+        # The chart's headless Service carries the same port: scrape the pod once.
+        relabelings:
+          - sourceLabels: [__meta_kubernetes_service_name]
+            action: drop
+            regex: loki-headless
+        # Everything else Loki exports (cortex_*, go_*, ...) is dropped.
+        metricRelabelings:
+          - sourceLabels: [__name__]
+            action: keep
+            regex: loki_(build_info|ingester_memory_streams|ingester_memory_chunks|distributor_bytes_received_total|distributor_lines_received_total|discarded_samples_total|discarded_bytes_total|request_duration_seconds_(sum|count|bucket)|compactor_.*|boltdb_shipper_compact_tables_operation_.*)|process_(resident_memory_bytes|cpu_seconds_total)

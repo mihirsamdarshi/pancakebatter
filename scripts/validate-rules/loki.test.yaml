@@ -1,0 +1,172 @@
+# Unit tests for prometheusrule-loki.yaml, run by scripts/validate-kubernetes.sh with promtool.
+# Series use the names and labels Loki exports. The time constants (5 m, 15 m, 24 h, 10 m rate
+# windows) are the real ones.
+rule_files:
+  - loki.rules.yaml
+evaluation_interval: 1m
+tests:
+  - name: 'Loki target is down for 6 minutes'
+    interval: 1m
+    input_series:
+      - series: 'up{job="loki",instance="10.42.2.9:3100"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: LokiDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: LokiDown
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              instance: '10.42.2.9:3100'
+              job: 'loki'
+            exp_annotations:
+              description: 'No logs are stored while Loki is down. Alloy retries for a while, then drops. kubectl -n observability describe pod loki-0.'
+              summary: 'Loki is down or not scraped'
+  - name: 'no Loki target exists (a removed ServiceMonitor)'
+    interval: 1m
+    input_series:
+      - series: 'up{job="other",instance="x"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: LokiDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: LokiDown
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'loki'
+            exp_annotations:
+              description: 'No logs are stored while Loki is down. Alloy retries for a while, then drops. kubectl -n observability describe pod loki-0.'
+              summary: 'Loki is down or not scraped'
+  - name: 'Loki is up'
+    interval: 1m
+    input_series:
+      - series: 'up{job="loki",instance="10.42.2.9:3100"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LokiDown
+        exp_alerts: []
+  - name: '5xx answers for 20 minutes'
+    interval: 1m
+    input_series:
+      - series: 'loki_request_duration_seconds_count{status_code="500",route="loki_api_v1_push"}'
+        values: '0+10x40'
+      - series: 'loki_request_duration_seconds_count{status_code="204",route="loki_api_v1_push"}'
+        values: '0+100x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LokiRequestErrors
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: LokiRequestErrors
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+            exp_annotations:
+              description: 'Pushes or queries are failing inside Loki. Check its log.'
+              summary: 'Loki is answering requests with 5xx errors'
+  - name: 'only 2xx answers: no error alert'
+    interval: 1m
+    input_series:
+      - series: 'loki_request_duration_seconds_count{status_code="204"}'
+        values: '0+100x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: LokiRequestErrors
+        exp_alerts: []
+  - name: 'the byte cap refuses lines: rate_limited alerts, and the general discarding alert stays quiet'
+    interval: 1m
+    input_series:
+      - series: 'loki_discarded_samples_total{reason="rate_limited",tenant="fake"}'
+        values: '0+5x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LokiIngestRateLimited
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: LokiIngestRateLimited
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              reason: 'rate_limited'
+            exp_annotations:
+              description: 'Some log lines are being refused. Find the noisy source in the Logs dashboard, or raise the cap with the measured volume.'
+              summary: 'Loki is rate limiting pushes (the 50 KB/s cap is being hit)'
+      - eval_time: 25m
+        alertname: LokiDiscarding
+        exp_alerts: []
+  - name: 'lines refused as too old: the general discarding alert fires with its reason'
+    interval: 1m
+    input_series:
+      - series: 'loki_discarded_samples_total{reason="greater_than_max_sample_age",tenant="fake"}'
+        values: '0+5x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LokiDiscarding
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: LokiDiscarding
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              reason: 'greater_than_max_sample_age'
+            exp_annotations:
+              description: 'Lines are refused for a reason other than the rate cap, for example too old, too long or too many streams.'
+              summary: 'Loki is discarding log lines (greater_than_max_sample_age)'
+      - eval_time: 25m
+        alertname: LokiIngestRateLimited
+        exp_alerts: []
+  - name: '2.88 GB in 24 hours is above 2 GB'
+    interval: 1m
+    input_series:
+      - series: 'loki_distributor_bytes_received_total{tenant="fake"}'
+        values: '0+2000000x1500'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: LokiDailyIngestHigh
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+            exp_annotations:
+              description: 'The hard cap allows 4.3 GB a day raw; this is 45% of it. Storage on talos-03 is the limit: check LocalPathFilling.'
+              summary: 'Loki received more than 2 GB in 24 hours'
+  - name: '1.44 GB in 24 hours is below 2 GB'
+    interval: 1m
+    input_series:
+      - series: 'loki_distributor_bytes_received_total{tenant="fake"}'
+        values: '0+1000000x1500'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: LokiDailyIngestHigh
+        exp_alerts: []
+  - name: '1001 streams for 15 minutes'
+    interval: 1m
+    input_series:
+      - series: 'loki_ingester_memory_streams{instance="10.42.2.9:3100",job="loki"}'
+        values: '1001+0x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LokiStreamsHigh
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: LokiStreamsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+            exp_annotations:
+              description: 'A label with changing values is the usual cause. logcli series ''{}'' --analyze-labels.'
+              summary: 'Loki holds more than 1000 active streams'
+  - name: '1000 streams is the limit and does not alert'
+    interval: 1m
+    input_series:
+      - series: 'loki_ingester_memory_streams{instance="10.42.2.9:3100",job="loki"}'
+        values: '1000+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: LokiStreamsHigh
+        exp_alerts: []
