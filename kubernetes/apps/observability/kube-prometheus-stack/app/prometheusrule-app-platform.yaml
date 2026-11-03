@@ -58,7 +58,7 @@ spec:
         # Add each platform app's namespace to the list with its entry;
         # scripts/validate-apps.sh checks that none is missing.
         - alert: AppPlatformDeploymentUnavailable
-          expr: kube_deployment_status_replicas_unavailable{namespace=~"hello|deal-watch|scratch"} > 0
+          expr: kube_deployment_status_replicas_unavailable{namespace=~"hello|deal-watch|scratch|quilt-planner"} > 0
           for: 10m
           labels:
             severity: critical
