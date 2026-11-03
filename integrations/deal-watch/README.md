@@ -14,8 +14,24 @@ shipping-policy ZIP allowlist can establish policy-supported free standard
 shipping above $40; it never establishes ZIP-specific checkout availability.
 
 Costco Product JSON-LD is parsed by exact SKU and one unambiguous offer.
-Shipping, membership fees and component references remain unknown, so it cannot
-produce a qualifying offer yet. It is disabled in the owner's current policy.
+When the binding's `shippingPolicyZips` lists the watch ZIP and the price is over
+$40, the offer takes free shipping and zero other mandatory fees. This is an
+assumption, the same one the Sony adapter makes: the listing says standard
+shipping is included, the owner holds an active Costco membership, and free policy
+shipping is taken to mean no other mandatory fees. The California recycling fee is
+outside the owner's ceiling by owner decision. Without the ZIP, shipping and fees
+stay unknown and the offer cannot qualify.
+
+The bundle's extra controller gets its reference price from Sony Direct. The
+worker makes one extra `productList` request after a Sony console check, at most
+once per 6 hours, and only while an enabled binding lists a mapped extra. It uses
+the first valid mapped code: the Gray Camouflage part number (unverified on Sony
+Direct), else the standard white DualSense as a fallback. A failed reference
+request changes nothing about the Sony check and logs one outcome-only JSON line;
+the next attempt follows after 6 hours on success, otherwise after 30 minutes.
+A reference older than 24 hours is ignored, and the offer then reports
+`Bundle reference price missing or stale`. Whether the Costco binding is enabled
+depends on the owner's private policy.
 Best Buy, Target and eBay are also disabled pending access/extraction proof;
 there is no claim that these sources are implemented or continuously monitored.
 
@@ -181,7 +197,7 @@ platform entry, policy exemption, browser session or new infrastructure is impli
 The app entry in this PR would deploy the dashboard if merged after its image is
 published. The worker remains inactive until its own activation change.
 
-The initial useful coverage is Sony-only. Costco bundle qualification, supported
+The initial useful coverage is Sony-only until the Costco binding is enabled. Supported
 Best Buy/eBay access and Target extraction remain required follow-up for the full
 shopping request. This local-build draft does not complete that broader request.
 
