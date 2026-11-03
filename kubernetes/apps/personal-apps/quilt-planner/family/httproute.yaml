@@ -1,4 +1,5 @@
 ---
+# flate probe: leaf-only change, removed in the next commit
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
