@@ -1,0 +1,10 @@
+---
+# The Namespace of the platform app reports: Git-defined, Pod Security
+# `restricted`, prune-disabled. Everything inside it comes from the entry
+# kubernetes/apps/flux-system/app-platform/apps/reports.yaml, not from this
+# folder.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: reports
+components:
+  - ../../../components/personal-namespace
