@@ -208,7 +208,8 @@ Egress goes only to cluster DNS and the namespace's own pods. `egress: internet`
 adds public addresses on every port, never the private ranges (LAN, VLANs,
 Tailscale, cluster). `egress: claude-proxy` adds only the claude-proxy pods on
 3000/TCP, for an app that runs a Claude agent: the proxy, outside the platform,
-holds the Anthropic API key and caps daily spend (`kubernetes/apps/claude-proxy/`),
+holds the Anthropic API key and caps daily spend (`kubernetes/apps/claude-proxy/`,
+added by its own change),
 and admits only the namespaces its own policy lists. Nothing reaches the Kubernetes API, the NAS or other
 namespaces. DNS remains a tunnelling channel for a compromised app. Prometheus
 cannot scrape an app; that would be a reviewed addition.

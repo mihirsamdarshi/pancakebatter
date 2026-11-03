@@ -335,7 +335,7 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
     # netpol and egress
     (if ($d | has("netpol")) and ($d.netpol | type) != "boolean" then "netpol must be true or false" else empty end),
     (if $d.netpol == false and (($d.netpolReason | isstr | not) or ($d.netpolReason | gsub("\\s"; "") == "")) then "netpol: false needs a non-empty netpolReason" else empty end),
-    (if ($d | has("egress")) and (["none", "internet", "claude-proxy"] | index($d.egress) == null) then "egress must be none, internet or claude-proxy" else empty end),
+    (if ($d | has("egress")) and ((($d.egress | type) != "string") or (["none", "internet", "claude-proxy"] | index($d.egress) == null)) then "egress must be none, internet or claude-proxy" else empty end),
     (if $d.netpol == false and ($d.egress // "none") != "none" then "egress: \($d.egress) has no meaning with netpol: false" else empty end),
     # pin
     (if ($d | has("pin")) and (($d.pin | isstr | not) or ($d.pin | test("^sha256:[0-9a-f]{64}$") | not)) then "pin must be sha256:<64 hex digits>" else empty end),
