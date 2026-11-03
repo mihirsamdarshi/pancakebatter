@@ -120,7 +120,8 @@ Restore databases from the exports, never from the live `db`, `db-wal` and
 There are no CSI snapshots, so a restore writes straight into the existing PVC
 and the app must be stopped first. Replace `<app>`, `<ns>`, `<pvc>` and `<node>`,
 and `<uid>`/`<gid>` with the app's `APP_UID`/`APP_GID` (568 unless the app's
-`ks.yaml` sets them; Quilt: 1000). The restic password is in 1Password and in `secret.sops.yaml`
+`ks.yaml` sets them; Quilt: 1000). The restic password is only in the SOPS file
+`secret.sops.yaml` today (it is not yet in 1Password)
 (`sops decrypt --extract '["stringData"]["RESTIC_PASSWORD"]' kubernetes/components/volsync/secret.sops.yaml`).
 
 1. Stop the app, and stop Flux and the nightly runs from undoing or racing it.
@@ -269,6 +270,13 @@ and `<uid>`/`<gid>` with the app's `APP_UID`/`APP_GID` (568 unless the app's
     brings back an older volume with that day's exports, then repeat this step.
     When only a database is damaged and the rest of the volume is fine, skip
     step 2: run this Job on its own with the app stopped.
+
+    **Quilt:** Quilt's restic repository directory is owned by 1000:1000 with
+    mode 0700, so `restic check` and any restore run as uid 1000. After the
+    restore, with the app still stopped, bump the quilt versions so devices
+    accept the restored quilts instead of making conflicted copies:
+    `UPDATE quilts SET version = max(version + 1, <now in ms>)`. The app's
+    `docs/deployment.md` restore section has the ready script.
 
 4. Start the app again:
 
