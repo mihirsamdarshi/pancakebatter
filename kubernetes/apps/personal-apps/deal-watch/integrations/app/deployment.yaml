@@ -13,7 +13,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/runtime-config: d1b73b580c0ed1b77a80d49d75102b30d77e012b809bd0dd3b6c2f2db54bb271
+        checksum/runtime-config: 6f6fa77b7d8bb4e280a909aaab7a8be988d60554f65751c30b2ed0ff8141a8cd
       labels:
         app.kubernetes.io/name: deal-watch-integrations
     spec:
@@ -29,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: worker
-          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-integrations@sha256:16c11227808015feb7c022b495b1154aeadd5a671eadac9d7cc6262631eac982
+          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-integrations@sha256:2ff6ab3be7a0e177b17d334b8a63e95f28eb1f74f555d2cce6e0cb93a2aa3514
           env:
             - name: APP_BASE_URL
               value: https://deal-watch.${SECRET_DOMAIN_LOCAL}
