@@ -1,0 +1,31 @@
+---
+# Port 3000 (public path) and port 3001 (/state, /healthz) stay on separate
+# Services. Only the public one is a tunnel target; the CiliumNetworkPolicy
+# also keeps 3001 off cloudflared.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ebay-receiver-public
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ebay-receiver
+  ports:
+    - name: http
+      port: 3000
+      targetPort: public
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ebay-receiver-internal
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ebay-receiver
+  ports:
+    - name: http
+      port: 3001
+      targetPort: internal
+      protocol: TCP

@@ -1,0 +1,30 @@
+---
+# Deal Watch eBay receiver and its Cloudflare Tunnel: outside the credential-free
+# app platform, in its own Namespace deal-watch-ebay (design section 3.2).
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: deal-watch-ebay-receiver
+  namespace: flux-system
+spec:
+  dependsOn:
+    # The PVC uses the local-retain class.
+    - name: local-path-provisioner
+      namespace: flux-system
+  decryption:
+    provider: sops
+  interval: 1h
+  retryInterval: 2m
+  path: ./kubernetes/apps/personal-apps/deal-watch/ebay-receiver/app
+  postBuild:
+    substituteFrom:
+      - name: cluster-secrets
+        kind: Secret
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: deal-watch-ebay
+  timeout: 3m
+  wait: true

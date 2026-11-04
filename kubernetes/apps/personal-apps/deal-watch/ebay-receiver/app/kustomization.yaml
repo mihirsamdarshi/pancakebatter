@@ -1,0 +1,16 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: deal-watch-ebay
+resources:
+  - ./pvc.yaml
+  - ./receiver-deployment.yaml
+  - ./receiver-service.yaml
+  - ./cloudflared-deployment.yaml
+  - ./networkpolicy.yaml
+  # The four Secrets are created by the owner with the stage E secret script
+  # (SOPS, from 1Password) and listed here in the change that deploys:
+  #   - ./registry.sops.yaml           deal-watch-ebay-registry (GHCR pull)
+  #   - ./notify-token.sops.yaml       ebay-notify-token
+  #   - ./app-credentials.sops.yaml    ebay-app-credentials
+  #   - ./cloudflared-token.sops.yaml  cloudflared-token
