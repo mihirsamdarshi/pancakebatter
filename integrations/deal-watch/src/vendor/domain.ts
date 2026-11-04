@@ -1,5 +1,5 @@
 /** Shared, credential-free wire contract and qualification rules. Integer USD cents only. */
-export const POLICY_VERSION = "2026-11-01.1";
+export const POLICY_VERSION = "2026-11-04.1";
 export type Retailer = "sony" | "costco" | "bestbuy" | "target" | "ebay";
 export const budgets: Record<Retailer, number> = {
   sony: 120_000,
@@ -46,7 +46,8 @@ export interface Offer {
   feesCents: number | null;
   shipping: Shipping;
   zip: string;
-  availability: "in-stock" | "out-of-stock" | "unknown";
+  /** "verify": the retailer reported a stock status the adapter does not recognize, with no gate against buying. */
+  availability: "in-stock" | "out-of-stock" | "unknown" | "verify";
   observedAt: number;
   seller: {
     name: string;
@@ -65,6 +66,8 @@ export interface Offer {
 }
 export interface Qualification {
   eligible: boolean;
+  /** True only when an unclear stock status is the sole reason the offer is not eligible. */
+  verify: boolean;
   reasons: string[];
   totalCents: number | null;
   ceilingCents: number;
@@ -142,7 +145,7 @@ export function parseOffer(value: unknown, now = Date.now()): Offer {
     typeof v.zip !== "string" ||
     !/^\d{5}$/.test(v.zip) ||
     typeof v.availability !== "string" ||
-    !["in-stock", "out-of-stock", "unknown"].includes(v.availability) ||
+    !["in-stock", "out-of-stock", "unknown", "verify"].includes(v.availability) ||
     !Number.isSafeInteger(v.observedAt) ||
     Number(v.observedAt) > now + 60_000 ||
     Number(v.observedAt) < now - 86_400_000 ||
@@ -250,7 +253,13 @@ export function qualify(w: Watch, b: Binding, o: Offer, now = Date.now()): Quali
   if (o.observedAt < now - 15 * 60_000 || o.observedAt > now + 60_000)
     reasons.push("Observation is stale");
   if (o.availability !== "in-stock")
-    reasons.push(o.availability === "out-of-stock" ? "Out of stock" : "Stock unverified");
+    reasons.push(
+      o.availability === "out-of-stock"
+        ? "Out of stock"
+        : o.availability === "verify"
+          ? "Stock status unclear: verify at retailer"
+          : "Stock unverified",
+    );
   if (
     o.shipping === "rejected" ||
     o.shipping === "unverified" ||
@@ -304,9 +313,11 @@ export function qualify(w: Watch, b: Binding, o: Offer, now = Date.now()): Quali
       reasons.push("Bundle must cost less than its individual items");
   }
   if (total !== null && total > ceiling) reasons.push("Above price ceiling");
+  const unique = [...new Set(reasons)];
   return {
-    eligible: reasons.length === 0,
-    reasons: [...new Set(reasons)],
+    eligible: unique.length === 0,
+    verify: o.availability === "verify" && unique.length === 1,
+    reasons: unique,
     totalCents: total,
     ceilingCents: ceiling,
     referenceCents: reference,

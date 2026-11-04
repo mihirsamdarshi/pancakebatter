@@ -25,6 +25,8 @@ test("worker schedules search and each detail separately, including after restar
   const details: unknown[] = [];
   const fetcher = async (request: Request) => {
     const url = new URL(request.url);
+    if (url.hostname === "receiver.test")
+      return Response.json({ state: "CLEAR", storageDesignVersion: "tier1-v1", instanceId: "x" });
     if (url.hostname === "api.ebay.com") {
       if (request.method === "POST") {
         mints++;
@@ -74,6 +76,7 @@ test("worker schedules search and each detail separately, including after restar
   const make = () =>
     new Worker({
       baseUrl: "https://app.test",
+      ebayStateUrl: "http://receiver.test:3001",
       watches,
       now: () => now,
       random: () => 0,
@@ -130,6 +133,8 @@ for (const failure of ["item", "search", "malformed"] as const) {
     const completions: Record<string, unknown>[] = [];
     const fetcher = async (request: Request) => {
       const url = new URL(request.url);
+      if (url.hostname === "receiver.test")
+        return Response.json({ state: "CLEAR", storageDesignVersion: "tier1-v1", instanceId: "x" });
       if (url.hostname === "api.ebay.com") {
         if (request.method === "POST")
           return Response.json({
@@ -198,6 +203,7 @@ for (const failure of ["item", "search", "malformed"] as const) {
     };
     const worker = new Worker({
       baseUrl: "https://app.test",
+      ebayStateUrl: "http://receiver.test:3001",
       watches,
       fetcher,
       now: () => now,

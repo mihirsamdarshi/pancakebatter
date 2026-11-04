@@ -14,6 +14,7 @@ import { discoveryIds, parseEbay } from "./ebay-adapter.ts";
 import { collect, fetchReferences, referenceCodes } from "./adapters.ts";
 import { parseBrowserUrl } from "./browser-adapters.ts";
 import { boundedText, nativeFetch, UpstreamError, type Fetcher } from "./http.ts";
+import { readEbayGate, parseEbayStateUrl, auditEbayOffers, type EbayGate } from "./ebay-gate.ts";
 import { sendDiscord, message, type Delivery } from "./discord.ts";
 interface QueueEvent {
   id: string;
@@ -21,6 +22,7 @@ interface QueueEvent {
   binding_id: string;
   offer_id: string;
   policy_version: string;
+  kind: "alert" | "verify";
   lease_id: string;
   attempts: number;
 }
@@ -38,6 +40,8 @@ export interface Options {
   fetcher?: Fetcher;
   /** Browser service origin for Target and Best Buy; those retailers are unsupported without it. */
   browserUrl?: string;
+  /** eBay receiver origin (its internal port). Without it, or unless it says CLEAR, the eBay group is BLOCKED. */
+  ebayStateUrl?: string;
   now?: () => number;
   random?: () => number;
   watches: Watch[];
@@ -63,6 +67,7 @@ export class Worker {
   constructor(readonly options: Options) {
     this.base = new URL(options.baseUrl);
     if (options.browserUrl !== undefined) parseBrowserUrl(options.browserUrl);
+    if (options.ebayStateUrl !== undefined) parseEbayStateUrl(options.ebayStateUrl);
     this.fetcher = options.fetcher ?? nativeFetch;
     this.now = options.now ?? Date.now;
     this.random = options.random ?? Math.random;
@@ -132,12 +137,27 @@ export class Worker {
     this.nextReferenceAt = now + (outcome === "ok" ? 21_600_000 : 1_800_000);
     console.log(JSON.stringify({ event: "reference", outcome }));
   }
+  /** Section 3.6: null when no eBay binding is enabled (nothing to gate). Fails closed otherwise. */
+  async ebayGate(snapshot: Record<string, unknown>): Promise<EbayGate | null> {
+    if (!this.watches.some((w) => w.bindings.some((b) => b.retailer === "ebay" && b.enabled)))
+      return null;
+    const gate = await readEbayGate(this.options.ebayStateUrl, this.fetcher);
+    if (gate.state === "CLEAR" && !auditEbayOffers(snapshot))
+      return { state: "BLOCKED", reason: "tier1-audit" };
+    return gate;
+  }
   async runOnce(): Promise<{ checked: number; delivered: number }> {
     const snapshot = await this.api("/api/dashboard");
+    const gate = await this.ebayGate(snapshot);
+    const ebayBlocked = gate?.state === "BLOCKED";
+    if (ebayBlocked) console.log(JSON.stringify({ event: "ebay-blocked", reason: gate.reason }));
     await this.api("/api/integrations/status", {
       policyId: this.policyVersion,
       state: snapshot.policyVersion === this.policyVersion ? "ready" : "policy-mismatch",
       discordConfigured: !!this.options.webhook,
+      ...(gate
+        ? { ebay: gate.state === "CLEAR" ? { state: "clear" } : { state: "blocked", reason: gate.reason } }
+        : {}),
     });
     if (snapshot.policyVersion !== this.policyVersion || !Array.isArray(snapshot.watches))
       throw new Error("Policy mismatch");
@@ -162,6 +182,8 @@ export class Worker {
       }
     }
     for (const [retailer, jobs] of groups) {
+      // Blocked: skip the whole group before any lease is claimed. Other retailers still run.
+      if (retailer === "ebay" && ebayBlocked) continue;
       if ((this.floor.get(retailer) ?? Infinity) > this.now()) continue;
       const start = (this.cursor.get(retailer) ?? 0) % jobs.length;
       for (let n = 0; n < jobs.length; n++) {
@@ -232,8 +254,8 @@ export class Worker {
             cache.set(offer.id, offer);
             while (cache.size > 10) cache.delete(cache.keys().next().value!);
             this.cache.set(key, cache);
-            if (!qualify(watch, binding, offer, this.now()).eligible)
-              this.sent.delete(`${key}/${offer.id}`);
+            const seen = qualify(watch, binding, offer, this.now());
+            if (!seen.eligible && !seen.verify) this.sent.delete(`${key}/${offer.id}`);
           }
           this.failures.set(retailer, 0);
         } catch (error) {
@@ -279,12 +301,14 @@ export class Worker {
           ![raw.watch_id, raw.binding_id, raw.offer_id, raw.policy_version].every(
             (v) => typeof v === "string",
           ) ||
+          (raw.kind !== undefined && raw.kind !== "alert" && raw.kind !== "verify") ||
           typeof raw.attempts !== "number" ||
           !Number.isSafeInteger(raw.attempts) ||
           raw.attempts < 1
         )
           throw new Error("Invalid event lease");
-        const event = raw as unknown as QueueEvent,
+        // A missing kind is an ordinary alert, the stricter of the two checks.
+        const event = { ...raw, kind: raw.kind ?? "alert" } as unknown as QueueEvent,
           watch = this.watches.find((w) => w.id === event.watch_id),
           binding = watch?.bindings.find((b) => b.id === event.binding_id),
           key = `${event.watch_id}/${event.binding_id}/${event.offer_id}`;
@@ -292,6 +316,13 @@ export class Worker {
         let result: Delivery;
         if (!watch || !binding?.enabled || event.policy_version !== this.policyVersion)
           result = { status: "suppressed", result: "policy-mismatch", delayMs: 0, messageId: null };
+        else if (binding.retailer === "ebay" && ebayBlocked)
+          result = {
+            status: "retry",
+            result: "compliance-blocked",
+            delayMs: 3_600_000,
+            messageId: null,
+          };
         else if (
           !offer ||
           offer.observedAt < this.now() - Math.min(budgets[binding.retailer], 300_000)
@@ -304,7 +335,9 @@ export class Worker {
           };
         else if (
           offer.id !== event.offer_id ||
-          !qualify(watch, binding, offer, this.now()).eligible
+          !(event.kind === "verify"
+            ? qualify(watch, binding, offer, this.now()).verify
+            : qualify(watch, binding, offer, this.now()).eligible)
         )
           result = {
             status: "suppressed",
@@ -320,6 +353,7 @@ export class Worker {
             offer.shippingCents,
             offer.feesCents,
             offer.shipping,
+            event.kind,
           ]);
           if (this.sent.get(key) === fingerprint)
             result = {
@@ -331,7 +365,7 @@ export class Worker {
           else {
             result = await sendDiscord(
               this.options.webhook,
-              message(watch, binding, offer, event.id, this.now()),
+              message(watch, binding, offer, event.id, this.now(), event.kind),
               this.fetcher,
             );
             if (result.status === "sent") {

@@ -1,5 +1,6 @@
 import { parseOffer, type Offer, type Watch, type Binding } from "./vendor/domain.ts";
 import { UpstreamError } from "./http.ts";
+import { EBAY_SELLER_LABEL } from "./ebay-gate.ts";
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown) =>
@@ -74,7 +75,7 @@ export function parseEbay(
   const price = money(value.price),
     title = text(value.title),
     seller = object(value.seller) ? value.seller : {};
-  if (!condition || !price || !title || !text(seller.username))
+  if (!condition || !price || !title)
     throw new UpstreamError("invalid-data");
   const options = Array.isArray(value.shippingOptions)
     ? value.shippingOptions
@@ -125,7 +126,8 @@ export function parseEbay(
       availability,
       observedAt: now,
       seller: {
-        name: text(seller.username),
+        // Tier 1: the raw username is never read. Feedback numbers and the fixed label only.
+        name: EBAY_SELLER_LABEL,
         established: false,
         percent,
         score: typeof seller.feedbackScore === "number" ? seller.feedbackScore : null,
