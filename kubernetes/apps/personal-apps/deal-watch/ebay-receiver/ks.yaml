@@ -10,10 +10,10 @@ spec:
   dependsOn:
     # The PVC uses the local-retain class.
     - name: local-path-provisioner
-      namespace: flux-system
+      namespace: storage
     # The PodMonitor and PrometheusRule CRDs come from kube-prometheus-stack.
     - name: kube-prometheus-stack
-      namespace: flux-system
+      namespace: observability
   decryption:
     provider: sops
   interval: 1h
