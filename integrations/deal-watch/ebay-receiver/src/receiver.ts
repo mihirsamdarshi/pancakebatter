@@ -3,6 +3,7 @@ import type { Config } from "./config.ts";
 import type { KeyDirectory } from "./keys.ts";
 import type { LogReason, Logger } from "./log.ts";
 import { parseSignatureHeader, verifyNotification } from "./signature.ts";
+import { Metrics, type NotificationOutcome } from "./metrics.ts";
 import { STORAGE_DESIGN_VERSION, type BlockReason, type Store } from "./store.ts";
 
 export const MAX_BODY = 16 * 1024;
@@ -45,6 +46,7 @@ export class Receiver {
   private tokens = RATE_BURST;
   private refilledAt: number;
   private selfTestFailingSince: number | undefined;
+  readonly metrics: Metrics;
 
   constructor(
     private readonly config: Config,
@@ -55,6 +57,7 @@ export class Receiver {
     private readonly now: () => number = Date.now,
   ) {
     this.refilledAt = now();
+    this.metrics = new Metrics(Math.floor(now() / 1000));
   }
 
   /** SHA-256 hex of challengeCode + verificationToken + endpoint, the endpoint from configuration. */
@@ -67,6 +70,7 @@ export class Receiver {
   }
 
   noteSelfTest(ok: boolean): void {
+    this.metrics.noteSelfTest(ok, Math.floor(this.now() / 1000));
     if (ok) this.selfTestFailingSince = undefined;
     else this.selfTestFailingSince ??= this.now();
   }
@@ -87,7 +91,7 @@ export class Receiver {
   /** The internal port: /state for the worker and /healthz for the kubelet. Everything else 404. */
   async handleInternal(req: Incoming): Promise<Outgoing> {
     const path = req.target.split("?")[0];
-    if (req.method !== "GET") return path === "/state" || path === "/healthz" ? empty(405) : empty(404);
+    if (req.method !== "GET") return path === "/state" || path === "/healthz" || path === "/metrics" ? empty(405) : empty(404);
     if (path === "/healthz") return json(200, { ok: true });
     if (path === "/state")
       return json(200, {
@@ -95,6 +99,18 @@ export class Receiver {
         storageDesignVersion: STORAGE_DESIGN_VERSION,
         instanceId: this.store?.instanceId ?? null,
       });
+    if (path === "/metrics") {
+      const state = this.state();
+      return {
+        status: 200,
+        headers: { "content-type": "text/plain; version=0.0.4; charset=utf-8" },
+        body: this.metrics.render({
+          stateReason: state.state === "CLEAR" ? "clear" : state.reason,
+          selfTestEnabled: this.config.selfTest,
+          storageDesignVersion: STORAGE_DESIGN_VERSION,
+        }),
+      };
+    }
     return empty(404);
   }
 
@@ -115,6 +131,7 @@ export class Receiver {
     // flood of unauthenticated GETs or bad POSTs cannot cause a 429 for a real notification. POSTs
     // are bounded by the in-flight cap, the connection cap and the key-lookup budget.
     if (this.inFlight >= MAX_IN_FLIGHT || (req.method === "GET" && !this.admit())) {
+      this.metrics.overloaded++;
       this.log("overloaded", { status: 429 });
       return { status: 429, headers: { "retry-after": "5" } };
     }
@@ -126,6 +143,7 @@ export class Receiver {
           : req.method === "POST"
             ? await this.notification(req)
             : ({ status: 405, headers: { allow: "GET, POST" } } satisfies Outgoing);
+      if (req.method !== "GET" && req.method !== "POST") this.metrics.notifications.rejected_other++;
       if (req.method !== "GET" && req.method !== "POST") this.log("notification-rejected", { status: 405, reason: "bad-method" });
       return out;
     } catch {
@@ -143,14 +161,17 @@ export class Receiver {
     const all = params.getAll("challenge_code");
     const code = all[0];
     if (all.length !== 1 || code === undefined || !CHALLENGE.test(code)) {
+      this.metrics.challenges.rejected++;
       this.log("challenge-rejected", { status: 400, reason: "bad-challenge" });
       return empty(400);
     }
+    this.metrics.challenges.ok++;
     this.log("challenge", { status: 200, bytes: code.length }); // length only, so the pattern can be checked
     return json(200, { challengeResponse: this.challengeResponse(code) });
   }
 
   private reject(status: number, reason: LogReason): Outgoing {
+    this.metrics.notifications[outcomeOf(reason)]++;
     this.log("notification-rejected", { status, reason });
     return status === 503 || status === 413 ? { status, headers: { connection: "close" } } : empty(status);
   }
@@ -171,6 +192,9 @@ export class Receiver {
     if (!this.store) return this.reject(503, this.initBlock ?? "db-unreadable");
 
     const lookup = await this.keys.lookup(parsedHeader.kid);
+    this.metrics.keyLookups[
+      lookup.kind === "key" ? "ok" : lookup.kind === "invalid-kid" ? "invalid" : lookup.reason === "key-budget" ? "budget" : "failed"
+    ]++;
     if (lookup.kind === "invalid-kid") return this.reject(412, "unknown-key");
     if (lookup.kind === "unavailable") {
       this.log("key-fetch-failed", { status: 503, reason: lookup.reason });
@@ -187,17 +211,38 @@ export class Receiver {
       message = undefined;
     }
     const n = readNotification(message, body);
+    if (n.reason) this.metrics.oddAccepted++;
     if (n.reason) this.log("notification-accepted-odd", { status: 200, reason: n.reason });
 
     let result: "new" | "duplicate";
     try {
       result = this.store.record(n.record, this.now());
     } catch {
+      this.metrics.notifications.storage_failed++;
       this.log("storage-failed", { status: 503 });
       return { status: 503, headers: { connection: "close" } };
     }
+    this.metrics.notifications[result === "new" ? "stored" : "duplicate"]++;
     this.log(result === "new" ? "notification-stored" : "notification-duplicate", { status: 200, id: n.record.id, bytes: body.length });
     return empty(200);
+  }
+}
+
+function outcomeOf(reason: LogReason): NotificationOutcome {
+  switch (reason) {
+    case "bad-signature":
+      return "bad_signature";
+    case "unknown-key":
+      return "unknown_key";
+    case "key-unavailable":
+    case "key-budget":
+    case "mint-failed":
+      return "key_unavailable";
+    case "volume-reset":
+    case "db-unreadable":
+      return "storage_failed";
+    default:
+      return "rejected_other";
   }
 }
 

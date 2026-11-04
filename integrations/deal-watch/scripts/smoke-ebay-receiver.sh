@@ -39,10 +39,12 @@ done
 case "${health}" in 200*) ;; *) echo "healthz expected 200, got ${health}" >&2; docker logs "${name}" >&2 || true; exit 1;; esac
 state="$(call 3001 GET /state)"
 case "${state}" in '200 {"state":"CLEAR"'*) ;; *) echo "state expected CLEAR, got ${state}" >&2; exit 1;; esac
+metrics="$(call 3001 GET /metrics)"
+case "${metrics}" in 200*ebay_receiver_blocked\ 0*) ;; *) echo "metrics expected 200 with blocked 0" >&2; exit 1;; esac
 expected="$(printf '%s%s%s' "${code}" "${token}" "${endpoint}" | shasum -a 256 | cut -d' ' -f1)"
 challenge="$(call 3000 GET "/ebay/notify?challenge_code=${code}")"
 [ "${challenge}" = "200 {\"challengeResponse\":\"${expected}\"}" ] || { echo "challenge mismatch: ${challenge}" >&2; exit 1; }
-for path in /state /healthz /; do
+for path in /state /healthz /metrics /; do
   r="$(call 3000 GET "${path}")"
   [ "${r%% *}" = 404 ] || { echo "public ${path} expected 404, got ${r}" >&2; exit 1; }
 done
