@@ -1,5 +1,5 @@
-import { createServer, type IncomingMessage, type Server } from "node:http";
-import type { Socket } from "node:net";
+import { createServer, type IncomingMessage } from "node:http";
+import { createServer as createNetServer, type Server, type Socket } from "node:net";
 import type { Incoming, Outgoing } from "./receiver.ts";
 
 // Section 3.2 caps. node:http in Bun enforces maxConnections and maxHeaderSize (checked on Bun
@@ -37,7 +37,7 @@ function bodyReader(req: IncomingMessage) {
 }
 
 export function createCappedServer(handle: (req: Incoming) => Promise<Outgoing>): Server {
-  const server = createServer({ maxHeaderSize: MAX_HEADER_BYTES, keepAlive: true }, (req, res) => {
+  const http = createServer({ maxHeaderSize: MAX_HEADER_BYTES, keepAlive: true }, (req, res) => {
     const timer = headerTimers.get(req.socket);
     if (timer) clearTimeout(timer);
     headerTimers.delete(req.socket);
@@ -67,14 +67,28 @@ export function createCappedServer(handle: (req: Incoming) => Promise<Outgoing>)
     clearTimeout(headerTimers.get(socket));
     headerTimers.set(socket, setTimeout(() => socket.destroy(), HEADER_TIMEOUT_MS));
   };
-  server.maxConnections = MAX_CONNECTIONS;
-  server.on("connection", (socket: Socket) => {
-    socket.setTimeout(IDLE_TIMEOUT_MS, () => socket.destroy());
+  // A plain TCP server sits in front and hands accepted sockets to the HTTP server. On Linux, Bun
+  // emits node:http "connection" only once a socket sends its first bytes, so idle sockets were
+  // invisible to the cap and the header timer (found in CI). The TCP accept event fires at once on
+  // both systems, so the cap, the idle timeout and the header timer all live here.
+  let open = 0;
+  const server = createNetServer((socket: Socket) => {
     socket.on("error", () => {});
+    if (open >= MAX_CONNECTIONS) {
+      socket.destroy();
+      return;
+    }
+    open++;
+    socket.once("close", () => {
+      open--;
+      clearTimeout(headerTimers.get(socket));
+    });
+    socket.setTimeout(IDLE_TIMEOUT_MS, () => socket.destroy());
     armHeaderTimer(socket);
-    socket.on("close", () => clearTimeout(headerTimers.get(socket)));
+    http.emit("connection", socket);
   });
-  server.on("clientError", (_error, socket) => {
+  server.maxConnections = MAX_CONNECTIONS; // second layer; the count above is what is relied on
+  http.on("clientError", (_error, socket) => {
     // Oversized header, malformed request. No logging of the error: it can hold request text.
     if (socket.writable) socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
     else socket.destroy();

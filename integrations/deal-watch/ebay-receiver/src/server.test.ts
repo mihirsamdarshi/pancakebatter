@@ -30,13 +30,20 @@ describe("connection caps and timeouts (design 3.2)", () => {
     expect(ms).toBeGreaterThanOrEqual(HEADER_TIMEOUT_MS - 200);
     expect(ms).toBeLessThan(HEADER_TIMEOUT_MS + 1500);
   }, 10000);
-  test("connections beyond the cap are closed", async () => {
+  test("connections beyond the cap are closed, and the slot frees when one closes", async () => {
     const held: Socket[] = [];
     for (let i = 0; i < MAX_CONNECTIONS; i++) held.push(await open());
-    await Bun.sleep(100);
     const extra = await open();
-    const closed = await Promise.race([closedAfter(extra).then(() => true), Bun.sleep(1000).then(() => false)]);
+    const closed = await Promise.race([closedAfter(extra).then(() => true), Bun.sleep(3000).then(() => false)]);
     expect(closed).toBe(true);
+    const first = held.shift()!;
+    const freed = closedAfter(first);
+    first.destroy();
+    await freed;
+    const again = await open();
+    const stays = await Promise.race([closedAfter(again).then(() => false), Bun.sleep(300).then(() => true)]);
+    expect(stays).toBe(true);
+    again.destroy();
     for (const s of held) s.destroy();
   }, 15000);
 });
