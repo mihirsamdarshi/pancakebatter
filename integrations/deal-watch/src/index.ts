@@ -15,6 +15,7 @@ const worker = new Worker({
     : undefined,
   webhook,
   browserUrl: process.env.BROWSER_URL || undefined,
+  ebayStateUrl: process.env.EBAY_STATE_URL || undefined,
   watches,
   allowLocalHttp: process.env.ALLOW_LOCAL_HTTP === "1",
 });

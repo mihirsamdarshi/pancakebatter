@@ -14,6 +14,7 @@ import { discoveryIds, parseEbay } from "./ebay-adapter.ts";
 import { collect, fetchReferences, referenceCodes } from "./adapters.ts";
 import { parseBrowserUrl } from "./browser-adapters.ts";
 import { boundedText, nativeFetch, UpstreamError, type Fetcher } from "./http.ts";
+import { readEbayGate, parseEbayStateUrl, auditEbayOffers, type EbayGate } from "./ebay-gate.ts";
 import { sendDiscord, message, type Delivery } from "./discord.ts";
 interface QueueEvent {
   id: string;
@@ -39,6 +40,8 @@ export interface Options {
   fetcher?: Fetcher;
   /** Browser service origin for Target and Best Buy; those retailers are unsupported without it. */
   browserUrl?: string;
+  /** eBay receiver origin (its internal port). Without it, or unless it says CLEAR, the eBay group is BLOCKED. */
+  ebayStateUrl?: string;
   now?: () => number;
   random?: () => number;
   watches: Watch[];
@@ -64,6 +67,7 @@ export class Worker {
   constructor(readonly options: Options) {
     this.base = new URL(options.baseUrl);
     if (options.browserUrl !== undefined) parseBrowserUrl(options.browserUrl);
+    if (options.ebayStateUrl !== undefined) parseEbayStateUrl(options.ebayStateUrl);
     this.fetcher = options.fetcher ?? nativeFetch;
     this.now = options.now ?? Date.now;
     this.random = options.random ?? Math.random;
@@ -133,12 +137,27 @@ export class Worker {
     this.nextReferenceAt = now + (outcome === "ok" ? 21_600_000 : 1_800_000);
     console.log(JSON.stringify({ event: "reference", outcome }));
   }
+  /** Section 3.6: null when no eBay binding is enabled (nothing to gate). Fails closed otherwise. */
+  async ebayGate(snapshot: Record<string, unknown>): Promise<EbayGate | null> {
+    if (!this.watches.some((w) => w.bindings.some((b) => b.retailer === "ebay" && b.enabled)))
+      return null;
+    const gate = await readEbayGate(this.options.ebayStateUrl, this.fetcher);
+    if (gate.state === "CLEAR" && !auditEbayOffers(snapshot))
+      return { state: "BLOCKED", reason: "tier1-audit" };
+    return gate;
+  }
   async runOnce(): Promise<{ checked: number; delivered: number }> {
     const snapshot = await this.api("/api/dashboard");
+    const gate = await this.ebayGate(snapshot);
+    const ebayBlocked = gate?.state === "BLOCKED";
+    if (ebayBlocked) console.log(JSON.stringify({ event: "ebay-blocked", reason: gate.reason }));
     await this.api("/api/integrations/status", {
       policyId: this.policyVersion,
       state: snapshot.policyVersion === this.policyVersion ? "ready" : "policy-mismatch",
       discordConfigured: !!this.options.webhook,
+      ...(gate
+        ? { ebay: gate.state === "CLEAR" ? { state: "clear" } : { state: "blocked", reason: gate.reason } }
+        : {}),
     });
     if (snapshot.policyVersion !== this.policyVersion || !Array.isArray(snapshot.watches))
       throw new Error("Policy mismatch");
@@ -163,6 +182,8 @@ export class Worker {
       }
     }
     for (const [retailer, jobs] of groups) {
+      // Blocked: skip the whole group before any lease is claimed. Other retailers still run.
+      if (retailer === "ebay" && ebayBlocked) continue;
       if ((this.floor.get(retailer) ?? Infinity) > this.now()) continue;
       const start = (this.cursor.get(retailer) ?? 0) % jobs.length;
       for (let n = 0; n < jobs.length; n++) {
@@ -295,6 +316,13 @@ export class Worker {
         let result: Delivery;
         if (!watch || !binding?.enabled || event.policy_version !== this.policyVersion)
           result = { status: "suppressed", result: "policy-mismatch", delayMs: 0, messageId: null };
+        else if (binding.retailer === "ebay" && ebayBlocked)
+          result = {
+            status: "retry",
+            result: "compliance-blocked",
+            delayMs: 3_600_000,
+            messageId: null,
+          };
         else if (
           !offer ||
           offer.observedAt < this.now() - Math.min(budgets[binding.retailer], 300_000)

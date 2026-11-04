@@ -95,6 +95,18 @@ price, condition, seller and ZIP shipping. Missing mandatory fees and warranty
 stay unknown. This adapter currently cannot produce qualifying eBay alerts until
 cost proof is established. Unreviewed warnings fail closed, preserving evidence.
 
+Tier 1 (no eBay seller identifier): the parser replaces the seller username with the fixed
+label `eBay seller` and never reads any other seller id. Feedback percentage, score and account
+type are kept. Discord text for eBay omits any seller name.
+
+eBay gate: with an enabled eBay binding, each cycle reads `${EBAY_STATE_URL}/state` (an `http(s)`
+origin, the receiver's internal port; 3 s timeout). A missing URL, timeout, error, a storage
+design version other than `tier1-v1`, any state other than `CLEAR`, or a Tier 1 audit failure of
+the eBay offers in `/api/dashboard` means BLOCKED: the eBay group is skipped before any lease,
+eBay outbox events complete as `retry`/`compliance-blocked` with a one-hour delay, and the
+integration status call carries `ebay: {state, reason}` so the dashboard shows "eBay paused".
+Other retailers are unaffected.
+
 SQLite in the app retains a bounded search/detail cursor. One search and each
 item lookup require separate retailer-budget turns. Startup waits and shared
 five-minute floors still apply. OAuth has memory reuse, a one-minute mint floor

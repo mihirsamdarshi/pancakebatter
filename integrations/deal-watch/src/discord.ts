@@ -11,7 +11,8 @@ export interface Delivery {
     | "awaiting-revalidation"
     | "no-longer-eligible"
     | "policy-mismatch"
-    | "duplicate-current-offer";
+    | "duplicate-current-offer"
+    | "compliance-blocked";
   delayMs: number;
   messageId: string | null;
 }
@@ -56,7 +57,7 @@ export function message(
   return [
     ...(kind === "verify" ? ["VERIFY AT RETAILER: Sony reports an unclear stock status"] : []),
     `${clean(w.title)} — ${usd(q.totalCents!)} before tax`,
-    `${clean(o.seller.name)} · ${o.condition} · shipped to ${w.zip}`,
+    `${b.retailer === "ebay" ? "eBay listing" : clean(o.seller.name)} · ${o.condition} · shipped to ${w.zip}`,
     `${usd(o.priceCents)} item + ${usd(o.shippingCents!)} shipping + ${usd(o.feesCents!)} mandatory fees`,
     o.shipping === "policy-supported"
       ? "ZIP checkout unverified — nationwide shipping policy only"
