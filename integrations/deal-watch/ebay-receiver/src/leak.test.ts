@@ -176,7 +176,6 @@ describe("log and response leak test", () => {
       expect(statuses).toContain(503);
       expect(statuses).toContain(413);
       expect(statuses).toContain(400);
-      expect(statuses).toContain(415);
       expect(statuses).toContain(404);
     });
     expect(result.out).toContain('"event":"notification-stored"');

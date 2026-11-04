@@ -9,6 +9,7 @@ export type LogEvent =
   | "notification-stored"
   | "notification-duplicate"
   | "notification-rejected"
+  | "notification-accepted-odd"
   | "key-fetch"
   | "key-fetch-failed"
   | "storage-failed"

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Config } from "./config.ts";
 import type { KeyDirectory } from "./keys.ts";
-import { NOTIFICATION_ID, type LogReason, type Logger } from "./log.ts";
+import type { LogReason, Logger } from "./log.ts";
 import { parseSignatureHeader, verifyNotification } from "./signature.ts";
 import { STORAGE_DESIGN_VERSION, type BlockReason, type Store } from "./store.ts";
 
@@ -11,7 +11,9 @@ export const RATE_PER_MINUTE = 60;
 export const RATE_BURST = 20;
 export const TOPIC = "MARKETPLACE_ACCOUNT_DELETION";
 const SELFTEST_FAIL_MS = 60 * 60 * 1000;
-const CHALLENGE = /^[A-Za-z0-9_-]{1,128}$/;
+// Only hashed, never reflected, so a length cap and no control characters suffice.
+const CHALLENGE = /^[^\x00-\x1f\x7f]{1,256}$/;
+const SAFE_TEXT = /^[^\x00-\x1f\x7f]+$/;
 
 /** What the HTTP glue gives the handler. The handler never sees a socket or a Host header. */
 export interface Incoming {
@@ -100,7 +102,7 @@ export class Receiver {
     const t = this.now();
     this.tokens = Math.min(RATE_BURST, this.tokens + ((t - this.refilledAt) / 60_000) * RATE_PER_MINUTE);
     this.refilledAt = t;
-    if (this.tokens < 1 || this.inFlight >= MAX_IN_FLIGHT) return false;
+    if (this.tokens < 1) return false;
     this.tokens -= 1;
     return true;
   }
@@ -109,7 +111,10 @@ export class Receiver {
   async handlePublic(req: Incoming): Promise<Outgoing> {
     const path = req.target.split("?")[0];
     if (path !== this.config.endpointPath) return empty(404);
-    if (!this.admit()) {
+    // The token bucket applies to challenge GETs only. A POST is never refused by a bucket, so a
+    // flood of unauthenticated GETs or bad POSTs cannot cause a 429 for a real notification. POSTs
+    // are bounded by the in-flight cap, the connection cap and the key-lookup budget.
+    if (this.inFlight >= MAX_IN_FLIGHT || (req.method === "GET" && !this.admit())) {
       this.log("overloaded", { status: 429 });
       return { status: 429, headers: { "retry-after": "5" } };
     }
@@ -151,8 +156,7 @@ export class Receiver {
   }
 
   private async notification(req: Incoming): Promise<Outgoing> {
-    const type = (req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
-    if (type !== "application/json") return this.reject(415, "bad-content-type");
+    // Content type is not checked: a body that parses and carries a valid signature is accepted.
     const declared = Number(req.header("content-length") ?? 0);
     if (Number.isFinite(declared) && declared > MAX_BODY) return this.reject(413, "too-large");
     const signatureHeader = req.header("x-ebay-signature");
@@ -174,43 +178,54 @@ export class Receiver {
     }
     if (!verifyNotification(lookup.key, parsedHeader.signature, body)) return this.reject(412, "bad-signature");
 
+    // Verified from here on: acknowledge with 200 whatever the shape, so eBay never retries a
+    // genuine message toward the 24-hour mark-down. Only a fixed reason code is logged.
     let message: unknown;
     try {
       message = JSON.parse(body.toString("utf8"));
     } catch {
-      return this.reject(400, "bad-json");
+      message = undefined;
     }
-    const n = readNotification(message);
-    if (n === "wrong-topic") return this.reject(400, "wrong-topic");
-    if (!n) return this.reject(400, "bad-schema");
+    const n = readNotification(message, body);
+    if (n.reason) this.log("notification-accepted-odd", { status: 200, reason: n.reason });
 
     let result: "new" | "duplicate";
     try {
-      result = this.store.record(n, this.now());
+      result = this.store.record(n.record, this.now());
     } catch {
       this.log("storage-failed", { status: 503 });
       return { status: 503, headers: { connection: "close" } };
     }
-    this.log(result === "new" ? "notification-stored" : "notification-duplicate", { status: 200, id: n.id, bytes: body.length });
+    this.log(result === "new" ? "notification-stored" : "notification-duplicate", { status: 200, id: n.record.id, bytes: body.length });
     return empty(200);
   }
 }
 
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
-const DATE = /^[0-9T:.+\-Z]{10,40}$/;
 
 /**
- * Strict schema. Reads only the notification id, event date and attempt count. `data` (userId,
- * username, eiasToken) must be an object but none of its fields is read, kept or logged.
+ * Lenient read of a VERIFIED message. Reads only the notification id, event date and attempt
+ * count; `data` (userId, username, eiasToken) is never read, kept or logged. A missing or odd id
+ * falls back to a hash of the verified body, so the row still exists and duplicates still match.
  */
-function readNotification(message: unknown): { id: string; eventDate: string; publishAttemptCount: number } | "wrong-topic" | null {
-  if (!object(message) || !object(message.metadata) || !object(message.notification)) return null;
-  if (message.metadata.topic !== TOPIC) return "wrong-topic";
-  const n = message.notification;
-  if (typeof n.notificationId !== "string" || !NOTIFICATION_ID.test(n.notificationId)) return null;
-  if (typeof n.eventDate !== "string" || !DATE.test(n.eventDate)) return null;
+function readNotification(
+  message: unknown,
+  body: Buffer,
+): { record: { id: string; eventDate: string; publishAttemptCount: number }; reason?: LogReason } {
+  const root = object(message) ? message : {};
+  const meta = object(root.metadata) ? root.metadata : {};
+  const n = object(root.notification) ? root.notification : {};
+  let reason: LogReason | undefined;
+  if (meta.topic !== TOPIC) reason = "wrong-topic";
+  const raw = n.notificationId;
+  let id: string;
+  if (typeof raw === "string" && raw.length <= 200 && SAFE_TEXT.test(raw)) id = raw;
+  else {
+    id = "body-" + createHash("sha256").update(body).digest("hex");
+    reason ??= "bad-schema";
+  }
+  const eventDate = typeof n.eventDate === "string" && n.eventDate.length <= 40 && SAFE_TEXT.test(n.eventDate) ? n.eventDate : "";
   const attempt = n.publishAttemptCount;
-  if (typeof attempt !== "number" || !Number.isSafeInteger(attempt) || attempt < 0 || attempt > 1_000_000) return null;
-  if (!object(n.data)) return null;
-  return { id: n.notificationId, eventDate: n.eventDate, publishAttemptCount: attempt };
+  const publishAttemptCount = typeof attempt === "number" && Number.isSafeInteger(attempt) && attempt >= 0 ? attempt : 0;
+  return { record: { id, eventDate, publishAttemptCount }, reason };
 }

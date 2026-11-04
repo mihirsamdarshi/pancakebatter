@@ -47,7 +47,7 @@ for path in /state /healthz /; do
   [ "${r%% *}" = 404 ] || { echo "public ${path} expected 404, got ${r}" >&2; exit 1; }
 done
 bad="$(call 3000 POST /ebay/notify '{}')"
-[ "${bad%% *}" = 415 ] || { echo "POST without content type expected 415, got ${bad}" >&2; exit 1; }
+[ "${bad%% *}" = 412 ] || { echo "POST without signature expected 412, got ${bad}" >&2; exit 1; }
 uid="$(docker exec "${name}" id -u)"
 [ "${uid}" = 1000 ] || { echo "wrong uid ${uid}" >&2; exit 1; }
 if docker logs "${name}" 2>&1 | grep -qE "${token}|${code}|fake-secret"; then echo "secret or challenge code in logs" >&2; exit 1; fi
