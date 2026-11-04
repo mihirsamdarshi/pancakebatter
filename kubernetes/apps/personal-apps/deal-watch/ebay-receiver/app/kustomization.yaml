@@ -8,6 +8,8 @@ resources:
   - ./receiver-service.yaml
   - ./cloudflared-deployment.yaml
   - ./networkpolicy.yaml
+  - ./podmonitor.yaml
+  - ./prometheusrule.yaml
   # The four Secrets are created by the owner with the stage E secret script
   # (SOPS, from 1Password) and listed here in the change that deploys:
   #   - ./registry.sops.yaml           deal-watch-ebay-registry (GHCR pull)

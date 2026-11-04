@@ -1,0 +1,52 @@
+---
+# Design section 3.6 monitoring. eBay itself only sends an email after 24 hours of failures.
+# Labels follow prometheusrule-guardrails.yaml: severity only, routed by the existing
+# Alertmanager route to the same Discord receiver.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ebay-receiver
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  groups:
+    - name: ebay-receiver
+      rules:
+        - alert: EbayReceiverBlocked
+          expr: ebay_receiver_blocked{namespace="deal-watch-ebay"} == 1
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "eBay receiver has been BLOCKED for 10 minutes (reason {{ range query \"ebay_receiver_state{reason!='clear'} == 1\" }}{{ .Labels.reason }}{{ end }})"
+            description: "The worker pauses all eBay work while the state is not CLEAR. key-unavailable: the keyset cannot mint or getPublicKey fails (notification POSTs get 503). volume-reset: the data volume was lost or restored (design 3.6 re-initialization). unprocessed or db-unreadable: the database. selftest-failed: the public URL fails its own challenge. eBay marks the URL down after 24 hours of unacknowledged notifications."
+        - alert: EbayReceiverSelfTestFailing
+          expr: |
+            ebay_receiver_selftest_consecutive_failures{namespace="deal-watch-ebay"} >= 2
+              and ebay_receiver_selftest_enabled{namespace="deal-watch-ebay"} == 1
+          labels:
+            severity: critical
+          annotations:
+            summary: "eBay receiver self-test has failed {{ $value }} times in a row"
+            description: "The receiver asks its own public URL for a challenge every five minutes. The tunnel, DNS, Cloudflare or the endpoint is failing, so eBay cannot reach it either. The state turns BLOCKED after one hour of failures."
+        - alert: EbayReceiverDown
+          expr: |
+            absent(kube_pod_status_ready{namespace="deal-watch-ebay", condition="true", pod=~"ebay-receiver-.*"} == 1)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No ready eBay receiver pod for 5 minutes"
+            description: "The pod is missing or not ready. Notifications get no answer from the tunnel, and the 24-hour mark-down clock runs. `kubectl -n deal-watch-ebay describe pod`."
+        # Without this, a broken scrape (for example a missing Prometheus ingress rule in the
+        # CiliumNetworkPolicy) would silence the BLOCKED and self-test alerts above.
+        - alert: EbayReceiverMetricsMissing
+          expr: |
+            absent(ebay_receiver_blocked{namespace="deal-watch-ebay"})
+              and on() (sum(kube_pod_status_ready{namespace="deal-watch-ebay", condition="true", pod=~"ebay-receiver-.*"}) > 0)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The eBay receiver is ready but its metrics are not being scraped"
+            description: "The BLOCKED and self-test alerts cannot fire. Check the PodMonitor and the CiliumNetworkPolicy ingress rule for Prometheus on port 3001."
