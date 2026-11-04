@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateRequest, buildUrl, isAllowedResponse, scrub, detectBlocked, stripUrl, classifyError } from "./server.mjs";
+import { validateRequest, buildUrl, isAllowedResponse, scrub, detectBlocked, isCaptchaVisible, drainPending, stripUrl, classifyError } from "./server.mjs";
 
 test("validateRequest accepts good bodies", () => {
   const tp = "/p/-/A-93620188";
@@ -101,4 +101,59 @@ test("chromePids finds only Chrome processes", () => {
   }
   mkdirSync(join(root, "self"));
   assert.deepEqual(chromePids(root, 999).sort(), [10, 12]);
+});
+
+const shown = { display: "block", visibility: "visible", opacity: "1" };
+const box = { width: 1280, height: 720 };
+const none = { width: 0, height: 0 };
+const normal = { title: "PlayStation 5 Pro Console : Target", h1: ["PlayStation 5 Pro Console"], text: "Add to cart" };
+
+test("hidden px-captcha-modal iframe does not block", () => {
+  const hidden = [
+    { chain: [{ ...shown, display: "none" }], rect: none },
+    { chain: [shown, { ...shown, display: "none" }], rect: box },
+    { chain: [{ ...shown, visibility: "hidden" }], rect: box },
+    { chain: [shown, { ...shown, opacity: "0" }], rect: box },
+    { chain: [shown], rect: { width: 0, height: 720 } },
+  ];
+  for (const c of hidden) {
+    assert.equal(isCaptchaVisible(c), false);
+    assert.equal(detectBlocked({ ...normal, captchas: [c] }), false);
+  }
+});
+
+test("visible px-captcha element blocks, wherever it sits", () => {
+  for (const rect of [box, { width: 500, height: 300 }]) {
+    assert.equal(isCaptchaVisible({ chain: [shown, shown], rect }), true);
+  }
+  assert.equal(detectBlocked({ ...normal, captchas: [{ chain: [shown], rect: { width: 0, height: 5 } }, { chain: [shown], rect: box }] }), true);
+  assert.equal(detectBlocked({ ...normal, captchas: [] }), false);
+});
+
+test("a visible challenge below the fold or partly off-screen still blocks", () => {
+  // Position is not part of the record: below-the-fold and partly-clipped boxes have area.
+  assert.equal(detectBlocked({ ...normal, captchas: [{ chain: [shown], rect: { width: 530, height: 340 } }] }), true);
+});
+
+test("zero-size wrapper: a visible child blocks, only hidden children do not", () => {
+  const wrapper = (descendants) => ({ chain: [shown], rect: none, descendants });
+  assert.equal(isCaptchaVisible(wrapper([{ chain: [shown, shown], rect: box }])), true);
+  assert.equal(isCaptchaVisible(wrapper([{ chain: [{ ...shown, display: "none" }, shown], rect: box }, { chain: [shown], rect: none }])), false);
+  assert.equal(isCaptchaVisible(wrapper([])), false);
+});
+
+test("block text still blocks beside a hidden captcha", () => {
+  const hidden = { chain: [{ ...shown, display: "none" }], rect: none };
+  assert.equal(detectBlocked({ ...normal, text: "Press & hold to confirm", captchas: [hidden] }), true);
+});
+
+test("drainPending waits for handlers added while waiting, within the cap", async () => {
+  const pending = [];
+  let done = false;
+  pending.push(new Promise((ok) => setTimeout(() => { pending.push(new Promise((ok2) => setTimeout(() => { done = true; ok2(); }, 30))); ok(); }, 30)));
+  await drainPending(pending, 2000);
+  assert.equal(done, true);
+  const t0 = Date.now();
+  await drainPending([new Promise(() => {})], 80);
+  assert.ok(Date.now() - t0 < 1000);
 });
