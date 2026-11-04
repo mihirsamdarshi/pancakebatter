@@ -399,14 +399,17 @@ describe("worker with a mocked browser", () => {
     expect(h.browser.length).toBe(2);
     h.advance(1);
     await h.worker.runOnce();
-    expect(h.browser.sort()).toEqual(["bestbuy", "bestbuy", "target", "target"]);
+    expect(h.browser.sort()).toEqual(["bestbuy", "target", "target"]);
+    h.advance(budgets.bestbuy - budgets.target);
+    await h.worker.runOnce();
+    expect(h.browser.filter((r) => r === "bestbuy").length).toBe(2);
   });
-  test("Target and Best Buy are budgeted at 30 minutes, with jitter on top", async () => {
+  test("Target is budgeted at 30 minutes and Best Buy at 2 hours, with jitter on top", async () => {
     expect(budgets.target).toBe(1_800_000);
-    expect(budgets.bestbuy).toBe(1_800_000);
+    expect(budgets.bestbuy).toBe(7_200_000);
     const h = harness([watchFor(bb)], docFor, () => 0.99);
     await h.worker.runOnce();
-    expect(h.worker.floor.get("bestbuy")).toBe(h.now() + 1_800_000 + Math.floor(0.99 * 180_000));
+    expect(h.worker.floor.get("bestbuy")).toBe(h.now() + 7_200_000 + Math.floor(0.99 * 720_000));
   });
   test("a blocked page is reported as access-denied and backs the retailer off", async () => {
     const h = harness([watchFor(tb)], () => ({ ...fixture("target-out-of-stock"), blocked: true }));

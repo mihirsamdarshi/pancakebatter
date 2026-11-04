@@ -4,7 +4,7 @@ export type Retailer = "sony" | "costco" | "bestbuy" | "target" | "ebay";
 export const budgets: Record<Retailer, number> = {
   sony: 120_000,
   costco: 900_000,
-  bestbuy: 1_800_000,
+  bestbuy: 7_200_000,
   target: 1_800_000,
   ebay: 300_000,
 };

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateRequest, buildUrl, isAllowedResponse, scrub, detectBlocked, stripUrl, classifyError } from "./server.mjs";
+import { validateRequest, buildUrl, isAllowedResponse, scrub, detectBlocked, isCaptchaVisible, drainPending, stripUrl, classifyError } from "./server.mjs";
 
 test("validateRequest accepts good bodies", () => {
   const tp = "/p/-/A-93620188";
@@ -101,4 +101,48 @@ test("chromePids finds only Chrome processes", () => {
   }
   mkdirSync(join(root, "self"));
   assert.deepEqual(chromePids(root, 999).sort(), [10, 12]);
+});
+
+const VP = { width: 1280, height: 720 };
+const shown = { display: "block", visibility: "visible", opacity: "1" };
+const box = { left: 0, top: 0, right: 1280, bottom: 720, width: 1280, height: 720 };
+const normal = { title: "PlayStation 5 Pro Console : Target", h1: ["PlayStation 5 Pro Console"], text: "Add to cart", viewport: VP };
+
+test("hidden px-captcha-modal iframe does not block", () => {
+  const hidden = [
+    { chain: [{ ...shown, display: "none" }], rect: { ...box, width: 0, height: 0, right: 0, bottom: 0 } },
+    { chain: [shown, { ...shown, display: "none" }], rect: box },
+    { chain: [{ ...shown, visibility: "hidden" }], rect: box },
+    { chain: [shown, { ...shown, opacity: "0" }], rect: box },
+    { chain: [shown], rect: { ...box, width: 0, right: 0 } },
+    { chain: [shown], rect: { left: 0, top: 5000, right: 1280, bottom: 5720, width: 1280, height: 720 } },
+    { chain: [shown], rect: { left: -1300, top: 0, right: -20, bottom: 720, width: 1280, height: 720 } },
+  ];
+  for (const c of hidden) {
+    assert.equal(isCaptchaVisible(c, VP), false);
+    assert.equal(detectBlocked({ ...normal, captchas: [c] }), false);
+  }
+});
+
+test("visible px-captcha element blocks", () => {
+  const c = { chain: [shown, shown], rect: box };
+  assert.equal(isCaptchaVisible(c, VP), true);
+  assert.equal(detectBlocked({ ...normal, captchas: [{ chain: [shown], rect: { ...box, width: 0, right: 0 } }, c] }), true);
+  assert.equal(detectBlocked({ ...normal, captchas: [] }), false);
+});
+
+test("block text still blocks beside a hidden captcha", () => {
+  const hidden = { chain: [{ ...shown, display: "none" }], rect: box };
+  assert.equal(detectBlocked({ ...normal, text: "Press & hold to confirm", captchas: [hidden] }), true);
+});
+
+test("drainPending waits for handlers added while waiting, within the cap", async () => {
+  const pending = [];
+  let done = false;
+  pending.push(new Promise((ok) => setTimeout(() => { pending.push(new Promise((ok2) => setTimeout(() => { done = true; ok2(); }, 30))); ok(); }, 30)));
+  await drainPending(pending, 2000);
+  assert.equal(done, true);
+  const t0 = Date.now();
+  await drainPending([new Promise(() => {})], 80);
+  assert.ok(Date.now() - t0 < 1000);
 });

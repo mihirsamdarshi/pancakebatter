@@ -28,6 +28,8 @@ export const BLOCK_TEXT =
 export const OBSERVE_DEADLINE_MS = 100_000;
 export const BUSY_UNHEALTHY_MS = 130_000;
 export const CLOSE_CAP_MS = 5_000;
+// Target's page script fetches its data about 0.3 s after DOMContentLoaded, so wait for it.
+export const DATA_WAIT_MS = 20_000;
 
 export function validateRequest(raw) {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return { ok: false };
@@ -76,8 +78,22 @@ export function stripUrl(urlString) {
   }
 }
 
-export function detectBlocked({ title = "", h1 = [], text = "", hasCaptcha = false }) {
-  if (hasCaptcha) return true;
+// A captcha element counts only when a person could see it: the element and every
+// ancestor are displayed, visible and not transparent, and its box has area inside the viewport.
+// `rec` = { chain: [{display, visibility, opacity}, ...element then ancestors], rect: {left, top, right, bottom, width, height} }.
+export function isCaptchaVisible(rec, viewport) {
+  if (!rec || !Array.isArray(rec.chain) || !rec.rect || !viewport) return false;
+  for (const s of rec.chain) {
+    if (s.display === "none" || s.visibility === "hidden" || s.visibility === "collapse") return false;
+    if (!(Number(s.opacity) > 0)) return false;
+  }
+  const r = rec.rect;
+  if (!(r.width > 0 && r.height > 0)) return false;
+  return r.right > 0 && r.bottom > 0 && r.left < viewport.width && r.top < viewport.height;
+}
+
+export function detectBlocked({ title = "", h1 = [], text = "", hasCaptcha = false, captchas = [], viewport = null }) {
+  if (hasCaptcha || captchas.some((c) => isCaptchaVisible(c, viewport))) return true;
   return BLOCK_TEXT.test(`${title}\n${h1.join("\n")}\n${text}`);
 }
 
@@ -96,6 +112,18 @@ export function withDeadline(promise, ms, onTimeout) {
     timer = setTimeout(() => ok(onTimeout()), ms);
   });
   return Promise.race([promise, t]).finally(() => clearTimeout(timer));
+}
+
+// Awaits every handler in `pending`, including ones pushed while waiting, until none is
+// outstanding or `ms` has passed. Never rejects.
+export async function drainPending(pending, ms) {
+  const end = Date.now() + ms;
+  let seen = 0;
+  while (seen < pending.length && Date.now() < end) {
+    const batch = pending.slice(seen);
+    seen = pending.length;
+    await withDeadline(Promise.allSettled(batch), Math.max(0, end - Date.now()), () => {});
+  }
 }
 
 export function isBusyTooLong(busySince, now, limit = BUSY_UNHEALTHY_MS) {
@@ -243,6 +271,10 @@ async function main() {
         }
       };
       page.on("response", (res) => pending.push(handle(res)));
+      // Armed before navigation so a fast response is never missed; bounded, never rejects.
+      const wanted = page
+        .waitForResponse((res) => isAllowedResponse(retailer, res.url()) && res.status() === 200, { timeout: DATA_WAIT_MS })
+        .catch(() => null);
       try {
         const resp = await page.goto(buildUrl(retailer, path), {
           waitUntil: "domcontentloaded",
@@ -253,7 +285,8 @@ async function main() {
       } catch (e) {
         result.error = classifyError(e);
       }
-      await Promise.race([Promise.allSettled(pending), new Promise((ok) => setTimeout(ok, 10_000))]);
+      if (!result.error) await wanted;
+      await drainPending(pending, 10_000);
       result.finalUrl = stripUrl(page.url());
       if (!hostMatches(retailer, result.finalUrl)) result.error ??= "navigation";
       try {
@@ -261,7 +294,16 @@ async function main() {
           title: document.title,
           h1: [...document.querySelectorAll("h1")].map((h) => h.innerText.trim()).slice(0, 3),
           text: (document.body ? document.body.innerText : "").slice(0, 20000),
-          hasCaptcha: !!document.querySelector("#px-captcha, [id*='px-captcha'], [class*='px-captcha']"),
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          captchas: [...document.querySelectorAll("#px-captcha, [id*='px-captcha'], [class*='px-captcha']")].slice(0, 20).map((el) => {
+            const chain = [];
+            for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+              const c = getComputedStyle(n);
+              chain.push({ display: c.display, visibility: c.visibility, opacity: c.opacity });
+            }
+            const b = el.getBoundingClientRect();
+            return { chain, rect: { left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height } };
+          }),
         }));
         result.title = dom.title;
         result.h1 = dom.h1;
