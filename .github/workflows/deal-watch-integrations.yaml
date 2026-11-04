@@ -52,6 +52,10 @@ jobs:
         run: docker build --platform linux/amd64 -t deal-watch-browser:test browser
       - name: Browser non-root, read-only, offline smoke test
         run: bash scripts/smoke-browser.sh deal-watch-browser:test
+      - name: Build amd64 eBay receiver image
+        run: docker build --platform linux/amd64 -t deal-watch-ebay-receiver:test ebay-receiver
+      - name: eBay receiver non-root, read-only, offline smoke test
+        run: bash scripts/smoke-ebay-receiver.sh deal-watch-ebay-receiver:test
   publish:
     name: Publish worker
     needs: check
@@ -85,3 +89,10 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ghcr.io/${{ github.repository }}/deal-watch-browser:sha-${{ github.sha }}
+      - name: Publish eBay receiver image; deployments pin the resulting digest
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: integrations/deal-watch/ebay-receiver
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository }}/deal-watch-ebay-receiver:sha-${{ github.sha }}
