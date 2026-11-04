@@ -103,36 +103,47 @@ test("chromePids finds only Chrome processes", () => {
   assert.deepEqual(chromePids(root, 999).sort(), [10, 12]);
 });
 
-const VP = { width: 1280, height: 720 };
 const shown = { display: "block", visibility: "visible", opacity: "1" };
-const box = { left: 0, top: 0, right: 1280, bottom: 720, width: 1280, height: 720 };
-const normal = { title: "PlayStation 5 Pro Console : Target", h1: ["PlayStation 5 Pro Console"], text: "Add to cart", viewport: VP };
+const box = { width: 1280, height: 720 };
+const none = { width: 0, height: 0 };
+const normal = { title: "PlayStation 5 Pro Console : Target", h1: ["PlayStation 5 Pro Console"], text: "Add to cart" };
 
 test("hidden px-captcha-modal iframe does not block", () => {
   const hidden = [
-    { chain: [{ ...shown, display: "none" }], rect: { ...box, width: 0, height: 0, right: 0, bottom: 0 } },
+    { chain: [{ ...shown, display: "none" }], rect: none },
     { chain: [shown, { ...shown, display: "none" }], rect: box },
     { chain: [{ ...shown, visibility: "hidden" }], rect: box },
     { chain: [shown, { ...shown, opacity: "0" }], rect: box },
-    { chain: [shown], rect: { ...box, width: 0, right: 0 } },
-    { chain: [shown], rect: { left: 0, top: 5000, right: 1280, bottom: 5720, width: 1280, height: 720 } },
-    { chain: [shown], rect: { left: -1300, top: 0, right: -20, bottom: 720, width: 1280, height: 720 } },
+    { chain: [shown], rect: { width: 0, height: 720 } },
   ];
   for (const c of hidden) {
-    assert.equal(isCaptchaVisible(c, VP), false);
+    assert.equal(isCaptchaVisible(c), false);
     assert.equal(detectBlocked({ ...normal, captchas: [c] }), false);
   }
 });
 
-test("visible px-captcha element blocks", () => {
-  const c = { chain: [shown, shown], rect: box };
-  assert.equal(isCaptchaVisible(c, VP), true);
-  assert.equal(detectBlocked({ ...normal, captchas: [{ chain: [shown], rect: { ...box, width: 0, right: 0 } }, c] }), true);
+test("visible px-captcha element blocks, wherever it sits", () => {
+  for (const rect of [box, { width: 500, height: 300 }]) {
+    assert.equal(isCaptchaVisible({ chain: [shown, shown], rect }), true);
+  }
+  assert.equal(detectBlocked({ ...normal, captchas: [{ chain: [shown], rect: { width: 0, height: 5 } }, { chain: [shown], rect: box }] }), true);
   assert.equal(detectBlocked({ ...normal, captchas: [] }), false);
 });
 
+test("a visible challenge below the fold or partly off-screen still blocks", () => {
+  // Position is not part of the record: below-the-fold and partly-clipped boxes have area.
+  assert.equal(detectBlocked({ ...normal, captchas: [{ chain: [shown], rect: { width: 530, height: 340 } }] }), true);
+});
+
+test("zero-size wrapper: a visible child blocks, only hidden children do not", () => {
+  const wrapper = (descendants) => ({ chain: [shown], rect: none, descendants });
+  assert.equal(isCaptchaVisible(wrapper([{ chain: [shown, shown], rect: box }])), true);
+  assert.equal(isCaptchaVisible(wrapper([{ chain: [{ ...shown, display: "none" }, shown], rect: box }, { chain: [shown], rect: none }])), false);
+  assert.equal(isCaptchaVisible(wrapper([])), false);
+});
+
 test("block text still blocks beside a hidden captcha", () => {
-  const hidden = { chain: [{ ...shown, display: "none" }], rect: box };
+  const hidden = { chain: [{ ...shown, display: "none" }], rect: none };
   assert.equal(detectBlocked({ ...normal, text: "Press & hold to confirm", captchas: [hidden] }), true);
 });
 

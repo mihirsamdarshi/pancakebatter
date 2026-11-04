@@ -78,22 +78,28 @@ export function stripUrl(urlString) {
   }
 }
 
-// A captcha element counts only when a person could see it: the element and every
-// ancestor are displayed, visible and not transparent, and its box has area inside the viewport.
-// `rec` = { chain: [{display, visibility, opacity}, ...element then ancestors], rect: {left, top, right, bottom, width, height} }.
-export function isCaptchaVisible(rec, viewport) {
-  if (!rec || !Array.isArray(rec.chain) || !rec.rect || !viewport) return false;
+// A captcha element counts only when a person could see it: the element and every ancestor
+// are displayed, visible and not transparent, and its box has area. Position is not judged:
+// a challenge below the fold or scrolled away is still a challenge. A matched element with a
+// zero box (a wrapper) counts when one of its `descendants` (same record shape) is visible.
+// `rec` = { chain: [{display, visibility, opacity}, ...element then ancestors], rect: {width, height}, descendants?: [rec] }.
+function recVisible(rec) {
+  if (!rec || !Array.isArray(rec.chain) || !rec.rect) return false;
   for (const s of rec.chain) {
     if (s.display === "none" || s.visibility === "hidden" || s.visibility === "collapse") return false;
     if (!(Number(s.opacity) > 0)) return false;
   }
-  const r = rec.rect;
-  if (!(r.width > 0 && r.height > 0)) return false;
-  return r.right > 0 && r.bottom > 0 && r.left < viewport.width && r.top < viewport.height;
+  return rec.rect.width > 0 && rec.rect.height > 0;
 }
 
-export function detectBlocked({ title = "", h1 = [], text = "", hasCaptcha = false, captchas = [], viewport = null }) {
-  if (hasCaptcha || captchas.some((c) => isCaptchaVisible(c, viewport))) return true;
+export function isCaptchaVisible(rec) {
+  if (recVisible(rec)) return true;
+  if (!rec || !rec.rect || rec.rect.width > 0 && rec.rect.height > 0) return false;
+  return Array.isArray(rec.descendants) && rec.descendants.slice(0, 50).some(recVisible);
+}
+
+export function detectBlocked({ title = "", h1 = [], text = "", hasCaptcha = false, captchas = [] }) {
+  if (hasCaptcha || captchas.some((c) => isCaptchaVisible(c))) return true;
   return BLOCK_TEXT.test(`${title}\n${h1.join("\n")}\n${text}`);
 }
 
@@ -294,15 +300,25 @@ async function main() {
           title: document.title,
           h1: [...document.querySelectorAll("h1")].map((h) => h.innerText.trim()).slice(0, 3),
           text: (document.body ? document.body.innerText : "").slice(0, 20000),
-          viewport: { width: window.innerWidth, height: window.innerHeight },
           captchas: [...document.querySelectorAll("#px-captcha, [id*='px-captcha'], [class*='px-captcha']")].slice(0, 20).map((el) => {
-            const chain = [];
-            for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
-              const c = getComputedStyle(n);
-              chain.push({ display: c.display, visibility: c.visibility, opacity: c.opacity });
+            const chainOf = (start) => {
+              const chain = [];
+              for (let n = start; n && n.nodeType === 1; n = n.parentElement) {
+                const c = getComputedStyle(n);
+                chain.push({ display: c.display, visibility: c.visibility, opacity: c.opacity });
+              }
+              return chain;
+            };
+            const rectOf = (e) => {
+              const b = e.getBoundingClientRect();
+              return { width: b.width, height: b.height };
+            };
+            const rect = rectOf(el);
+            const rec = { chain: chainOf(el), rect };
+            if (!(rect.width > 0 && rect.height > 0)) {
+              rec.descendants = [...el.querySelectorAll("*")].slice(0, 50).map((d) => ({ chain: chainOf(d), rect: rectOf(d) }));
             }
-            const b = el.getBoundingClientRect();
-            return { chain, rect: { left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height } };
+            return rec;
           }),
         }));
         result.title = dom.title;
