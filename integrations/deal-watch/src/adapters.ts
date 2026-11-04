@@ -76,7 +76,15 @@ export function parseSony(body: string, w: Watch, b: Binding, now = Date.now()):
           p.loginGated === false &&
           p.psPlusGated === false
         ? "in-stock"
-        : "unknown";
+        : stock !== "" &&
+            stock !== "inStock" &&
+            stock !== "outOfStock" &&
+            p.purchasable !== false &&
+            p.preOrderProduct === false &&
+            p.loginGated === false &&
+            p.psPlusGated === false
+          ? "verify"
+          : "unknown";
   // maxOrderQuantity is an order limit, never inventory evidence.
   // The reviewed standard-shipping policy covers the contiguous US for orders > $40.
   // Other ZIPs/products need their own shipping proof rather than inheriting this assumption.

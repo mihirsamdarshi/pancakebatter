@@ -14,10 +14,10 @@ const w = watches[0]!,
   b = w.bindings[0]!,
   fixture = readFileSync(new URL("../fixtures/sony-out-of-stock.json", import.meta.url), "utf8"),
   costco = readFileSync(new URL("../fixtures/costco-out-of-stock.html", import.meta.url), "utf8");
-const stock = (productId = b.productId) => {
+const stock = (productId = b.productId, status = "inStock") => {
   const data = JSON.parse(fixture);
   data.products[0].code = productId;
-  data.products[0].stock.stockLevelStatus = "inStock";
+  data.products[0].stock.stockLevelStatus = status;
   return JSON.stringify(data);
 };
 const webhook = "https://discord.com/api/webhooks/123/testing-placeholder-not-a-real-token";
@@ -55,6 +55,39 @@ describe("captured source metadata", () => {
       Object.assign(data.products[0], patch);
       expect(parseSony(JSON.stringify(data), w, b).availability).toBe("unknown");
     }
+  });
+  test("Sony stock status mapping, including the verify status", () => {
+    const run = (status: string, patch: Record<string, unknown> = {}) => {
+      const data = JSON.parse(stock(b.productId, status));
+      Object.assign(data.products[0], patch);
+      return parseSony(JSON.stringify(data), w, b).availability;
+    };
+    expect(run("inStock")).toBe("in-stock");
+    expect(run("outOfStock")).toBe("out-of-stock");
+    expect(run("lowStock")).toBe("verify");
+    expect(run("limitedStock")).toBe("verify");
+    expect(run("IN_STOCK")).toBe("verify");
+    expect(run("")).toBe("unknown");
+    expect(run("lowStock", { purchasable: false })).toBe("unknown");
+    expect(run("lowStock", { preOrderProduct: true })).toBe("unknown");
+    expect(run("lowStock", { loginGated: true })).toBe("unknown");
+    expect(run("lowStock", { psPlusGated: true })).toBe("unknown");
+    expect(run("lowStock", { preOrderProduct: undefined })).toBe("unknown");
+    expect(run("inStock", { purchasable: false })).toBe("unknown");
+    expect(run("outOfStock", { purchasable: false })).toBe("out-of-stock");
+    const missing = JSON.parse(stock());
+    delete missing.products[0].stock.stockLevelStatus;
+    expect(() => parseSony(JSON.stringify(missing), w, b)).toThrow();
+  });
+  test("verify offer qualifies as verify and the message is marked", () => {
+    const o = parseSony(stock(b.productId, "lowStock"), w, b);
+    const q = qualify(w, b, o, o.observedAt);
+    expect(q.reasons).toEqual(["Stock status unclear: verify at retailer"]);
+    expect(q).toMatchObject({ eligible: false, verify: true });
+    expect(message(w, b, o, crypto.randomUUID(), o.observedAt, "verify").split("\n")[0]).toBe(
+      "VERIFY AT RETAILER: Sony reports an unclear stock status",
+    );
+    expect(() => message(w, b, o, crypto.randomUUID(), o.observedAt)).toThrow();
   });
   test("Costco snapshot gives price/stock without inventing shipping or bundle values", async () => {
     const binding = w.bindings.find((b) => b.retailer === "costco")!,
@@ -148,7 +181,7 @@ describe("Discord", () => {
   });
 });
 
-function harness(config: Watch[] = watches, deliver = false) {
+function harness(config: Watch[] = watches, deliver = false, stockStatus = "inStock", kind?: string) {
   let clock = Date.now(),
     publicCalls = 0,
     discordCalls = 0,
@@ -165,6 +198,7 @@ function harness(config: Watch[] = watches, deliver = false) {
     policy_version: policyIdentity(config),
     policyIdentity,
     attempts: 1,
+    ...(kind ? { kind } : {}),
     message: "untrusted app message",
     url: "https://evil.example",
   };
@@ -174,7 +208,7 @@ function harness(config: Watch[] = watches, deliver = false) {
       publicCalls++;
       const id = url.searchParams.get("productCodes")!;
       productIds.push(id);
-      return new Response(stock(id));
+      return new Response(stock(id, stockStatus));
     }
     if (url.hostname === "discord.com") {
       discordCalls++;
@@ -317,6 +351,46 @@ describe("worker independent safeguards", () => {
     expect(h.discordCalls).toBe(1);
     expect(h.complete.at(-1)?.result).toBe("duplicate-current-offer");
   });
+  test("verify events are delivered only for a verify offer, with a marked message", async () => {
+    const texts: string[] = [];
+    const run = async (status: string, kind?: string) => {
+      const h = harness(watches, true, status, kind);
+      const inner = h.fetcher;
+      const fetcher: Fetcher = async (request) => {
+        if (new URL(request.url).hostname === "discord.com")
+          texts.push(((await request.clone().json()) as { content: string }).content);
+        return inner(request);
+      };
+      const worker = new Worker({
+        baseUrl: "https://app.test",
+        watches,
+        webhook,
+        fetcher,
+        now: () => h.now,
+        random: () => 0,
+        startupDelay: false,
+      });
+      await worker.runOnce();
+      return h;
+    };
+    let h = await run("lowStock", "verify");
+    expect(h.discordCalls).toBe(1);
+    expect(texts[0]!.split("\n")[0]).toBe("VERIFY AT RETAILER: Sony reports an unclear stock status");
+    expect(texts[0]!.split("\n")).toHaveLength(8);
+    h = await run("inStock", "verify");
+    expect(h.discordCalls).toBe(0);
+    expect(h.complete.at(-1)?.result).toBe("no-longer-eligible");
+    h = await run("lowStock", "alert");
+    expect(h.discordCalls).toBe(0);
+    expect(h.complete.at(-1)?.result).toBe("no-longer-eligible");
+    h = await run("lowStock");
+    expect(h.discordCalls).toBe(0);
+    h = await run("inStock", "alert");
+    expect(h.discordCalls).toBe(1);
+    expect(texts[1]!.startsWith("VERIFY")).toBe(false);
+    expect(texts[1]!.split("\n")).toHaveLength(7);
+    await expect(run("inStock", "bogus")).rejects.toThrow("Invalid event lease");
+  });
   test("outbox after restart awaits revalidation instead of using app evidence", async () => {
     const h = harness(watches, true),
       worker = new Worker({
@@ -391,5 +465,5 @@ test("captured Sony positive stock spelling does not turn PS5 Pro OOS into stock
   expect(parseSony(body, w, controller).priceCents).toBe(7400);
   const unknown = JSON.parse(body);
   unknown.products[1].stock = { stockLevelStatus: "unverifiedLowStock", isProductLowStock: true };
-  expect(parseSony(JSON.stringify(unknown), w, controller).availability).toBe("unknown");
+  expect(parseSony(JSON.stringify(unknown), w, controller).availability).toBe("verify");
 });

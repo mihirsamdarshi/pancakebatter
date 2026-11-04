@@ -191,7 +191,7 @@ in the dashboard. Credentials and upstream response bodies never enter logs.
 
 ## Coordinated upgrade required
 
-This worker and the multi-offer app use policy version `2026-11-01.1`. The earlier
+This worker and the multi-offer app use policy version `2026-11-04.1` (adds the `verify` availability and typed outbox events). The earlier
 activation draft uses `2026-10-31.1`. Do not deploy these revisions separately:
 review the app revision, published worker digest, activation image pin and mounted
 policy exported from the matching app as one change set. Re-encrypt the matching

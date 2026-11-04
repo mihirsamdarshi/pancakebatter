@@ -41,12 +41,20 @@ const clean = (value: string) =>
     .replace(/[\\`*_~[\]()<>@]/g, "")
     .replace(/[\r\n]/g, " ")
     .slice(0, 220);
-export function message(w: Watch, b: Binding, o: Offer, eventId: string, now = Date.now()): string {
+export function message(
+  w: Watch,
+  b: Binding,
+  o: Offer,
+  eventId: string,
+  now = Date.now(),
+  kind: "alert" | "verify" = "alert",
+): string {
   const q = qualify(w, b, o, now);
-  if (!q.eligible) throw new Error("Offer no longer qualifies");
+  if (kind === "verify" ? !q.verify : !q.eligible) throw new Error("Offer no longer qualifies");
   if (!/^[0-9a-f-]{36}$/.test(eventId)) throw new Error("Invalid event identifier");
   const usd = (value: number) => `$${(value / 100).toFixed(2)}`;
   return [
+    ...(kind === "verify" ? ["VERIFY AT RETAILER: Sony reports an unclear stock status"] : []),
     `${clean(w.title)} — ${usd(q.totalCents!)} before tax`,
     `${clean(o.seller.name)} · ${o.condition} · shipped to ${w.zip}`,
     `${usd(o.priceCents)} item + ${usd(o.shippingCents!)} shipping + ${usd(o.feesCents!)} mandatory fees`,

@@ -21,6 +21,7 @@ interface QueueEvent {
   binding_id: string;
   offer_id: string;
   policy_version: string;
+  kind: "alert" | "verify";
   lease_id: string;
   attempts: number;
 }
@@ -232,8 +233,8 @@ export class Worker {
             cache.set(offer.id, offer);
             while (cache.size > 10) cache.delete(cache.keys().next().value!);
             this.cache.set(key, cache);
-            if (!qualify(watch, binding, offer, this.now()).eligible)
-              this.sent.delete(`${key}/${offer.id}`);
+            const seen = qualify(watch, binding, offer, this.now());
+            if (!seen.eligible && !seen.verify) this.sent.delete(`${key}/${offer.id}`);
           }
           this.failures.set(retailer, 0);
         } catch (error) {
@@ -279,12 +280,14 @@ export class Worker {
           ![raw.watch_id, raw.binding_id, raw.offer_id, raw.policy_version].every(
             (v) => typeof v === "string",
           ) ||
+          (raw.kind !== undefined && raw.kind !== "alert" && raw.kind !== "verify") ||
           typeof raw.attempts !== "number" ||
           !Number.isSafeInteger(raw.attempts) ||
           raw.attempts < 1
         )
           throw new Error("Invalid event lease");
-        const event = raw as unknown as QueueEvent,
+        // A missing kind is an ordinary alert, the stricter of the two checks.
+        const event = { ...raw, kind: raw.kind ?? "alert" } as unknown as QueueEvent,
           watch = this.watches.find((w) => w.id === event.watch_id),
           binding = watch?.bindings.find((b) => b.id === event.binding_id),
           key = `${event.watch_id}/${event.binding_id}/${event.offer_id}`;
@@ -304,7 +307,9 @@ export class Worker {
           };
         else if (
           offer.id !== event.offer_id ||
-          !qualify(watch, binding, offer, this.now()).eligible
+          !(event.kind === "verify"
+            ? qualify(watch, binding, offer, this.now()).verify
+            : qualify(watch, binding, offer, this.now()).eligible)
         )
           result = {
             status: "suppressed",
@@ -320,6 +325,7 @@ export class Worker {
             offer.shippingCents,
             offer.feesCents,
             offer.shipping,
+            event.kind,
           ]);
           if (this.sent.get(key) === fingerprint)
             result = {
@@ -331,7 +337,7 @@ export class Worker {
           else {
             result = await sendDiscord(
               this.options.webhook,
-              message(watch, binding, offer, event.id, this.now()),
+              message(watch, binding, offer, event.id, this.now(), event.kind),
               this.fetcher,
             );
             if (result.status === "sent") {
