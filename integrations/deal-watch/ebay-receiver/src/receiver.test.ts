@@ -35,7 +35,7 @@ describe("challenge", () => {
 describe("routing", () => {
   test("only the configured path exists on the public port", async () => {
     const { receiver } = setup();
-    for (const p of ["/", "/state", "/healthz", "/ebay/notify/", "/ebay", "/ebay/notifyx", "//ebay/notify"])
+    for (const p of ["/", "/state", "/healthz", "/metrics", "/ebay/notify/", "/ebay", "/ebay/notifyx", "//ebay/notify"])
       expect((await receiver.handlePublic(request("GET", p))).status).toBe(404);
   });
   test("wrong method on the path is 405", async () => {

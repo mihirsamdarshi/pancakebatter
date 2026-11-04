@@ -168,6 +168,15 @@ describe("log and response leak test", () => {
       statuses.push(await send(seen, base + "/state"));
       statuses.push(await send(seen, internal + "/state"));
       statuses.push(await send(seen, internal + "/healthz"));
+      statuses.push(await send(seen, base + "/metrics"));
+      // scrape after every identifier path above: counters have moved, and nothing may leak
+      const scrape = await fetch(internal + "/metrics");
+      const metricsText = await scrape.text();
+      seen.push(metricsText);
+      expect(scrape.status).toBe(200);
+      expect(metricsText).toMatch(/ebay_receiver_notifications_total\{outcome="stored"\} [1-9]/);
+      expect(metricsText).toMatch(/ebay_receiver_notifications_total\{outcome="bad_signature"\} [1-9]/);
+      expect(metricsText).toMatch(/ebay_receiver_challenges_total\{outcome="ok"\} [1-9]/);
       // malformed HTTP and an over-long header with canaries
       await raw(Number(new URL(base).port), `GET /${CANARY.username} HTTP/1.1\r\nHost: ${CANARY.userId}\r\nX: ${"a".repeat(20000)}${CANARY.eiasToken}\r\n\r\n`, seen);
       await raw(Number(new URL(base).port), `NOT HTTP ${CANARY.username}\r\n\r\n`, seen);
