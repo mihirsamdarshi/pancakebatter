@@ -10,9 +10,10 @@ resources:
   - ./networkpolicy.yaml
   - ./podmonitor.yaml
   - ./prometheusrule.yaml
-  # The four Secrets are created by the owner with the stage E secret script
-  # (SOPS, from 1Password) and listed here in the change that deploys:
+  # The five Secrets are created with the stage E secret script (SOPS, from
+  # 1Password and cluster-secrets) and listed here in the change that deploys:
   #   - ./registry.sops.yaml           deal-watch-ebay-registry (GHCR pull)
   #   - ./notify-token.sops.yaml       ebay-notify-token
   #   - ./app-credentials.sops.yaml    ebay-app-credentials
   #   - ./cloudflared-token.sops.yaml  cloudflared-token
+  #   - ./endpoint.sops.yaml           ebay-receiver-endpoint (key url)

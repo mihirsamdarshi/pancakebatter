@@ -27,11 +27,17 @@ spec:
           type: RuntimeDefault
       containers:
         - name: receiver
-          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-ebay-receiver@sha256:46088007801332721b737aecc7b742ef0a596083b2d6109f0b006d4b8424c858
+          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-ebay-receiver@sha256:44beb3418cba058805ed502f31a2d2b93eb484eb1c85687cfd23bb18d4c303ba
           env:
             # The exact public URL typed into the eBay portal, hashed byte for byte.
+            # It holds the zone, so it comes from this namespace's own SOPS Secret
+            # (built by the stage E secret script from cluster-secrets), not from
+            # a manifest substitution.
             - name: ENDPOINT_URL
-              value: https://ebay-notify.${SECRET_DOMAIN}/notify
+              valueFrom:
+                secretKeyRef:
+                  name: ebay-receiver-endpoint
+                  key: url
             - name: VERIFICATION_TOKEN_FILE
               value: /run/ebay-notify/token
             - name: EBAY_CREDENTIALS_FILE

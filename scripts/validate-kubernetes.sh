@@ -413,10 +413,7 @@ validate_tree() {
         # Until October 26, 2026 SECRET_DOMAIN meant local.<zone>, so a manifest
         # written before then would silently point at <app>.<zone>. A file that
         # really means the bare zone goes in zone_allow.
-        # The eBay receiver's public endpoint is https://ebay-notify.<zone>/...
-        zone_allow=(
-            kubernetes/apps/personal-apps/deal-watch/ebay-receiver/app/receiver-deployment.yaml
-        )
+        zone_allow=()
         rc=0
         # Any substitution form: ${V}, ${V:=x}, ${V=x}, ${V/a/b}, ${V#x}, ${#V}...
         grep -rnE '\$\{#?SECRET_DOMAIN([^A-Za-z0-9_]|$)' kubernetes >"$tmp/zone" || rc=$?
