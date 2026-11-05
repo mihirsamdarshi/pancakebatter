@@ -726,16 +726,24 @@ validate_entry() {
     secret_pull=false
     echo "$parts_json" | jq -e 'index("pullsecret") != null' >/dev/null && secret_pull=true
     if flux-operator build rset -f "$rs_pull" --inputs-from-provider "$tmp/static.yaml" >"$tmp/rset-pull.yaml" 2>"$tmp/rset.err"; then
-        [[ "$secret_pull" == true ]] || fail "apps-pull rendered objects for an entry without the pullsecret part"
         ! grep -qF 'fluxcd.controlplane.io/force' "$tmp/rset-pull.yaml" || fail "the apps-pull render sets fluxcd.controlplane.io/force"
-        n="$(yq -N 'select(.kind == "Secret") | .metadata.name' "$tmp/rset-pull.yaml" | grep -c . || true)"
-        [[ "$n" == "1" \
-            && "$(yq -N 'select(.kind == "Secret") | .metadata.name' "$tmp/rset-pull.yaml")" == "apps-ghcr" \
-            && "$(yq -N 'select(.kind == "Secret") | .metadata.namespace' "$tmp/rset-pull.yaml")" == "$ns" \
-            && "$(yq -N 'select(.kind == "Secret") | .type' "$tmp/rset-pull.yaml")" == "kubernetes.io/dockerconfigjson" \
-            && "$(yq -N 'select(.kind == "Secret") | .metadata.annotations["fluxcd.controlplane.io/copyFrom"]' "$tmp/rset-pull.yaml")" == "flux-system/ghcr-apps-read" \
-            && "$(yq -N 'select(.kind == "Secret") | .metadata.annotations["fluxcd.controlplane.io/prune"]' "$tmp/rset-pull.yaml")" == "disabled" ]] \
-            || fail "apps-pull must render one dockerconfigjson Secret apps-ghcr in $ns with copyFrom flux-system/ghcr-apps-read and prune: disabled"
+        # apps-pull also renders the fixed `inputs` (see spec.inputs); the checks below look at this entry's namespace, then the whole set
+        sel='select(.kind == "Secret" and .metadata.namespace == "'"$ns"'")'
+        n="$(yq -N "$sel | .metadata.name" "$tmp/rset-pull.yaml" | grep -c . || true)"
+        [[ "$secret_pull" == true || "$n" == "0" ]] || fail "apps-pull rendered a Secret in $ns for an entry without the pullsecret part"
+        if [[ "$secret_pull" == true ]]; then
+            [[ "$n" == "1" \
+                && "$(yq -N "$sel | .metadata.name" "$tmp/rset-pull.yaml")" == "apps-ghcr" \
+                && "$(yq -N "$sel | .metadata.namespace" "$tmp/rset-pull.yaml")" == "$ns" \
+                && "$(yq -N "$sel | .type" "$tmp/rset-pull.yaml")" == "kubernetes.io/dockerconfigjson" \
+                && "$(yq -N "$sel | .metadata.annotations[\"fluxcd.controlplane.io/copyFrom\"]" "$tmp/rset-pull.yaml")" == "flux-system/ghcr-apps-read" \
+                && "$(yq -N "$sel | .metadata.annotations[\"fluxcd.controlplane.io/prune\"]" "$tmp/rset-pull.yaml")" == "disabled" ]] \
+                || fail "apps-pull must render one dockerconfigjson Secret apps-ghcr in $ns with copyFrom flux-system/ghcr-apps-read and prune: disabled"
+        fi
+        # The whole set: exactly the static inputs' namespaces plus this entry's own (a duplicate fails here).
+        want="$( { yq -N '.spec.inputs[].name' "$rs_pull"; if [[ "$secret_pull" == true ]]; then echo "$ns"; fi; } | sed 's#^#Secret/#; s#$#/apps-ghcr#' | sort)"
+        got="$(yq -N 'select(.kind == "Secret") | "Secret/" + .metadata.namespace + "/" + .metadata.name' "$tmp/rset-pull.yaml" | sort)"
+        [[ "$got" == "$want" ]] || fail "apps-pull must render exactly these Secrets (static inputs plus this entry): $(echo $want) -- got: $(echo $got)"
     else
         # The CLI exits 1 when nothing renders; the controller accepts that.
         if [[ "$secret_pull" == true ]] || ! grep -q 'no objects were generated' "$tmp/rset.err"; then

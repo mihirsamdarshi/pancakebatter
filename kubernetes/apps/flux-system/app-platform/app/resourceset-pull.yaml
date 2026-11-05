@@ -13,12 +13,26 @@
 # resourceset.yaml's. An input without a name renders nothing (see there).
 # vars.PULL_SECRET changes only the name the Deployment
 # references, never this Secret.
+#
+# `inputs` lists the namespaces of the apps outside the platform that pull
+# private images (claude-proxy, deal-watch-integrations, deal-watch-ebay). They are not
+# ResourceSetInputProviders, because a provider would also render an app-*
+# Kustomization in `apps`. Flux Operator concatenates `inputs` with the provider
+# inputs (docs/api/v1/resourceset.md, "Inputs configuration"). Each namespace
+# must exist, or the dry run fails and no copy is applied; they are created by
+# their own Kustomization in personal-apps/. A platform app named like one of
+# these inputs would render a second Secret for the same namespace and fail the
+# dry run; the validator rejects that.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
   name: apps-pull
   namespace: flux-system
 spec:
+  inputs:
+    - name: claude-proxy
+    - name: deal-watch-integrations
+    - name: deal-watch-ebay
   dependsOn:
     - apiVersion: v1
       kind: Secret
