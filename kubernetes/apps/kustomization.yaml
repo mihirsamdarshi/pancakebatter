@@ -19,6 +19,7 @@ resources:
   - ./cert-manager
   - ./default
   - ./downloads
+  - ./external-secrets
   - ./flux-system
   - ./headlamp
   - ./home

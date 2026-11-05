@@ -1,0 +1,30 @@
+---
+# Delivery alerts for External Secrets. Only externalsecret_* and up are used:
+# the guardrails scrape class drops go_* (except a short list), workqueue_* and
+# histogram buckets. Unit tests: scripts/validate-rules/external-secrets.test.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: external-secrets
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  groups:
+    - name: external-secrets
+      rules:
+        - alert: ExternalSecretNotReady
+          expr: externalsecret_status_condition{condition="Ready", status="False"} == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ExternalSecret {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "The last refresh failed. The Kubernetes Secret it manages keeps its last value. Check the store, the 1Password item and field names, and the service account token. Failed retries also spend the 1Password daily request cap."
+        - alert: ExternalSecretsDown
+          expr: absent(up{job="external-secrets-metrics"} == 1)
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The External Secrets controller is not being scraped"
+            description: "The controller is down or Prometheus cannot reach port 8080. Existing Secrets keep working; nothing refreshes."

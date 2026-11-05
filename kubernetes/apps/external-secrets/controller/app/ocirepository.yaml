@@ -1,0 +1,18 @@
+---
+# Pinned by tag, like every other chart in this repo, so Renovate can move it.
+# The manifest digest of 2.14.0 when this was written (read from the registry
+# and from `helm pull`): sha256:0e3d45f11522f2730ff55deef57bc43e0ff4aadc00bdab5557fa4d354b0c3ab7
+# ESO supports only the latest minor and the 1Password SDK provider is alpha:
+# never automerge (see the external-secrets rule in .renovaterc.json5).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: external-secrets
+spec:
+  interval: 1h
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: 2.14.0
+  url: oci://ghcr.io/external-secrets/charts/external-secrets

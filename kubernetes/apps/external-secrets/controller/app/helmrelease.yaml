@@ -1,0 +1,60 @@
+---
+# External Secrets Operator: the controller only. There is no store and no
+# ExternalSecret yet; both ship in later PRs.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: external-secrets
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: external-secrets
+  interval: 1h
+  values:
+    # The chart installs and upgrades its CRDs (default true). They exceed the
+    # 256 KB annotation limit, so they must be applied server-side; the live
+    # check of this is part of the rollout.
+    installCRDs: true
+    crds:
+      # The pilot needs neither cross-namespace copies, writes to 1Password nor
+      # generators. Each create flag is paired with its process flag below, or
+      # the controller would watch a kind whose CRD is missing.
+      createClusterExternalSecret: false
+      createClusterPushSecret: false
+      createPushSecret: false
+      createClusterGenerator: false
+    processClusterExternalSecret: false
+    processClusterPushSecret: false
+    processPushSecret: false
+    processClusterGenerator: false
+    replicaCount: 1
+    # The chart defaults already meet the restricted profile (runAsNonRoot,
+    # drop ALL, RuntimeDefault seccomp, read-only root filesystem, no privilege
+    # escalation) for all three pods, so no securityContext is set here.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+    webhook:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+    certController:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+    # The controller's metrics (externalsecret_*) are scraped through a Service
+    # and a ServiceMonitor; Prometheus selects every ServiceMonitor cluster-wide.
+    metrics:
+      service:
+        enabled: true
+    serviceMonitor:
+      enabled: true
