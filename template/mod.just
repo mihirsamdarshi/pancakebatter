@@ -39,7 +39,12 @@ doctor:
         just template doctor-check "cloudflare-tunnel.json" "{{ cloudflare_tunnel }}" || rc=1
     fi
     just template doctor-check "age.key"                "$SOPS_AGE_KEY_FILE"          || rc=1
-    just template doctor-check "deploy.key"             "{{ deploy_key }}"            || rc=1
+    if [[ "$(jq -r '.repository.url' <<< "$config_json" 2>/dev/null)" == ssh://* ]]; then
+        if ! just template doctor-check "deploy.key"    "{{ deploy_key }}"; then
+            just log error "an ssh:// repository URL needs a deploy key; run: just template init"
+            rc=1
+        fi
+    fi
     just template doctor-check "flux-webhook-token.txt" "{{ webhook_token_file }}"    || rc=1
     just template doctor-check "template/"              "{{ template_dir }}"          || rc=1
     just template doctor-check "makejinja.toml"         "{{ makejinja_config }}"      || rc=1
@@ -56,12 +61,15 @@ doctor:
     [ "$rc" = 0 ] && just log info "all good"
     exit "$rc"
 
-[doc('Initialize configuration files (cluster.toml, age key, deploy key, webhook token)')]
+[doc('Initialize configuration files (cluster.toml, age key, deploy key for ssh:// URLs, webhook token)')]
 [group('template')]
 init:
     [ -f "{{ config_file }}" ]        || cp "{{ sample_config_file }}" "{{ config_file }}"
     [ -f "$SOPS_AGE_KEY_FILE" ]       || age-keygen -pq --output "$SOPS_AGE_KEY_FILE"
-    [ -f "{{ deploy_key }}" ]         || ssh-keygen -t ed25519 -C "deploy-key" -f "{{ deploy_key }}" -q -P ""
+    # Only an ssh:// repository URL needs a deploy key; https:// is read without one.
+    if grep -Eq '^[[:space:]]*url[[:space:]]*=[[:space:]]*["'"'"']ssh://' "{{ config_file }}" && [ ! -f "{{ deploy_key }}" ]; then \
+        ssh-keygen -t ed25519 -C "deploy-key" -f "{{ deploy_key }}" -q -P ""; \
+    fi
     [ -f "{{ webhook_token_file }}" ] || openssl rand -hex 16 > "{{ webhook_token_file }}"
 
 # Editors resolve the #:schema directive in cluster.toml against this file;

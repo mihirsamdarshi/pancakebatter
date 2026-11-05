@@ -74,7 +74,7 @@ def cloudflare_tunnel_secret(file_path: str = 'cloudflare-tunnel.json') -> str:
     return base64.b64encode(json_string.encode('utf-8')).decode('utf-8')
 
 
-# Return the Flux deploy key from deploy.key
+# Return the Flux deploy key from deploy.key (only called for ssh:// repository URLs)
 def deploy_key(file_path: str = 'deploy.key') -> str:
     return _read_stripped(file_path)
 
@@ -126,7 +126,7 @@ class Plugin(makejinja.plugin.Plugin):
             and not Path('cloudflare-tunnel.json').is_file()
         ):
             raise RuntimeError('cloudflare-tunnel.json not found — see README')
-        # The deploy key secret always pins every bundled provider host key
+        # The deploy key secret (ssh:// URLs only) pins every bundled provider host key
         # (entries are matched per-hostname, so unused ones are inert);
         # user-supplied entries for self-hosted git servers are appended.
         repository = data['repository']
