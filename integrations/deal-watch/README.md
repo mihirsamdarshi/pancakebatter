@@ -139,6 +139,25 @@ credentials/raw response bodies. Search accepts a verified GTIN; item mode accep
 legacy or quoted REST item/variation IDs. Confirm Production Browse entitlement,
 product identity and complete cost semantics before proposing source activation.
 
+For a separately approved access check that must not emit listing values, include
+`--technical-only`. Without `--probe`, this is still a credential-free/network-free
+dry run:
+
+```sh
+bun scripts/probe-ebay.ts --mode search --id 123456789012 --zip 10001 --technical-only
+```
+
+The technical mode reports fixed access/schema predicates or generic failures
+labelled by credentials, OAuth or Browse stage. It emits no listing values,
+identifiers, seller details, response bodies, tokens or request URLs, and writes
+no response files. Zero search results establish no item-identity schema evidence;
+warnings and unsupported responses fail validation. Unknown, repeated or incomplete
+flags are rejected before credentials or network work, including misspelled flags.
+The existing mode without `--technical-only` emits item facts, including the seller
+username, and is unsuitable for this no-values check. Neither technical output nor this command establishes
+nonpersistence-exemption eligibility, seller/ZIP/cost qualification or approval
+to read credentials, call Production, submit a declaration or activate a source.
+
 ## Trust and configuration
 
 Required environment:
