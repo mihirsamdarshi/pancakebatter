@@ -47,9 +47,10 @@ spec:
       # The weekly job refreshes a collection's County data: LA County's public
       # eGIS parcel layer and the Assessor portal. It reads the live reports read
       # only and writes a batch into the feeds inbox, which the app commits. The
-      # app side (the feeds inbox and jobs/county-parcels.ts) is in apps PR #27,
-      # which must be deployed before this change merges. Sundays at 11:00 UTC,
-      # two hours before the backup, with 45 minutes to finish.
+      # app side (the feeds inbox, which the app creates when it starts, and
+      # jobs/county-parcels.ts) came with apps PR #27. Sundays at 11:00 UTC,
+      # two hours before the backup, with 45 minutes to finish. The job pod
+      # cannot reach the app or claude-proxy (job-egress denies both).
       JOB_SCHEDULE: "0 11 * * 0"
       JOB_COMMAND: bun jobs/county-parcels.ts west-la
       JOB_READ_PATH: content
@@ -57,7 +58,8 @@ spec:
       JOB_DEADLINE: "2700"
       # Both County hosts (public.gis.lacounty.gov and portal.assessor.lacounty.gov)
       # resolved to this one Imperva CDN address when checked on Nov 4, 2026
-      # from the home network. The cluster uses no toFQDNs rules, so if the
-      # address moves, the job fails closed (its connections time out) until
-      # this CIDR is updated.
+      # from the home network. It is a shared Imperva address, so this rule
+      # allows any site Imperva serves there, not only the County's. The
+      # cluster uses no toFQDNs rules, so if the address moves, the job fails
+      # closed (its connections time out) until this CIDR is updated.
       JOB_EGRESS_CIDR: 45.60.151.78/32

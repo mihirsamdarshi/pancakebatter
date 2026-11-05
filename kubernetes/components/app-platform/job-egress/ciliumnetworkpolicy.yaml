@@ -7,6 +7,16 @@
 # other pod of the app carries that label. No ingress section, so it opens
 # nothing inbound.
 #
+# The job pods are the only pods of the app with internet access, so they must
+# not also reach what the app's pods may reach: the app itself (its write
+# routes need no login) and, with `egress: claude-proxy`, the proxy and its
+# daily spend. The egressDeny rules close both for the job pods only. A deny
+# rule wins over every allow rule that selects the same pod, in any policy
+# (https://docs.cilium.io/en/v1.20/security/policy/deny/), so the namespace
+# policy's own-namespace and claude-proxy rules no longer apply to them. DNS
+# to kube-dns is not denied. The whole claude-proxy namespace is denied, not
+# only the proxy pods.
+#
 # A fixed CIDR, not a host name: the cluster uses no toFQDNs rules (the
 # claude-proxy policy follows the same pattern). The validator accepts only a
 # public IPv4 range from /16 to /32, outside the private ranges that
@@ -28,3 +38,12 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
+  egressDeny:
+    # The app and every other pod of its namespace.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ${APP_NAMESPACE}
+    # The Claude API proxy.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: claude-proxy

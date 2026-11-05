@@ -37,7 +37,8 @@
 #   4. `flux build ks --dry-run | kubeconform`, restricted pod fields and the
 #      route rules;
 #   5. the network policy, compared field by field with the design, and with
-#      job-egress the job's own policy; only the job's CronJob carries the
+#      job-egress the job's own policy (its allow rule and its deny rules for
+#      the own namespace and claude-proxy); only the job's CronJob carries the
 #      job pod label that policy selects;
 #   6. no credentials: no Secret reference in any pod spec, no service-account
 #      token, and gitleaks over the entries and every custom folder;
@@ -306,6 +307,26 @@ def hostbitszero: cidrnum | pow(2; 32 - .p) as $s | ((.a / $s) | floor) * $s == 
 # The except list of netpol-egress-internet (keep the two equal), plus "this
 # network" and loopback.
 def notpublic: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16", "192.0.0.0/24", "198.18.0.0/15", "224.0.0.0/3", "0.0.0.0/8", "127.0.0.0/8"];
+# The ranges the API server's cron parser accepts: each comma-separated item is
+# *, a value or a range a-b, optionally with a step /n (n >= 1). Month and
+# weekday also take names.
+def cronv($names): ascii_downcase as $x | if ($x | test("^[0-9]+$")) then ($x | tonumber) else ($names | index($x)) end;
+def cronitem($lo; $hi; $names):
+  (capture("^(?<a>\\*|[0-9A-Za-z]+)(-(?<b>[0-9A-Za-z]+))?(/(?<s>[0-9]+))?$") // {bad: true}) as $m
+  | if $m.bad then false
+    elif $m.s != null and ($m.s | tonumber) < 1 then false
+    elif $m.a == "*" then $m.b == null
+    else ($m.a | cronv($names)) as $from | (if $m.b == null then $from else ($m.b | cronv($names)) end) as $to
+      | $from != null and $to != null and $from >= $lo and $to <= $hi and $from <= $to
+    end;
+def cronfield($lo; $hi; $names): split(",") | all(.[]; cronitem($lo; $hi; $names));
+def cronranges: split(" ") as $f
+  | ($f[0] | cronfield(0; 59; [])) and ($f[1] | cronfield(0; 23; [])) and ($f[2] | cronfield(1; 31; []))
+    and ($f[3] | cronfield(1; 12; ["", "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]))
+    and ($f[4] | cronfield(0; 6; ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]));
+# A quantity in bytes (valid quantities only).
+def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|Gi|Ti)?$")
+  | (.n | tonumber) * {"": 1, "m": 0.001, "k": 1000, "M": 1000000, "G": 1000000000, "T": 1000000000000, "Ki": 1024, "Mi": 1048576, "Gi": 1073741824, "Ti": 1099511627776}[.u // ""];
 . as $e
 | (if ($e.spec.defaultValues | type) == "object" then $e.spec.defaultValues else {} end) as $d
 | (if ($d.vars | type) == "object" then $d.vars else {} end) as $v
@@ -410,6 +431,7 @@ def notpublic: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"
       (if ($v | has("JOB_EGRESS_CIDR")) and ($jobegress | not) then "vars.JOB_EGRESS_CIDR needs the job-egress part" else empty end),
       (if $job and ($v | has("JOB_SCHEDULE") | not) then "job needs vars.JOB_SCHEDULE, an explicit UTC cron string"
        elif ($v | has("JOB_SCHEDULE")) and (($v.JOB_SCHEDULE | cron | not) or ($v.JOB_SCHEDULE | test("^[0-9][0-9,/-]*( [0-9A-Za-z*,/-]+){4}$") | not)) then "vars.JOB_SCHEDULE must be a UTC cron string of five fields that starts with a digit (Flux drops the quotes, and YAML reads a leading * as an alias: write 0-59/15, not */15)"
+       elif ($v | has("JOB_SCHEDULE")) and ($v.JOB_SCHEDULE | cronranges | not) then "vars.JOB_SCHEDULE \($v.JOB_SCHEDULE) has a field out of range (minute 0-59, hour 0-23, day 1-31, month 1-12 or JAN-DEC, weekday 0-6 or SUN-SAT, steps from 1)"
        else empty end),
       (if $job and ($v | has("JOB_COMMAND") | not) then "job needs vars.JOB_COMMAND, the command to run from the app's image"
        elif ($v | has("JOB_COMMAND")) and (($v.JOB_COMMAND | isstr | not) or ($v.JOB_COMMAND | test("^[A-Za-z0-9 ./_=:-]{1,200}$") | not) or ($v.JOB_COMMAND | test("^ *$"))) then "vars.JOB_COMMAND may hold only letters, digits, spaces and ./_=:- (at most 200 characters): it runs under sh -c"
@@ -422,6 +444,7 @@ def notpublic: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"
       (if ($v.JOB_READ_PATH | jobpath) and ($v.JOB_WORK_PATH | jobpath)
           and ($v.JOB_READ_PATH == $v.JOB_WORK_PATH or ($v.JOB_WORK_PATH | startswith($v.JOB_READ_PATH + "/")) or ($v.JOB_READ_PATH | startswith($v.JOB_WORK_PATH + "/")))
        then "vars.JOB_READ_PATH \($v.JOB_READ_PATH) and vars.JOB_WORK_PATH \($v.JOB_WORK_PATH) must not equal or contain each other (the read mount is read only)" else empty end),
+      (if ($v | has("JOB_MEMORY_LIMIT")) and ($v.JOB_MEMORY_LIMIT | qty) and ($v.JOB_MEMORY_LIMIT | qtybytes) < ("64Mi" | qtybytes) then "vars.JOB_MEMORY_LIMIT must be at least 64Mi, the job container's memory request (components/app-platform/job/cronjob.yaml)" else empty end),
       (if ($v | has("JOB_DEADLINE")) and (($v.JOB_DEADLINE | tostring | test("^[1-9][0-9]{0,4}$") | not) or ($v.JOB_DEADLINE | tostring | tonumber) > 86400) then "vars.JOB_DEADLINE must be a whole number of seconds from 1 to 86400" else empty end),
       (if $jobegress then
          (if ($job | not) then "job-egress needs the job part (its policy selects the job pods)" else empty end),
@@ -511,8 +534,13 @@ def expected_egress: [
 def claude_proxy_rule: {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "claude-proxy", "app.kubernetes.io/name": "claude-proxy"}}],
    toPorts: port3000};
 def internet_except: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16", "192.0.0.0/24", "198.18.0.0/15", "224.0.0.0/3"];
-# job-egress: the job pods only, 443/TCP to the one CIDR, nothing inbound.
-def expected_job_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name": "\($name)-job"}}, egress: [{toCIDR: [$jobcidr], toPorts: [{ports: [{port: "443", protocol: "TCP"}]}]}]};
+# job-egress: the job pods only, 443/TCP to the one CIDR, nothing inbound, and
+# denied the own namespace and claude-proxy (a deny wins over the namespace
+# policy's allow rules for these pods).
+def expected_job_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name": "\($name)-job"}},
+  egress: [{toCIDR: [$jobcidr], toPorts: [{ports: [{port: "443", protocol: "TCP"}]}]}],
+  egressDeny: [{toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": $ns}}]},
+               {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "claude-proxy"}}]}]};
 # The labels of every pod template, by workload (the kinds pods_jq checks).
 def podlabels:
   .[] | select(type == "object" and .kind != null)
@@ -551,7 +579,7 @@ def podlabels:
          (if $jobegress then
             $jobpols[0] as $j
             | (if $j.kind != "CiliumNetworkPolicy" or $j.metadata.namespace != $ns then "the job policy must be a CiliumNetworkPolicy named \($name)-job in \($ns)" else empty end),
-              (if $j.spec != expected_job_spec then "the job policy \($name)-job must be exactly: endpointSelector app.kubernetes.io/name=\($name)-job, and egress to \($jobcidr) on 443/TCP only (no ingress)" else empty end)
+              (if $j.spec != expected_job_spec then "the job policy \($name)-job must be exactly: endpointSelector app.kubernetes.io/name=\($name)-job, egress to \($jobcidr) on 443/TCP only, egressDeny to the namespace \($ns) and to the namespace claude-proxy, and no ingress" else empty end)
           else empty end),
          ($pols[] | select(tojson | test("\"world\"|kube-apiserver|toEntities|toFQDNs")) | "the policy \(.metadata.name) has a world, kube-apiserver, toEntities or toFQDNs rule")
      end),

@@ -1,0 +1,29 @@
+---
+# expect: vars.JOB_EGRESS_CIDR must be an IPv4 CIDR a.b.c.d/n with a prefix from /16 to /32
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-job-egress-bad-cidr
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/job-egress-bad-cidr
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: job-egress-bad-cidr
+    parts: [pullsecret, internal-route, job, job-egress]
+    vars:
+      JOB_SCHEDULE: "0 11 * * 0"
+      JOB_COMMAND: bun jobs/refresh.ts
+      JOB_READ_PATH: content
+      JOB_WORK_PATH: feeds
+      JOB_EGRESS_CIDR: 45.60.151.78

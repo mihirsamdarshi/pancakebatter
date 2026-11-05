@@ -1,0 +1,28 @@
+---
+# expect: vars.JOB_COMMAND must not have a colon before a space or at the end
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-job-command-colon
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/job-command-colon
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: job-command-colon
+    parts: [pullsecret, internal-route, job]
+    vars:
+      JOB_SCHEDULE: "0 11 * * 0"
+      JOB_COMMAND: "bun x: y"
+      JOB_READ_PATH: content
+      JOB_WORK_PATH: feeds

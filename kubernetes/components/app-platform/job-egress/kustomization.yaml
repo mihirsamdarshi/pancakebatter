@@ -1,7 +1,8 @@
 ---
 # Internet access for the job pods only: port 443 to one fixed address range,
-# vars.JOB_EGRESS_CIDR. Needs the `job` part, and the default `netpol`. The
-# app's other pods get nothing from it. See "Scheduled jobs" in
+# vars.JOB_EGRESS_CIDR. In exchange the job pods can no longer reach the app's
+# namespace or claude-proxy. Needs the `job` part, and the default `netpol`.
+# The app's other pods get nothing from it. See "Scheduled jobs" in
 # kubernetes/apps/personal-apps/README.md.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component

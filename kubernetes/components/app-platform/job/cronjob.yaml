@@ -75,6 +75,8 @@ spec:
                 capabilities:
                   drop:
                     - ALL
+              # The validator rejects a JOB_MEMORY_LIMIT below this memory
+              # request (the API server would); change both together.
               resources:
                 requests:
                   cpu: 10m
