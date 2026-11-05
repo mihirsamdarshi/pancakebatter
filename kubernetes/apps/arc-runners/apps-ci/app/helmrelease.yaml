@@ -64,9 +64,6 @@ spec:
             env:
               - name: ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE
                 value: /home/runner/hook-template/content
-              # Must match the image above; a template cannot read it.
-              - name: ACTIONS_RUNNER_IMAGE
-                value: ghcr.io/actions/actions-runner:2.338.2@sha256:759a1d94a15b05941aba5196974ff43fe15b4cbba29b694b35cbc32a1166b232
             securityContext:
               allowPrivilegeEscalation: false
               capabilities:

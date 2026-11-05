@@ -3,6 +3,8 @@
 # (req 500m/1Gi/1Gi, limit 2/2Gi/6Gi): requests 550m/1.25Gi/1.25Gi, limits
 # 3/3Gi/7Gi. Two jobs: requests 1.1/2.5Gi/2.5Gi, limits 6/6Gi/14Gi. The hook
 # does not retry on `exceeded quota`, so the quota leaves headroom.
+# Raising the job limit (hook-template.yaml) needs the LimitRange max and the
+# quota here raised in the same change.
 apiVersion: v1
 kind: LimitRange
 metadata:

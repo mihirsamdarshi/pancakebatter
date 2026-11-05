@@ -40,17 +40,18 @@ spec:
             - port: "443"
               protocol: TCP
 ---
-# Policy 2: runner pods only (the chart labels them). The hook creates job
-# pods through the API server; job pods never reach it.
+# Policy 2: runner pods only. ARC 0.15.1 labels every runner pod
+# actions-ephemeral-runner=True (newEphemeralRunnerPod); the hook's job pods
+# do not carry it. The hook creates job pods through the API server; job pods
+# never reach it.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
   name: arc-runner-pod-apiserver
 spec:
   endpointSelector:
-    matchExpressions:
-      - key: actions.github.com/scale-set-name
-        operator: Exists
+    matchLabels:
+      actions-ephemeral-runner: "True"
   egress:
     - toEntities:
         - kube-apiserver

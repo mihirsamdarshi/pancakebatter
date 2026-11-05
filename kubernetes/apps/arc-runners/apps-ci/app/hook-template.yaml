@@ -12,7 +12,9 @@ data:
       automountServiceAccountToken: false
       # The hook sets no ownerReferences and no deadline. If a runner pod dies
       # (cancel, drain, OOM) the job pod would run `tail -f /dev/null` forever
-      # and hold quota. This cap is above the longest job timeout (30 min).
+      # and hold quota. This cap is above the longest job timeout today (30
+      # min). Jobs on apps-ci must set timeout-minutes of 45 or less (lint 10,
+      # check 30 today); a job without it is killed at 50 minutes.
       activeDeadlineSeconds: 3000
       securityContext:
         runAsNonRoot: true
@@ -21,6 +23,9 @@ data:
         fsGroup: 1001
         seccompProfile:
           type: RuntimeDefault
+      # Only the $job container gets the hardening and resources below. Service
+      # containers (`services:`) would get the pod-level settings and the
+      # LimitRange defaults only; apps has none today.
       containers:
         - name: $job
           securityContext:
@@ -29,6 +34,8 @@ data:
               drop:
                 - ALL
           # Fix the 2Gi after the canary measures check (quilt-planner).
+          # Raising the job limit later needs three files changed together:
+          # this limit, the LimitRange max and the ResourceQuota in limits.yaml.
           resources:
             requests:
               cpu: 500m
