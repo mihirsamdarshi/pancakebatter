@@ -1,0 +1,28 @@
+---
+# expect: must not equal or contain each other
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-job-paths-overlap
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/job-paths-overlap
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: job-paths-overlap
+    parts: [pullsecret, internal-route, job]
+    vars:
+      JOB_SCHEDULE: "0 11 * * 0"
+      JOB_COMMAND: bun jobs/refresh.ts
+      JOB_READ_PATH: content
+      JOB_WORK_PATH: content/inbox

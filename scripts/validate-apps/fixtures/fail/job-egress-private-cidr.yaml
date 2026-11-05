@@ -1,0 +1,29 @@
+---
+# expect: vars.JOB_EGRESS_CIDR 192.168.1.10/32 is not public
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-job-egress-private-cidr
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/job-egress-private-cidr
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: job-egress-private-cidr
+    parts: [pullsecret, internal-route, job, job-egress]
+    vars:
+      JOB_SCHEDULE: "0 11 * * 0"
+      JOB_COMMAND: bun jobs/refresh.ts
+      JOB_READ_PATH: content
+      JOB_WORK_PATH: feeds
+      JOB_EGRESS_CIDR: 192.168.1.10/32

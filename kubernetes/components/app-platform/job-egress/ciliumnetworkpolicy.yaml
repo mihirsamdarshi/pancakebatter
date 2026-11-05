@@ -1,0 +1,30 @@
+---
+# A second policy beside the namespace policy ${APP} (the netpol component).
+# Cilium adds up the policies that select a pod: the namespace policy keeps
+# default deny, DNS and the own namespace for every pod, and this one adds
+# 443/TCP to vars.JOB_EGRESS_CIDR for the job pods only. It selects them by the
+# label of the job component's pod template; the validator checks that no
+# other pod of the app carries that label. No ingress section, so it opens
+# nothing inbound.
+#
+# A fixed CIDR, not a host name: the cluster uses no toFQDNs rules (the
+# claude-proxy policy follows the same pattern). The validator accepts only a
+# public IPv4 range from /16 to /32, outside the private ranges that
+# netpol-egress-internet excepts and outside 0.0.0.0/8 and 127.0.0.0/8. If
+# the service moves to another address, the job fails closed: its connections
+# time out until the entry has the new CIDR.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ${APP}-job
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: ${APP}-job
+  egress:
+    - toCIDR:
+        - "${JOB_EGRESS_CIDR}"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

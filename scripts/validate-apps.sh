@@ -28,14 +28,17 @@
 #      ResourceSetInputProvider, and its kustomization.yaml lists exactly them;
 #      app/ holds only the known objects);
 #   1. the entry: only schema keys, names, parts, netpol/egress rules, env and
-#      vars rules, retain-class storage, unique schedules and namespaces;
+#      vars rules (with the scheduled job's command, paths and egress CIDR),
+#      retain-class storage, unique schedules and namespaces;
 #   2. `flux-operator build rset` for both ResourceSets (the CLI only takes
 #      Static providers, so type is rewritten and a fake digest injected);
 #   3. the rendered Kustomization: Orphan, wait, SOPS, string-only substitution,
 #      no name clash with a Kustomization in Git, no force annotation;
 #   4. `flux build ks --dry-run | kubeconform`, restricted pod fields and the
 #      route rules;
-#   5. the network policy, compared field by field with the design;
+#   5. the network policy, compared field by field with the design, and with
+#      job-egress the job's own policy; only the job's CronJob carries the
+#      job pod label that policy selects;
 #   6. no credentials: no Secret reference in any pod spec, no service-account
 #      token, and gitleaks over the entries and every custom folder;
 #   6a. custom `path` folders on their own: plain workload kinds only;
@@ -286,6 +289,23 @@ def cron: isstr and test("^[^ ]+( [^ ]+){4}$");
 def lbl: isstr and test("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$");
 def yamlword: isstr and (ascii_downcase | IN("y", "yes", "n", "no", "true", "false", "on", "off", "null"));
 def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+)?(m|k|M|G|T|Ki|Mi|Gi|Ti)?$"));
+# The scheduled job. Flux substitutes after kustomize has re-serialized the
+# CronJob, so quotes around ${JOB_...} are gone and each value must read as a
+# plain YAML string of the right type. A path starts with a letter (never a
+# number) and is not a YAML boolean or null word; its segments never start with
+# a dot (no hidden folder, no . or ..).
+def jobpath: isstr and test("^[A-Za-z][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$") and (yamlword | not);
+def octet: "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])";
+def cidr4: isstr and test("^\(octet)\\.\(octet)\\.\(octet)\\.\(octet)/(1[6-9]|2[0-9]|3[0-2])$");
+def cidrnum: split("/") | {a: (.[0] | split(".") | map(tonumber) | .[0] * 16777216 + .[1] * 65536 + .[2] * 256 + .[3]), p: (.[1] | tonumber)};
+# No bitwise operators in jq: two ranges overlap when their addresses agree on
+# the shorter of the two prefixes.
+def overlaps($o): (cidrnum) as $x | ($o | cidrnum) as $y | pow(2; 32 - ([$x.p, $y.p] | min)) as $s
+  | (($x.a / $s) | floor) == (($y.a / $s) | floor);
+def hostbitszero: cidrnum | pow(2; 32 - .p) as $s | ((.a / $s) | floor) * $s == .a;
+# The except list of netpol-egress-internet (keep the two equal), plus "this
+# network" and loopback.
+def notpublic: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16", "192.0.0.0/24", "198.18.0.0/15", "224.0.0.0/3", "0.0.0.0/8", "127.0.0.0/8"];
 . as $e
 | (if ($e.spec.defaultValues | type) == "object" then $e.spec.defaultValues else {} end) as $d
 | (if ($d.vars | type) == "object" then $d.vars else {} end) as $v
@@ -293,9 +313,9 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
 | (if ($d.name | isstr) then $d.name else "" end) as $name
 | (if ($d.namespace | isstr) then $d.namespace else $name end) as $ns
 | (if ($d.parts | type) == "array" then $d.parts else ["pullsecret", "internal-route", "backup"] end) as $parts
-| ["pullsecret", "internal-route", "family-route", "family-route-legacy", "backup", "backup-sqlite"] as $known
+| ["pullsecret", "internal-route", "family-route", "family-route-legacy", "backup", "backup-sqlite", "job", "job-egress"] as $known
 | ["name", "namespace", "parts", "netpol", "netpolReason", "egress", "pin", "env", "path", "vars"] as $topkeys
-| ["CLAIM", "STORAGE", "STORAGE_CLASS", "HEALTH_PATH", "APP_UID", "APP_GID", "DATA_PATH", "CPU", "MEMORY", "MEMORY_LIMIT", "IMAGE", "PULL_SECRET", "HOST", "FAMILY_HOST", "TITLE", "DESCRIPTION", "ICON", "SQLITE_DBS", "VOLSYNC_SCHEDULE", "SQLITE_SCHEDULE"] as $varkeys
+| ["CLAIM", "STORAGE", "STORAGE_CLASS", "HEALTH_PATH", "APP_UID", "APP_GID", "DATA_PATH", "CPU", "MEMORY", "MEMORY_LIMIT", "IMAGE", "PULL_SECRET", "HOST", "FAMILY_HOST", "TITLE", "DESCRIPTION", "ICON", "SQLITE_DBS", "VOLSYNC_SCHEDULE", "SQLITE_SCHEDULE", "JOB_SCHEDULE", "JOB_COMMAND", "JOB_READ_PATH", "JOB_WORK_PATH", "JOB_DEADLINE", "JOB_MEMORY_LIMIT", "JOB_EGRESS_CIDR"] as $varkeys
 | ["APP", "IMAGE_DIGEST", "APP_NAMESPACE", "VOLSYNC_NAMESPACE", "VOLSYNC_CLAIM"] as $reserved
 | [
     (if $e.apiVersion != "fluxcd.controlplane.io/v1" or $e.kind != "ResourceSetInputProvider" then "must be a fluxcd.controlplane.io/v1 ResourceSetInputProvider" else empty end),
@@ -363,7 +383,7 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
     (if ($v | has("STORAGE_CLASS")) and (($v.STORAGE_CLASS | tostring) | IN($retain[]) | not) then "vars.STORAGE_CLASS \($v.STORAGE_CLASS) is not a StorageClass with reclaimPolicy Retain in Git (\($retain | join(", ")))" else empty end),
     (($v.PULL_SECRET // "apps-ghcr") as $ps
       | if $ps != "apps-ghcr" and ($ps | tostring | IN($pullsecrets[]) | not) then "vars.PULL_SECRET \($ps) is not a Secret declared in Git" else empty end),
-    (("CPU", "MEMORY", "MEMORY_LIMIT", "STORAGE") as $k
+    (("CPU", "MEMORY", "MEMORY_LIMIT", "STORAGE", "JOB_MEMORY_LIMIT") as $k
       | if ($v | has($k)) and ($v[$k] | qty | not) then "vars.\($k) is not a Kubernetes quantity" else empty end),
     (if ($v | has("HEALTH_PATH")) and (($v.HEALTH_PATH | isstr | not) or ($v.HEALTH_PATH | startswith("/") | not)) then "vars.HEALTH_PATH must start with /" else empty end),
     (if ($v | has("DATA_PATH")) and (($v.DATA_PATH | isstr | not) or ($v.DATA_PATH | test("^/[^ ]*[^/ ]$") | not)) then "vars.DATA_PATH must be an absolute path without a trailing slash" else empty end),
@@ -383,6 +403,40 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
        (if ($v.SQLITE_SCHEDULE | cron | not) then "backup-sqlite needs vars.SQLITE_SCHEDULE, an explicit UTC cron string" else empty end),
        (if ($v.SQLITE_DBS | isstr | not) or $v.SQLITE_DBS == "" or ($v.SQLITE_DBS | test("(^| )/|\\.\\.")) then "backup-sqlite needs vars.SQLITE_DBS: space-separated paths relative to the volume, without .." else empty end)
      else empty end),
+    # scheduled job
+    ((($parts | index("job")) != null) as $job
+    | (($parts | index("job-egress")) != null) as $jobegress
+    | (($v | keys)[] | select(startswith("JOB_")) | select($job | not) | "vars.\(.) needs the job part"),
+      (if ($v | has("JOB_EGRESS_CIDR")) and ($jobegress | not) then "vars.JOB_EGRESS_CIDR needs the job-egress part" else empty end),
+      (if $job and ($v | has("JOB_SCHEDULE") | not) then "job needs vars.JOB_SCHEDULE, an explicit UTC cron string"
+       elif ($v | has("JOB_SCHEDULE")) and (($v.JOB_SCHEDULE | cron | not) or ($v.JOB_SCHEDULE | test("^[0-9][0-9,/-]*( [0-9A-Za-z*,/-]+){4}$") | not)) then "vars.JOB_SCHEDULE must be a UTC cron string of five fields that starts with a digit (Flux drops the quotes, and YAML reads a leading * as an alias: write 0-59/15, not */15)"
+       else empty end),
+      (if $job and ($v | has("JOB_COMMAND") | not) then "job needs vars.JOB_COMMAND, the command to run from the app's image"
+       elif ($v | has("JOB_COMMAND")) and (($v.JOB_COMMAND | isstr | not) or ($v.JOB_COMMAND | test("^[A-Za-z0-9 ./_=:-]{1,200}$") | not) or ($v.JOB_COMMAND | test("^ *$"))) then "vars.JOB_COMMAND may hold only letters, digits, spaces and ./_=:- (at most 200 characters): it runs under sh -c"
+       elif ($v | has("JOB_COMMAND")) and ($v.JOB_COMMAND | test(":( |$)")) then "vars.JOB_COMMAND must not have a colon before a space or at the end (after substitution YAML would read it as a map)"
+       else empty end),
+      (("JOB_READ_PATH", "JOB_WORK_PATH") as $k
+        | if $job and ($v | has($k) | not) then "job needs vars.\($k), a folder relative to the volume root"
+          elif ($v | has($k)) and ($v[$k] | jobpath | not) then "vars.\($k) must be a relative path that starts with a letter, without .. or hidden segments, and not a YAML boolean or null word"
+          else empty end),
+      (if ($v.JOB_READ_PATH | jobpath) and ($v.JOB_WORK_PATH | jobpath)
+          and ($v.JOB_READ_PATH == $v.JOB_WORK_PATH or ($v.JOB_WORK_PATH | startswith($v.JOB_READ_PATH + "/")) or ($v.JOB_READ_PATH | startswith($v.JOB_WORK_PATH + "/")))
+       then "vars.JOB_READ_PATH \($v.JOB_READ_PATH) and vars.JOB_WORK_PATH \($v.JOB_WORK_PATH) must not equal or contain each other (the read mount is read only)" else empty end),
+      (if ($v | has("JOB_DEADLINE")) and (($v.JOB_DEADLINE | tostring | test("^[1-9][0-9]{0,4}$") | not) or ($v.JOB_DEADLINE | tostring | tonumber) > 86400) then "vars.JOB_DEADLINE must be a whole number of seconds from 1 to 86400" else empty end),
+      (if $jobegress then
+         (if ($job | not) then "job-egress needs the job part (its policy selects the job pods)" else empty end),
+         (if $d.netpol == false then "job-egress has no meaning with netpol: false" else empty end),
+         (if ($v | has("JOB_EGRESS_CIDR") | not) then "job-egress needs vars.JOB_EGRESS_CIDR, a public IPv4 CIDR from /16 to /32" else empty end)
+       else empty end),
+      (if ($v | has("JOB_EGRESS_CIDR")) then
+         (if ($v.JOB_EGRESS_CIDR | cidr4 | not) then "vars.JOB_EGRESS_CIDR must be an IPv4 CIDR a.b.c.d/n with a prefix from /16 to /32"
+          elif ($v.JOB_EGRESS_CIDR | hostbitszero | not) then "vars.JOB_EGRESS_CIDR \($v.JOB_EGRESS_CIDR) has host bits set (write the network address of the range)"
+          else
+            ($v.JOB_EGRESS_CIDR) as $c
+            | [notpublic[] | select(. as $r | $c | overlaps($r))]
+            | if length > 0 then "vars.JOB_EGRESS_CIDR \($c) is not public: it overlaps \(join(", "))" else empty end
+          end)
+       else empty end)),
     # path
     (if ($d | has("path")) then
        (if ($d.path | isstr | not) then "path must be a string"
@@ -457,17 +511,28 @@ def expected_egress: [
 def claude_proxy_rule: {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "claude-proxy", "app.kubernetes.io/name": "claude-proxy"}}],
    toPorts: port3000};
 def internet_except: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16", "192.0.0.0/24", "198.18.0.0/15", "224.0.0.0/3"];
+# job-egress: the job pods only, 443/TCP to the one CIDR, nothing inbound.
+def expected_job_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name": "\($name)-job"}}, egress: [{toCIDR: [$jobcidr], toPorts: [{ports: [{port: "443", protocol: "TCP"}]}]}]};
+# The labels of every pod template, by workload (the kinds pods_jq checks).
+def podlabels:
+  .[] | select(type == "object" and .kind != null)
+  | if .kind == "Pod" then {id: "Pod/\(.metadata.name)", labels: (.metadata.labels // {})}
+    elif (.kind | IN("Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job")) then {id: "\(.kind)/\(.metadata.name)", labels: (.spec.template.metadata.labels // {})}
+    elif .kind == "CronJob" then {id: "CronJob/\(.metadata.name)", labels: (.spec.jobTemplate.spec.template.metadata.labels // {})}
+    else empty end;
 . as $all
 | [.[] | select(type == "object" and (.kind | IN("CiliumNetworkPolicy", "CiliumClusterwideNetworkPolicy", "NetworkPolicy")))] as $pols
+| (if $jobegress then [$pols[] | select(.metadata.name == "\($name)-job")] else [] end) as $jobpols
 | [.[] | select(type == "object" and .kind == "HTTPRoute")] as $routes
 | [.[] | select(type == "object" and .kind == "BackendTrafficPolicy")] as $btps
 | [
-    # Network policy.
+    # Network policy: the namespace policy, plus the job's own with job-egress.
     (if $netpol | not then
        (if ($pols | length) > 0 then "netpol: false must render no network policy" else empty end)
-     elif ($pols | length) != 1 then "expected exactly one CiliumNetworkPolicy, found \($pols | length)"
+     elif ($jobegress | not) and ($pols | length) != 1 then "expected exactly one CiliumNetworkPolicy, found \($pols | length)"
+     elif $jobegress and (($pols | length) != 2 or ($jobpols | length) != 1) then "with job-egress, expected exactly two CiliumNetworkPolicies, \($name) and \($name)-job, found \($pols | length): \([$pols[] | .metadata.name] | join(", "))"
      else
-       $pols[0] as $p
+       ($pols - $jobpols)[0] as $p
        | (if $p.kind != "CiliumNetworkPolicy" or $p.metadata.name != $name or $p.metadata.namespace != $ns then "the policy must be a CiliumNetworkPolicy named \($name) in \($ns)" else empty end),
          (if $p.spec.endpointSelector != {} then "endpointSelector must be exactly {} (namespace-wide)" else empty end),
          (if ($p.spec | keys) != ["egress", "endpointSelector", "ingress"] then "the policy spec has keys other than endpointSelector, ingress and egress" else empty end),
@@ -483,8 +548,23 @@ def internet_except: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0
             (if $p.spec.egress != expected_egress + [claude_proxy_rule] then "egress must be the own-namespace rule, kube-dns on 53, then the claude-proxy pods on 3000/TCP" else empty end)
           elif $p.spec.egress != expected_egress then "egress is not: own namespace, kube-dns on 53 UDP and TCP"
           else empty end),
-         (if ($p | tojson | test("\"world\"|kube-apiserver|toEntities|toFQDNs")) then "the policy has a world, kube-apiserver, toEntities or toFQDNs rule" else empty end)
+         (if $jobegress then
+            $jobpols[0] as $j
+            | (if $j.kind != "CiliumNetworkPolicy" or $j.metadata.namespace != $ns then "the job policy must be a CiliumNetworkPolicy named \($name)-job in \($ns)" else empty end),
+              (if $j.spec != expected_job_spec then "the job policy \($name)-job must be exactly: endpointSelector app.kubernetes.io/name=\($name)-job, and egress to \($jobcidr) on 443/TCP only (no ingress)" else empty end)
+          else empty end),
+         ($pols[] | select(tojson | test("\"world\"|kube-apiserver|toEntities|toFQDNs")) | "the policy \(.metadata.name) has a world, kube-apiserver, toEntities or toFQDNs rule")
      end),
+    # The job pod label is what the job-egress policy selects: only the job's
+    # CronJob may carry it, and with `job` that CronJob carries it.
+    ([$all | podlabels | select(.labels["app.kubernetes.io/name"] == "\($name)-job" and .id != "CronJob/\($name)-job")][]
+      | "\(.id) carries the label app.kubernetes.io/name=\($name)-job, which only the CronJob \($name)-job may carry (the job-egress policy selects it)"),
+    (if ($parts | index("job")) != null then
+       ([$all | podlabels | select(.id == "CronJob/\($name)-job")]
+        | if length != 1 then "job renders no CronJob \($name)-job"
+          elif .[0].labels["app.kubernetes.io/name"] != "\($name)-job" then "CronJob \($name)-job: the pod label app.kubernetes.io/name must be \($name)-job"
+          else empty end)
+     else empty end),
     # Routes: the internal route is default, the family route only on request.
     ($routes[] | .metadata.name as $rn
       | (if .metadata.namespace != $ns then "HTTPRoute \($rn) is not in \($ns)" else empty end),
@@ -540,7 +620,7 @@ check_custom_path() {
 
 validate_entry() {
     local file="$1" stem fx=false errs name ns path parts_json pull_json host famhost netpol egress
-    local sub_ok count secret_pull n nsdir nsroot
+    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot
     stem="$(basename "$file" .yaml)"
     entry_label="$stem"
     case "$file" in "$fixtures_dir"/*) fx=true ;; esac
@@ -566,6 +646,8 @@ validate_entry() {
     netpol="$(yq '.spec.defaultValues.netpol' "$file")"
     if [[ "$netpol" == "null" ]]; then netpol=true; fi
     egress="$(yq '.spec.defaultValues.egress // "none"' "$file")"
+    jobegress="$(echo "$parts_json" | jq 'index("job-egress") != null')"
+    jobcidr="$(yq '.spec.defaultValues.vars.JOB_EGRESS_CIDR // ""' "$file")"
     pull_json="$(yq -o=json -I=0 '["apps-ghcr", (.spec.defaultValues.vars.PULL_SECRET // "apps-ghcr")]' "$file")"
 
     if [[ "$netpol" == "false" ]]; then
@@ -653,6 +735,7 @@ validate_entry() {
     [[ -z "$errs" ]] || fail "pods: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
     errs="$(jq -r --arg ns "$ns" --arg name "$name" --argjson netpol "$netpol" --arg egress "$egress" \
         --argjson parts "$parts_json" --arg host "$host" --arg famhost "$famhost" \
+        --argjson jobegress "$jobegress" --arg jobcidr "$jobcidr" \
         --arg local "$fake_local" --arg family "$fake_family" "$netpol_jq" "$tmp/build.json")"
     [[ -z "$errs" ]] || fail "network policy or routes: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
 

@@ -1,0 +1,30 @@
+---
+# expect: carries the label app.kubernetes.io/name=custom-job-label-job
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-custom-job-label
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/custom-job-label
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: custom-job-label
+    parts: [pullsecret, job, job-egress]
+    path: ./scripts/validate-apps/fixtures/custom/job-label
+    vars:
+      JOB_SCHEDULE: "0 11 * * 0"
+      JOB_COMMAND: bun jobs/refresh.ts
+      JOB_READ_PATH: content
+      JOB_WORK_PATH: feeds
+      JOB_EGRESS_CIDR: 203.0.113.10/32

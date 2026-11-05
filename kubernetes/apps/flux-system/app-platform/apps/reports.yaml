@@ -3,9 +3,10 @@
 # image seeds the reports onto the data volume once; after that the volume (a
 # git repository) is the source of truth, so it is backed up. The agent's model
 # calls go only to the claude-proxy service (egress: claude-proxy), which holds
-# the Anthropic API key outside the platform; this namespace holds no key and
-# has no internet access. Family members reach it through the family-apps
-# share at reports.family.<zone>, with the same access as the LAN: reading,
+# the Anthropic API key outside the platform; this namespace holds no key, and
+# the app pod has no internet access. Only the weekly job pod (below) reaches
+# one public address, on 443. Family members reach the app through the
+# family-apps share at reports.family.<zone>, with the same access as the LAN: reading,
 # agent runs (within the proxy's daily cap), publish and undo. Delete this
 # entry (and its line in kustomization.yaml) to stop updating it; the workload
 # keeps running until it is removed by hand.
@@ -28,7 +29,7 @@ spec:
     limit: 1
   defaultValues:
     name: reports
-    parts: [pullsecret, internal-route, family-route, backup]
+    parts: [pullsecret, internal-route, family-route, backup, job, job-egress]
     egress: claude-proxy
     vars:
       TITLE: Reports
@@ -43,3 +44,20 @@ spec:
       MEMORY: 512Mi
       MEMORY_LIMIT: 2Gi
       VOLSYNC_SCHEDULE: "0 13 * * *"
+      # The weekly job refreshes a collection's County data: LA County's public
+      # eGIS parcel layer and the Assessor portal. It reads the live reports read
+      # only and writes a batch into the feeds inbox, which the app commits. The
+      # app side (the feeds inbox and jobs/county-parcels.ts) is in apps PR #27,
+      # which must be deployed before this change merges. Sundays at 11:00 UTC,
+      # two hours before the backup, with 45 minutes to finish.
+      JOB_SCHEDULE: "0 11 * * 0"
+      JOB_COMMAND: bun jobs/county-parcels.ts west-la
+      JOB_READ_PATH: content
+      JOB_WORK_PATH: feeds
+      JOB_DEADLINE: "2700"
+      # Both County hosts (public.gis.lacounty.gov and portal.assessor.lacounty.gov)
+      # resolved to this one Imperva CDN address when checked on Nov 4, 2026
+      # from the home network. The cluster uses no toFQDNs rules, so if the
+      # address moves, the job fails closed (its connections time out) until
+      # this CIDR is updated.
+      JOB_EGRESS_CIDR: 45.60.151.78/32

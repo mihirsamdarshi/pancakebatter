@@ -1,0 +1,12 @@
+---
+# A scheduled job: the CronJob ${APP}-job runs a command from the app's own
+# image, at the same digest as the Deployment, on vars.JOB_SCHEDULE. It reads
+# one folder of the data volume and writes to another. Needs vars.JOB_SCHEDULE,
+# vars.JOB_COMMAND, vars.JOB_READ_PATH and vars.JOB_WORK_PATH. The pod gets no
+# more network than the app's pods; `job-egress` opens one address on 443 for
+# the job pods only. See "Scheduled jobs" in
+# kubernetes/apps/personal-apps/README.md.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - ./cronjob.yaml

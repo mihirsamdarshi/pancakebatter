@@ -1,0 +1,100 @@
+---
+# The app's own image at the same digest as the Deployment, so the job and the
+# app always run the same release. The command runs as
+# `/bin/sh -c "exec <JOB_COMMAND>"` from the image's working directory; the
+# validator allows only letters, digits, spaces and ./_=:- in it, so the shell
+# sees no quotes, variables, globs or separators. The image needs /bin/sh.
+#
+# Two mounts of the app's data volume: vars.JOB_READ_PATH read only at
+# /job/read, and vars.JOB_WORK_PATH read and write at /job/work (paths relative
+# to the volume root; the validator keeps them apart). The job finds them in
+# JOB_READ_DIR and JOB_WORK_DIR. The app picks up what the job writes.
+#
+# The volume is a node-local RWO volume: the scheduler places the pod on the
+# volume's node, and an RWO volume can be mounted by several pods of one node,
+# so the job runs beside the app (as the sqlite-export job does).
+#
+# The pod label app.kubernetes.io/name=${APP}-job is what the job-egress policy
+# selects. The validator checks that no other pod of the app carries it.
+#
+# Pod Security `restricted`, the app's uid and gid, no service-account token,
+# and no Secret except the image pull Secret. activeDeadlineSeconds is
+# unquoted so that it is an integer after substitution, as runAsUser is.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ${APP}-job
+spec:
+  # Set so that Flux owns the field: a `kubectl patch` that suspends the job
+  # lasts only until the next reconcile. To stop the job, remove the part.
+  suspend: false
+  # UTC.
+  schedule: "${JOB_SCHEDULE}"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  # A run that the controller missed by up to an hour (a restart, a drain)
+  # still starts; after that it waits for the next slot.
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # No retry: a failed run waits for the next slot. Its pod and log stay
+      # in the failed Job until the history limit removes it.
+      backoffLimit: 0
+      activeDeadlineSeconds: ${JOB_DEADLINE:=3600}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ${APP}-job
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          imagePullSecrets:
+            - name: ${PULL_SECRET:=apps-ghcr}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: ${APP_UID:=1000}
+            runAsGroup: ${APP_GID:=1000}
+            fsGroup: ${APP_GID:=1000}
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: job
+              image: ${IMAGE:=ghcr.io/mihirsamdarshi/apps/${APP}}@${IMAGE_DIGEST}
+              command: ["/bin/sh", "-c", "exec ${JOB_COMMAND}"]
+              env:
+                - name: JOB_READ_DIR
+                  value: /job/read
+                - name: JOB_WORK_DIR
+                  value: /job/work
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: ${JOB_MEMORY_LIMIT:=512Mi}
+              volumeMounts:
+                - name: data
+                  mountPath: /job/read
+                  subPath: "${JOB_READ_PATH}"
+                  readOnly: true
+                - name: data
+                  mountPath: /job/work
+                  subPath: "${JOB_WORK_PATH}"
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: ${CLAIM:=${APP}-data}
+            - name: tmp
+              emptyDir:
+                sizeLimit: 128Mi
