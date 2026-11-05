@@ -12,8 +12,9 @@ spec:
   interval: 1h
   values:
     # The chart installs and upgrades its CRDs (default true) from its
-    # templates, so the cluster-wide CreateReplace patch does not cover them;
-    # helm-controller applies them server-side, which the large CRDs need.
+    # templates, so the cluster-wide CreateReplace patch does not cover them.
+    # They are large: helm-controller's install.serverSideApply defaults to true
+    # and upgrades follow the install method (HelmRelease docs, "auto").
     installCRDs: true
     crds:
       # An uninstall must not delete the CRDs: that would delete every
