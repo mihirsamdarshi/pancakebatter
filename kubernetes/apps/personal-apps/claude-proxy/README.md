@@ -23,9 +23,10 @@ One restricted namespace, `claude-proxy`, outside the personal app platform:
 - the API key from the Secret `claude-proxy-credentials` (key
   `anthropic-api-key`), mounted read-only at `/run/credentials`, mode 0440;
 - a pull Secret `claude-proxy-registry` with a read-only GHCR credential;
-- a CiliumNetworkPolicy. Ingress: port 3000 from the reports app pods only
-  (label `app.kubernetes.io/name: reports` in the `reports` namespace, not its
-  scheduled job or other pods) and from the node (kubelet probes). Egress:
+- a CiliumNetworkPolicy. Ingress: port 3000 from the app pods of the reports
+  and job-tracker platform apps only (label `app.kubernetes.io/name: <app>` in
+  the namespace of the same name, not their scheduled jobs, export jobs or
+  other pods) and from the node (kubelet probes). Egress:
   cluster DNS, and port 443 on Anthropic's published inbound IPv4 ranges only,
   `160.79.104.0/23` and `153.61.224.0/22`
   ([IP addresses](https://platform.claude.com/docs/en/api/ip-addresses),
@@ -131,16 +132,19 @@ bash scripts/validate-kubernetes.sh
 
 It passes only when both SOPS files exist.
 
-### 5. Let the reports app reach the proxy
+### 5. Let the reports and job-tracker apps reach the proxy
 
-This policy admits only the reports app pods: the label
-`app.kubernetes.io/name: reports` that the platform's base Deployment sets, in
-the `reports` namespace. The reports entry sets
+This policy admits only the app pods of two platform apps, reports and
+job-tracker: the label `app.kubernetes.io/name: <app>` that the platform's base
+Deployment sets, in the namespace of the same name. Both entries set
 `egress: claude-proxy`, a platform egress mode that adds only these pods on
 3000/TCP to the app's default-deny policy
-(`kubernetes/components/app-platform/netpol-egress-claude-proxy/`). The app
+(`kubernetes/components/app-platform/netpol-egress-claude-proxy/`). Each app
 calls `http://claude-proxy.claude-proxy.svc.cluster.local:3000` and sends a
-placeholder key that this proxy replaces, so the app namespace holds no key.
+placeholder key that this proxy replaces, so neither app namespace holds a key.
+The two apps share the one `DAILY_CAP_USD`. To admit another app, add a
+`matchLabels` item for it to the policy's `fromEndpoints` list, in a reviewed
+change.
 
 ## Checks after the merge
 

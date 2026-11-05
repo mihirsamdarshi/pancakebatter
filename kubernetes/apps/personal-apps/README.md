@@ -286,7 +286,8 @@ directory, so the image needs `/bin/sh`. One run at a time, no retry, at most
   policy ([Deny Policies](https://docs.cilium.io/en/v1.20/security/policy/deny/)),
   so the namespace policy's own-namespace and claude-proxy rules no longer
   apply to the job pods. DNS still works. The proxy's own policy also admits
-  only the reports app pods, not the job.
+  only the app pods of the apps it lists (reports and job-tracker), not their
+  jobs.
 - **Why a fixed CIDR:** the cluster uses no `toFQDNs` rules, so the policy
   names an address, not a host. If the host moves to another address, the job
   fails closed: its connections time out until the entry has the new CIDR. A

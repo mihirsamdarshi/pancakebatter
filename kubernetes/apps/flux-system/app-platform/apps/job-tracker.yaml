@@ -1,0 +1,41 @@
+---
+# job-tracker: a job scout and application tracker. The app runs a
+# job-research scout whose only model and web access is the claude-proxy
+# service (egress: claude-proxy), which holds the Anthropic API key outside the
+# platform; this namespace holds no key, and the app pod has no internet
+# access. The proxy's daily cap is shared with the reports app, so the app
+# keeps its own daily budget and backs off when the proxy's shared daily spend
+# reaches half its cap. The tracker's data is one SQLite database on the data
+# volume, exported and backed up nightly. Delete this entry (and its line in
+# kustomization.yaml) to stop updating it; the workload keeps running until it
+# is removed by hand.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-job-tracker
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/job-tracker
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: job-tracker
+    parts: [pullsecret, internal-route, backup, backup-sqlite]
+    egress: claude-proxy
+    vars:
+      TITLE: Job Tracker
+      DESCRIPTION: Job scout and application tracker
+      ICON: mdi-briefcase-search
+      SQLITE_DBS: job-tracker.db
+      MEMORY: 256Mi
+      MEMORY_LIMIT: 512Mi
+      VOLSYNC_SCHEDULE: "15 13 * * *"
+      SQLITE_SCHEDULE: "5 13 * * *"
