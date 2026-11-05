@@ -11,11 +11,15 @@ spec:
     name: external-secrets
   interval: 1h
   values:
-    # The chart installs and upgrades its CRDs (default true). They exceed the
-    # 256 KB annotation limit, so they must be applied server-side; the live
-    # check of this is part of the rollout.
+    # The chart installs and upgrades its CRDs (default true) from its
+    # templates, so the cluster-wide CreateReplace patch does not cover them;
+    # helm-controller applies them server-side, which the large CRDs need.
     installCRDs: true
     crds:
+      # An uninstall must not delete the CRDs: that would delete every
+      # ExternalSecret and, through ownerReferences, the Secrets they own.
+      annotations:
+        helm.sh/resource-policy: keep
       # The pilot needs neither cross-namespace copies, writes to 1Password nor
       # generators. Each create flag is paired with its process flag below, or
       # the controller would watch a kind whose CRD is missing.
@@ -58,3 +62,9 @@ spec:
         enabled: true
     serviceMonitor:
       enabled: true
+      # The metrics carry their own namespace and name labels (the
+      # ExternalSecret's). Without honorLabels Prometheus renames them to
+      # exported_namespace and the alert would name external-secrets. The
+      # auto-generated `up` series is not affected (it keeps the target's
+      # namespace).
+      honorLabels: true

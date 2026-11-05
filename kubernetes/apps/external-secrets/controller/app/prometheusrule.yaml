@@ -1,7 +1,8 @@
 ---
 # Delivery alerts for External Secrets. Only externalsecret_* and up are used:
 # the guardrails scrape class drops go_* (except a short list), workqueue_* and
-# histogram buckets. Unit tests: scripts/validate-rules/external-secrets.test.yaml.
+# histogram buckets. The ServiceMonitor sets honorLabels: true so the metric's
+# own namespace and name labels (used below) are kept. Unit tests: scripts/validate-rules/external-secrets.test.yaml.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
