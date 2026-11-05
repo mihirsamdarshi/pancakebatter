@@ -7,3 +7,4 @@ namespace: external-secrets
 resources:
   - ./namespace.yaml
   - ./controller/ks.yaml
+  - ./stores/ks.yaml

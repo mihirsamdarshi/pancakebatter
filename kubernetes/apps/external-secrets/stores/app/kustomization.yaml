@@ -1,0 +1,8 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # TODO(owner step 4, then `just external-secrets token-secret`): add
+  # ./onepassword-service-account.sops.yaml here once the encrypted file exists.
+  # Do not merge before that: the store cannot become Ready without the token.
+  - ./clustersecretstore.yaml
