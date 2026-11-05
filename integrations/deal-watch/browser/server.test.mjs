@@ -157,3 +157,36 @@ test("drainPending waits for handlers added while waiting, within the cap", asyn
   await drainPending([new Promise(() => {})], 80);
   assert.ok(Date.now() - t0 < 1000);
 });
+
+import { blockReason, netErrorToken, observeLine } from "./server.mjs";
+
+test("blockReason tells the captcha from block text and agrees with detectBlocked", () => {
+  assert.equal(blockReason({ hasCaptcha: true }), "captcha");
+  assert.equal(blockReason({ title: "Access Denied" }), "block-text");
+  assert.equal(blockReason({ title: "PlayStation 5 : Target" }), null);
+  for (const dom of [{ hasCaptcha: true }, { text: "captcha" }, { title: "ok" }])
+    assert.equal(detectBlocked(dom), blockReason(dom) !== null);
+});
+
+test("netErrorToken keeps only the Chromium token", () => {
+  assert.equal(netErrorToken(new Error("page.goto: net::ERR_CONNECTION_RESET at https://www.target.com/p/-/A-1")), "net::ERR_CONNECTION_RESET");
+  assert.equal(netErrorToken(new Error("Timeout 45000ms exceeded")), null);
+  assert.equal(netErrorToken(null), null);
+});
+
+test("observeLine has only the allowed keys and no request data", () => {
+  const keys = ["event", "retailer", "status", "blocked", "reason", "net", "responses", "ms"];
+  const ok = JSON.parse(observeLine("target", 200, { blocked: true, error: null, responses: [{ path: "/secret", body: { price: 9 } }] }, { blockReason: "captcha", net: null }, 12));
+  assert.deepEqual(Object.keys(ok), keys);
+  assert.deepEqual(ok, { event: "observe", retailer: "target", status: 200, blocked: true, reason: "captcha", net: null, responses: 1, ms: 12 });
+  const nav = JSON.parse(observeLine("bestbuy", 200, { blocked: false, error: "navigation", responses: [] }, { net: "net::ERR_CONNECTION_RESET" }, 5));
+  assert.equal(nav.reason, "navigation");
+  assert.equal(nav.net, "net::ERR_CONNECTION_RESET");
+  const late = JSON.parse(observeLine("bestbuy", 200, { blocked: false, error: "timeout", responses: [] }, { net: "net::ERR_X" }, 5));
+  assert.equal(late.net, null);
+  const bad = JSON.parse(observeLine("target", 200, { blocked: false, error: "navigation", responses: [] }, { net: "https://x.test/?id=1" }, 5));
+  assert.equal(bad.net, null);
+  const busy = JSON.parse(observeLine("target", 429, null, {}, 0));
+  assert.deepEqual(Object.keys(busy), keys);
+  assert.equal(busy.reason, null);
+});

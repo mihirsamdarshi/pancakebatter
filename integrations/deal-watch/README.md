@@ -220,6 +220,15 @@ entrypoint. `/healthz` reports app-cycle readiness and whether Discord is config
 it does not assert retailer availability. Source freshness/errors remain visible
 in the dashboard. Credentials and upstream response bodies never enter logs.
 
+Each attempted retailer check logs one line,
+`{"event":"check","retailer":"sony","outcome":"ok","ms":412}`; `outcome` is `ok` or the
+failure code (`access-denied`, `throttled`, `network`, `invalid-data`, `unsupported`).
+The browser service logs one line per served `/observe` request,
+`{"event":"observe","retailer":"target","status":200,"blocked":true,"reason":"captcha","net":null,"responses":2,"ms":31874}`;
+`reason` is `captcha`, `block-text`, `timeout`, `navigation` or `null`, and `net` is
+only a Chromium token such as `net::ERR_CONNECTION_RESET`, or `null`. Neither line
+carries product IDs, prices, URLs, page text or error messages.
+
 ## Coordinated upgrade required
 
 This worker and the multi-offer app use policy version `2026-11-04.1` (adds the `verify` availability and typed outbox events). The earlier

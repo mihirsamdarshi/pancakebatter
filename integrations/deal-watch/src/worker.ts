@@ -48,6 +48,10 @@ export interface Options {
   startupDelay?: boolean;
   allowLocalHttp?: boolean;
 }
+/** One outcome-only line per attempted retailer check: no ids, prices, URLs or error text. */
+export function checkLine(retailer: Retailer, outcome: string, ms: number): string {
+  return JSON.stringify({ event: "check", retailer, outcome, ms });
+}
 export class Worker {
   readonly policyVersion: string;
   readonly watches: Watch[];
@@ -210,6 +214,8 @@ export class Worker {
           | { error: string; retryAfterMs: number };
         const key = `${watch.id}/${binding.id}`;
         const task = claim.lease.task;
+        const checkStart = Date.now();
+        let outcome = "ok";
         const itemId =
           isObject(task) &&
           task.kind === "item" &&
@@ -263,6 +269,7 @@ export class Worker {
               error instanceof UpstreamError ? error : new UpstreamError("invalid-data"),
             count = Math.min((this.failures.get(retailer) ?? 0) + 1, 12);
           this.failures.set(retailer, count);
+          outcome = failure.code;
           const delay = Math.max(
             budgets[retailer] * Math.min(2 ** count, 32),
             failure.retryAfterMs,
@@ -275,6 +282,7 @@ export class Worker {
             this.cache.delete(key);
           result = { error: failure.code, retryAfterMs: delay };
         }
+        console.log(checkLine(retailer, outcome, Date.now() - checkStart));
         // If scheduling/results cannot be persisted, stop this cycle; do not continue upstream work.
         await this.api("/api/checks/complete", {
           watchId: watch.id,

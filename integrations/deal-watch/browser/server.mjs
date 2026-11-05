@@ -98,9 +98,39 @@ export function isCaptchaVisible(rec) {
   return Array.isArray(rec.descendants) && rec.descendants.slice(0, 50).some(recVisible);
 }
 
-export function detectBlocked({ title = "", h1 = [], text = "", hasCaptcha = false, captchas = [] }) {
-  if (hasCaptcha || captchas.some((c) => isCaptchaVisible(c))) return true;
-  return BLOCK_TEXT.test(`${title}\n${h1.join("\n")}\n${text}`);
+// Why a page counts as blocked: "captcha", "block-text", or null. detectBlocked decides from this.
+export function blockReason({ title = "", h1 = [], text = "", hasCaptcha = false, captchas = [] }) {
+  if (hasCaptcha || captchas.some((c) => isCaptchaVisible(c))) return "captcha";
+  return BLOCK_TEXT.test(`${title}\n${h1.join("\n")}\n${text}`) ? "block-text" : null;
+}
+
+export function detectBlocked(dom) {
+  return blockReason(dom) !== null;
+}
+
+// Only a Chromium network error token ever leaves a navigation error; never its message.
+export function netErrorToken(e) {
+  const m = /net::(ERR_[A-Z0-9_]+)/.exec(String((e && e.message) || ""));
+  return m ? `net::${m[1]}` : null;
+}
+
+// The one log line per /observe request: outcome only, no path, id, URL, text or body.
+// `status` is the HTTP status returned; `result` the observation (null when none was made).
+export function observeLine(retailer, status, result, state, ms) {
+  let reason = null;
+  if (result && result.blocked) reason = state.blockReason ?? null;
+  else if (result && (result.error === "timeout" || result.error === "navigation")) reason = result.error;
+  const net = reason === "navigation" && typeof state.net === "string" && /^net::ERR_[A-Z0-9_]+$/.test(state.net) ? state.net : null;
+  return JSON.stringify({
+    event: "observe",
+    retailer,
+    status,
+    blocked: !!(result && result.blocked),
+    reason,
+    net,
+    responses: result && Array.isArray(result.responses) ? result.responses.length : 0,
+    ms,
+  });
 }
 
 export function hostMatches(retailer, finalUrl) {
@@ -290,6 +320,7 @@ async function main() {
         await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
       } catch (e) {
         result.error = classifyError(e);
+        state.net = netErrorToken(e);
       }
       if (!result.error) await wanted;
       await drainPending(pending, 10_000);
@@ -323,7 +354,8 @@ async function main() {
         }));
         result.title = dom.title;
         result.h1 = dom.h1;
-        result.blocked = detectBlocked(dom);
+        state.blockReason = blockReason(dom);
+        result.blocked = state.blockReason !== null;
       } catch (e) {
         result.error ??= classifyError(e);
       }
@@ -344,8 +376,7 @@ async function main() {
   }
 
   // Hard deadline: the caller always gets an answer and busy is always cleared.
-  async function observeWithDeadline(v) {
-    const state = { context: null };
+  async function observeWithDeadline(v, state) {
     const startedAt = Date.now();
     return withDeadline(observe(v, state), OBSERVE_DEADLINE_MS, () => {
       // Force-close in the background; the late observe() result is discarded.
@@ -394,12 +425,21 @@ async function main() {
       }
       const v = validateRequest(parsed);
       if (!v.ok) return send(res, 400, { error: "bad request" });
-      if (busySince !== null) return send(res, 429, { error: "busy" });
+      if (busySince !== null) {
+        send(res, 429, { error: "busy" });
+        console.log(observeLine(v.retailer, 429, null, {}, 0));
+        return;
+      }
       busySince = Date.now();
+      const state = { context: null, net: null, blockReason: null };
+      const t0 = Date.now();
       try {
-        send(res, 200, await observeWithDeadline(v));
+        const result = await observeWithDeadline(v, state);
+        send(res, 200, result);
+        console.log(observeLine(v.retailer, 200, result, state, Date.now() - t0));
       } catch {
         send(res, 500, { error: "internal" });
+        console.log(observeLine(v.retailer, 500, null, state, Date.now() - t0));
       } finally {
         busySince = null;
       }
