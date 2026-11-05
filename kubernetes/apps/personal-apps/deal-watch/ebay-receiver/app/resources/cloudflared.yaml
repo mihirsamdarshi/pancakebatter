@@ -1,0 +1,9 @@
+# cloudflared routing for the locally managed tunnel ebay-notify (created with the
+# cloudflared CLI; its token is the cloudflared-token Secret). DNS sends only
+# ebay-notify.<zone> to this tunnel, so the rules need no hostname. Only the
+# eBay endpoint path reaches the receiver's public port; /state, /healthz and
+# /metrics live on port 3001, which this tunnel never names.
+ingress:
+  - path: ^/notify$
+    service: http://ebay-receiver-public.deal-watch-ebay.svc.cluster.local:3000
+  - service: http_status:404

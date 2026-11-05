@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ebay-receiver-endpoint
+  namespace: deal-watch-ebay
+type: Opaque
+stringData:
+  url: ENC[AES256_GCM,data:N9WOA0aRuDF+Wr0uGdbSK1eE/HxaTNL/O66HBmzgssGjfBt8A5iIRg==,iv:VTh19EPkcsasD/sHnDXVBcqf4Ew3CWn5nhZJGewjSLc=,tag:sT6pwBPYw5gInZR+0G0ORg==,type:str]
+sops:
+  age:
+    - enc: |
+        -----BEGIN AGE ENCRYPTED FILE-----
+        YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBraDBuQ0ZGeThjNzJqL0cv
+        Nno3ZFBBK0hSQ0xSSEJ4dkxwR3NLaGlqUFZRCitOcXU5Q0lVL3JDZ1hJdGM0NDds
+        elZrZmVIMmp3T1JzbmdjMjFSU3lsd2MKLS0tIE1Mc1Q0OHNOeXdDSnVHRmlvcWc0
+        ZjNwMWljT0prMXBENUFFSW5nUFlKd2sKcn2RuWntTDDYRhPrRcctE79kd/AuuHFK
+        adW9sVpqGbIbq8CFl0SX/Mx5gRPR2+8P9edEVsOQ36kb6RXx+DB52Q==
+        -----END AGE ENCRYPTED FILE-----
+      recipient: age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf
+  encrypted_regex: ^(data|stringData)$
+  lastmodified: "2026-11-05T20:40:29Z"
+  mac: ENC[AES256_GCM,data:rd+fnznMtH75+dmVJJjMSH+bep4u9AEgyzIBBogQdBCBE2bWj+FrlfpmeJkZGSLRarDe0fNZApDqTQ1KwtdApUgYrKQ/pFevCkmgGnGVD2gUfmtZ3z8scaVRLLi5dBNFgFguq8FtdmA3HLDV2K2oYG95j0IR4A50IBMIx0O4BpY=,iv:cLMEJcsSltQXMxQWiKidhwLV4ePUFq/liqbP+WFpMUI=,tag:XJXi9k1Rm/T/YdEjVfF+TA==,type:str]
+  mac_only_encrypted: true
+  version: 3.13.3

@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: deal-watch-ebay-registry
+  namespace: deal-watch-ebay
+type: kubernetes.io/dockerconfigjson
+stringData:
+  .dockerconfigjson: ENC[AES256_GCM,data:vi3sCJviSy4nPMpFUndwacK9cACYFXpkeweAf4P1+3jE8YMjlvi7FnUS3GR/Rgs/op9cdPv6unrt68+LzIrxWSepUzJB9IH3Y/QHI3P7NHBWUkOiUXcuWsrIP/9xWxeVuOH6OkDddUkRj3VL33ubEtcxtQCtbd9J+LQTt2LhtKGsmbdKxPdQs/c/tcC9gd/w+5mEBNN4bJOF1PuAOiVR1GIodR/XcUc0RmisdtR2LrxgrcdHiIRuyFqDb6zeTvs=,iv:MuievoLIl6cxqBevB5VpbClyN2iKS9b1JByJf0/vqMI=,tag:vRkSFcEODlcVLLobHDbBcA==,type:str]
+sops:
+  age:
+    - enc: |
+        -----BEGIN AGE ENCRYPTED FILE-----
+        YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB6cm15TGVKMWRjM1plQnJN
+        SGtrbmcrVm5kZ1gwSmcyTTRWN1ZIWVZRelMwCjNDZXZDTUprMysyK1UxeTdENWRZ
+        RGJRZDN3bzdKcGI5TVlBMDJDVHNRb0kKLS0tIG9JUUcxaXlKbSswbStsbGNaUUF2
+        bEd3QjY5Mjhyek1VVC90RTZjakFWY1kKjPxuak2VdLz3mtekoBtfDpjhVStJ7Ibk
+        uQS1DxSNI17jyp8uiPY5bnTb5gaigtWOUEzqVBBHM8i5iUgTTbclqQ==
+        -----END AGE ENCRYPTED FILE-----
+      recipient: age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf
+  encrypted_regex: ^(data|stringData)$
+  lastmodified: "2026-11-05T20:40:30Z"
+  mac: ENC[AES256_GCM,data:E2uP1XhGGZ7mOFmXfRxORBsdnWiDxWxuDBkd7DSzJe8NXC2sFHaPjO3u/OrXQCF9Jvxw4N3GBXviKXyzLgNe1DxWJNFUA1T/WDrkz7KkKRkTcp5TWBzdSxCue2uUGsyFWfWktXXMW2JmusieCrRLH9f+iqSiLyf7TOM/l/MWEfE=,iv:2jTXAouKbDVOk2aGLC8XqAX+EYuGH9Bp0pGMkpqKosc=,tag:+1riq7Fyzyd9yizLj8BH4g==,type:str]
+  mac_only_encrypted: true
+  version: 3.13.3

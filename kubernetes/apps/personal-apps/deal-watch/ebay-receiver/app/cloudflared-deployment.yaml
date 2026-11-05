@@ -1,6 +1,7 @@
 ---
-# Remotely managed tunnel: the single public hostname rule (ebay-notify.<zone> ->
-# http://ebay-receiver-public:3000) and the 404 catch-all live in Cloudflare.
+# Locally managed tunnel ebay-notify: the token comes from the cloudflared-token
+# Secret, and the routing (only /notify to http://ebay-receiver-public:3000,
+# everything else 404) comes from resources/cloudflared.yaml in this directory.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,6 +32,8 @@ spec:
             - --no-autoupdate
             - --metrics
             - 0.0.0.0:2000
+            - --config
+            - /etc/cloudflared/config.yaml
             - run
           env:
             - name: TUNNEL_TOKEN
@@ -67,7 +70,14 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: config
+              mountPath: /etc/cloudflared/config.yaml
+              subPath: config.yaml
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 32Mi
+        - name: config
+          configMap:
+            name: cloudflared-config
