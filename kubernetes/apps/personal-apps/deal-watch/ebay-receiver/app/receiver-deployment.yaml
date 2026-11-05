@@ -50,10 +50,11 @@ spec:
               value: "3001"
             - name: SELF_TEST
               value: "1"
-            # One-way first-run setting (design 3.6). First deploy only; a follow-up
-            # change sets it to deny. See the stage F restore runbook.
+            # One-way first-run setting (design 3.6). The first deploy (November 5,
+            # 2026) used allow and created the database and its marker. With deny, a
+            # lost volume stays BLOCKED instead of starting empty. See the restore runbook.
             - name: RECEIVER_INIT
-              value: allow
+              value: deny
           ports:
             - name: public
               containerPort: 3000
