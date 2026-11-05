@@ -27,7 +27,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: browser
-          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-browser@sha256:56536514dc9b342bc4f41db07549ad67e48fd10cafcb75ff07b237918f96274d
+          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-browser@sha256:de187829e65596710befff5c3d3be05c88bd2fda1cf7d84a1bc33a517d00f112
           ports:
             - name: http
               containerPort: 3000
