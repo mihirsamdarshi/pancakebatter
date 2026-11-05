@@ -52,6 +52,10 @@ app. There are two ways to run one:
 - The `ResourceSet` `apps-pull` (`resourceset-pull.yaml`) copies the registry
   Secret `flux-system/ghcr-apps-read` into each app's namespace as `apps-ghcr`.
   It is a separate ResourceSet so that its failures never block `apps`.
+  Its `spec.inputs` also lists the namespaces `claude-proxy`,
+  `deal-watch-integrations` and `deal-watch-ebay`, which are not platform apps,
+  so they get an `apps-ghcr` copy too. Those namespaces must exist (their own
+  Kustomizations create them), or no copy is applied.
 - `kubernetes/apps/personal-apps/<namespace>/`: the app's Namespace, Git-defined,
   Pod Security `restricted`, prune-disabled. Only the Namespace lives here.
 - Failures go to Discord through the Flux `Provider` and `Alert` in
