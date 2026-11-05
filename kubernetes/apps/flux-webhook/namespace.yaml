@@ -1,0 +1,13 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flux-webhook
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # cloudflared for the Flux GitHub webhook. It runs under the restricted
+    # profile. No SOPS component here: the namespace holds no cluster-secrets.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

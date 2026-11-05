@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudflared-token
+  namespace: flux-webhook
+type: Opaque
+stringData:
+  token: ENC[AES256_GCM,data:PhYLXQY5GJ5/NK0L7hjHErpZEoYipFBRVo2neVLfvU1+Rc91ubv5iX/tBF51QkpBAKasX3CVLKmbsCvZ3CYXd0mwQm53MAU9YDf3lhbgf7qHaREw8CWqS/4NXFIPnslqMECh7N+0pYbvNXEZy0yFW+HUZB6es4FR3OdJ6s5FNeymB1RP+dWcJaVhReWLQteUTF4IUno1saRAHyJnD/jjau+5MKTrP/QgruN/3l/+CKiraUkL,iv:qZS9P/Eucf1bIHXJjL7RNelgZsReU89MKeu7WptEyNc=,tag:1vbrOeJnLKBg27fZ8vK33g==,type:str]
+sops:
+  age:
+    - enc: |
+        -----BEGIN AGE ENCRYPTED FILE-----
+        YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB3S3NSb0l1d2h1cjFzVVFr
+        d0xaU1p4dHJodTFWTHBoS3g1Sk92T0l6akcwCnlQbEtOdndwclBzTmxRdDlPWjhW
+        Yk5UT3pTUytiT3RObUdzc2orUG8zWUkKLS0tIHJLWTkwYmVEVGRaeE9reVBjSFZ2
+        NU1tL3NNcDRJeVJkUzBQdU9PelYyVUkK6Nifm6L3vTYYw/SaM3xPE1uf7K2ofngW
+        3tFSO1pTX01pobgFXOpALvdHByJU0cUQb07fzUzOspM1+Wgga2HWYg==
+        -----END AGE ENCRYPTED FILE-----
+      recipient: age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf
+  encrypted_regex: ^(data|stringData)$
+  lastmodified: "2026-11-05T22:05:13Z"
+  mac: ENC[AES256_GCM,data:pQ/hqDOfTs8QYIT/fnQC09PTTkVGiZuTz2sq1WO60GW+s0qwWrRk2vkLvb2DCIZ9sQEs4mXwomWTYfVWvcJ6HysFJFmzS28WO2lSKKl9ahoT5yXWNNLsOSpumetlQJoZ3/YHCr5IztPvhesTlgL0aoXpolvBGVietdRDQzVEkeA=,iv:Aagvs5e++4PYNJKk/A5ow1y7NO4ivlbkuBZbByvg3E8=,tag:7hJG5KjVcHA8YhOBDWJeuQ==,type:str]
+  mac_only_encrypted: true
+  version: 3.13.3

@@ -1,0 +1,25 @@
+---
+# The Cloudflare Tunnel that carries GitHub push webhooks to the Flux Receiver
+# (flux-system/flux-webhook). Design: docs/agents/plans in the owner's notes.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: flux-webhook-tunnel
+spec:
+  # The CiliumNetworkPolicy needs the Cilium CRDs.
+  dependsOn:
+    - name: cilium
+      namespace: kube-system
+  decryption:
+    provider: sops
+  interval: 1h
+  retryInterval: 2m
+  path: ./kubernetes/apps/flux-webhook/app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: flux-webhook
+  timeout: 3m
+  wait: true
