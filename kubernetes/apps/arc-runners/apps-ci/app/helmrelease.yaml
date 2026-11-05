@@ -1,0 +1,94 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  # The release name is the runs-on label.
+  name: apps-ci
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: gha-runner-scale-set
+  interval: 1h
+  values:
+    # Repository level, never the pancakebatter repo.
+    githubConfigUrl: https://github.com/mihirsamdarshi/apps
+    # Secret in this namespace, key github_token (github-pat.sops.yaml).
+    githubConfigSecret: github-pat
+    runnerScaleSetName: apps-ci
+    minRunners: 0
+    # Canary value; 2 after the canary (separate PR).
+    maxRunners: 1
+    # Required: the controller watches only arc-runners, so the chart cannot
+    # look the controller up.
+    controllerServiceAccount:
+      namespace: arc-systems
+      name: arc-controller-gha-rs-controller
+    containerMode:
+      type: kubernetes-novolume
+    # The listener pod runs in arc-systems, which enforces restricted.
+    listenerTemplate:
+      spec:
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+        containers:
+          - name: listener # do not rename: the chart merges by this name
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 256Mi
+    template:
+      spec:
+        priorityClassName: ci-low
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          fsGroup: 1001
+          seccompProfile:
+            type: RuntimeDefault
+        containers:
+          - name: runner
+            image: ghcr.io/actions/actions-runner:2.338.2@sha256:759a1d94a15b05941aba5196974ff43fe15b4cbba29b694b35cbc32a1166b232
+            command: ["/home/runner/run.sh"]
+            env:
+              - name: ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE
+                value: /home/runner/hook-template/content
+              # Must match the image above; a template cannot read it.
+              - name: ACTIONS_RUNNER_IMAGE
+                value: ghcr.io/actions/actions-runner:2.338.2@sha256:759a1d94a15b05941aba5196974ff43fe15b4cbba29b694b35cbc32a1166b232
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - ALL
+            # 1Gi: the .NET listener and worker plus the Node hook streaming
+            # tar are tight in 512Mi. Explicit ephemeral-storage, or the
+            # LimitRange default counts against the quota.
+            resources:
+              requests:
+                cpu: 50m
+                memory: 256Mi
+                ephemeral-storage: 256Mi
+              limits:
+                cpu: "1"
+                memory: 1Gi
+                ephemeral-storage: 1Gi
+            volumeMounts:
+              - name: hook-template
+                mountPath: /home/runner/hook-template
+                readOnly: true
+        volumes:
+          - name: hook-template
+            configMap:
+              name: arc-hook-template

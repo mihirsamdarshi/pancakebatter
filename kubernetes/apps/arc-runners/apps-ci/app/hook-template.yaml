@@ -1,0 +1,40 @@
+---
+# Defaults for the job pod the runner hook creates. The $job container fields
+# are applied; other pod-spec keys overwrite the hook's own.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: arc-hook-template
+data:
+  content: |
+    spec:
+      priorityClassName: ci-low
+      automountServiceAccountToken: false
+      # The hook sets no ownerReferences and no deadline. If a runner pod dies
+      # (cancel, drain, OOM) the job pod would run `tail -f /dev/null` forever
+      # and hold quota. This cap is above the longest job timeout (30 min).
+      activeDeadlineSeconds: 3000
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: $job
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          # Fix the 2Gi after the canary measures check (quilt-planner).
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+              ephemeral-storage: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+              ephemeral-storage: 6Gi
