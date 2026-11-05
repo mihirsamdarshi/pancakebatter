@@ -9,6 +9,8 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: onepassword-service-account
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
 type: Opaque
 stringData:
   token: "{{ op://Private/ESO Homelab service account/token }}"
