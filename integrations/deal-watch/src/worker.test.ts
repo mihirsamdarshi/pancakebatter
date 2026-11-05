@@ -3,9 +3,9 @@ import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseSony, parseCostco, collect } from "./adapters.ts";
-import { boundedText, getPublic, retryAfter, type Fetcher } from "./http.ts";
+import { boundedText, getPublic, retryAfter, UpstreamError, type Fetcher } from "./http.ts";
 import { readWebhook, sendDiscord, message } from "./discord.ts";
-import { Worker } from "./worker.ts";
+import { Worker, checkLine } from "./worker.ts";
 import { readPolicy } from "./policy.ts";
 import { budgets } from "./vendor/domain.ts";
 const watches = readPolicy(new URL("../fixtures/example-policy.json", import.meta.url).pathname);
@@ -466,4 +466,67 @@ test("captured Sony positive stock spelling does not turn PS5 Pro OOS into stock
   const unknown = JSON.parse(body);
   unknown.products[1].stock = { stockLevelStatus: "unverifiedLowStock", isProductLowStock: true };
   expect(parseSony(JSON.stringify(unknown), w, controller).availability).toBe("verify");
+});
+
+describe("check outcome log line", () => {
+  const keys = ["event", "retailer", "outcome", "ms"];
+  test("checkLine has only the allowed keys", () => {
+    for (const outcome of ["ok", "access-denied", "network"]) {
+      const line = JSON.parse(checkLine("target", outcome, 7));
+      expect(Object.keys(line)).toEqual(keys);
+      expect(line).toEqual({ event: "check", retailer: "target", outcome, ms: 7 });
+    }
+  });
+  test("a cycle logs one ok line for a successful check", async () => {
+    const h = harness(),
+      worker = new Worker({
+        baseUrl: "https://app.test",
+        watches,
+        fetcher: h.fetcher,
+        now: () => h.now,
+        random: () => 0,
+        startupDelay: false,
+      });
+    const lines: string[] = [];
+    const original = console.log;
+    console.log = (...a: unknown[]) => void lines.push(String(a[0]));
+    try {
+      await worker.runOnce();
+    } finally {
+      console.log = original;
+    }
+    const checks = lines.map((l) => JSON.parse(l)).filter((l) => l.event === "check");
+    expect(checks.length).toBe(1);
+    expect(Object.keys(checks[0])).toEqual(keys);
+    expect(checks[0].retailer).toBe("sony");
+    expect(typeof checks[0].ms).toBe("number");
+    expect(JSON.stringify(checks[0])).not.toContain(b.productId);
+  });
+  test("a failed check logs the existing failure code", async () => {
+    const h = harness(),
+      failing: Fetcher = async (request) => {
+        if (request.url.startsWith("https://app.test")) return h.fetcher(request);
+        throw new UpstreamError("network");
+      },
+      worker = new Worker({
+        baseUrl: "https://app.test",
+        watches,
+        fetcher: failing,
+        now: () => h.now,
+        random: () => 0,
+        startupDelay: false,
+      });
+    const lines: string[] = [];
+    const original = console.log;
+    console.log = (...a: unknown[]) => void lines.push(String(a[0]));
+    try {
+      await worker.runOnce();
+    } finally {
+      console.log = original;
+    }
+    const checks = lines.map((l) => JSON.parse(l)).filter((l) => l.event === "check");
+    expect(checks.length).toBe(1);
+    expect(Object.keys(checks[0])).toEqual(keys);
+    expect(checks[0].outcome).toBe("network");
+  });
 });
