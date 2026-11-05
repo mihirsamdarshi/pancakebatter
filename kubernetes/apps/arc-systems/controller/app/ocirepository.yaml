@@ -1,0 +1,16 @@
+---
+# The controller and the runner scale set chart share one version number and
+# must be bumped together (see the actions-runner-controller group in
+# .renovaterc.json5). Never automerge: read the release notes for CRD changes.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: gha-runner-scale-set-controller
+spec:
+  interval: 1h
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: 0.15.1
+  url: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller

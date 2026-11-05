@@ -1,0 +1,19 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: arc-controller
+spec:
+  # The controller's CiliumNetworkPolicy needs the Cilium CRDs.
+  dependsOn:
+    - name: cilium
+      namespace: kube-system
+  interval: 1h
+  path: ./kubernetes/apps/arc-systems/controller/app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: arc-systems
+  wait: true

@@ -61,6 +61,21 @@
       minimumGroupSize: 2,
     },
     {
+      // The controller and scale set charts share one version and must move
+      // together. A CRD-changing release needs the uninstall order from the
+      // runbook, so read the release notes before merging.
+      description: "ARC controller and scale set move together and are never automerged",
+      groupName: "actions-runner-controller",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["/gha-runner-scale-set/"],
+      group: {
+        commitMessageTopic: "{{{groupName}}} group",
+      },
+      minimumGroupSize: 2,
+      minimumReleaseAge: "3 days",
+      automerge: false,
+    },
+    {
       // home-operations also publishes upstream Sonarr v5 pre-releases as 5.x
       // tags. Stay on v4 until v5 is stable. (Docker versioning has no range
       // support, so Renovate evaluates this with its npm-semver fallback.)

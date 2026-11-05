@@ -1,0 +1,36 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: arc-controller
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: gha-runner-scale-set-controller
+  interval: 1h
+  values:
+    replicaCount: 1
+    # Restricted Pod Security profile. The chart already mounts an emptyDir on
+    # /tmp, so a read-only root filesystem works.
+    podSecurityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    flags:
+      # The chart default is debug.
+      logLevel: info
+      # Watch only arc-runners. The chart then creates namespaced Roles in
+      # arc-systems and arc-runners instead of a cluster-wide ClusterRole.
+      watchSingleNamespace: arc-runners
