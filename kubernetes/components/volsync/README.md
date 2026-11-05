@@ -94,7 +94,8 @@ ten minutes before.
 | deal-watch (draft)     | 12:20          | 12:30                 |
 | scratch (throwaway)    | 12:35          | 12:45                 |
 | reports                | none           | 13:00                 |
-| next platform apps     | 12:50, 13:05 … | 13:15, 13:30 …        |
+| job-tracker            | 13:05          | 13:15                 |
+| next platform apps     | 13:20, 13:35 … | 13:30, 13:45 …        |
 
 ## SQLite
 
