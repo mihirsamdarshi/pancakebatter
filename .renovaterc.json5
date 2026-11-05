@@ -76,6 +76,16 @@
       automerge: false,
     },
     {
+      // ESO supports only its latest minor, releases often and ships CRDs; the
+      // 1Password SDK provider is alpha. Read the release notes (CRD changes)
+      // before merging.
+      description: "External Secrets is never automerged",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["/external-secrets/charts/external-secrets/"],
+      minimumReleaseAge: "3 days",
+      automerge: false,
+    },
+    {
       // home-operations also publishes upstream Sonarr v5 pre-releases as 5.x
       // tags. Stay on v4 until v5 is stable. (Docker versioning has no range
       // support, so Renovate evaluates this with its npm-semver fallback.)

@@ -1,0 +1,71 @@
+---
+# External Secrets Operator: the controller only. There is no store and no
+# ExternalSecret yet; both ship in later PRs.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: external-secrets
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: external-secrets
+  interval: 1h
+  values:
+    # The chart installs and upgrades its CRDs (default true) from its
+    # templates, so the cluster-wide CreateReplace patch does not cover them.
+    # They are large: helm-controller's install.serverSideApply defaults to true
+    # and upgrades follow the install method (HelmRelease docs, "auto").
+    installCRDs: true
+    crds:
+      # An uninstall must not delete the CRDs: that would delete every
+      # ExternalSecret and, through ownerReferences, the Secrets they own.
+      annotations:
+        helm.sh/resource-policy: keep
+      # The pilot needs neither cross-namespace copies, writes to 1Password nor
+      # generators. Each create flag is paired with its process flag below, or
+      # the controller would watch a kind whose CRD is missing.
+      createClusterExternalSecret: false
+      createClusterPushSecret: false
+      createPushSecret: false
+      createClusterGenerator: false
+    processClusterExternalSecret: false
+    processClusterPushSecret: false
+    processPushSecret: false
+    processClusterGenerator: false
+    replicaCount: 1
+    # The chart defaults already meet the restricted profile (runAsNonRoot,
+    # drop ALL, RuntimeDefault seccomp, read-only root filesystem, no privilege
+    # escalation) for all three pods, so no securityContext is set here.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+    webhook:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+    certController:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+    # The controller's metrics (externalsecret_*) are scraped through a Service
+    # and a ServiceMonitor; Prometheus selects every ServiceMonitor cluster-wide.
+    metrics:
+      service:
+        enabled: true
+    serviceMonitor:
+      enabled: true
+      # The metrics carry their own namespace and name labels (the
+      # ExternalSecret's). Without honorLabels Prometheus renames them to
+      # exported_namespace and the alert would name external-secrets. The
+      # auto-generated `up` series is not affected (it keeps the target's
+      # namespace).
+      honorLabels: true

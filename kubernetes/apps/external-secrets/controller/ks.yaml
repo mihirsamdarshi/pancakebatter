@@ -1,0 +1,22 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: external-secrets
+spec:
+  # The CiliumNetworkPolicy needs the Cilium CRDs. The ServiceMonitor and the
+  # PrometheusRule need the Prometheus Operator CRDs.
+  dependsOn:
+    - name: cilium
+      namespace: kube-system
+    - name: kube-prometheus-stack
+      namespace: observability
+  interval: 1h
+  path: ./kubernetes/apps/external-secrets/controller/app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: external-secrets
+  wait: true
