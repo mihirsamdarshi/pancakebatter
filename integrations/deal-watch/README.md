@@ -153,8 +153,8 @@ identifiers, seller details, response bodies, tokens or request URLs, and writes
 no response files. Zero search results establish no item-identity schema evidence;
 warnings and unsupported responses fail validation. Unknown, repeated or incomplete
 flags are rejected before credentials or network work, including misspelled flags.
-The existing mode without `--technical-only` emits item facts and is unsuitable
-for this no-values check. Neither technical output nor this command establishes
+The existing mode without `--technical-only` emits item facts, including the seller
+username, and is unsuitable for this no-values check. Neither technical output nor this command establishes
 nonpersistence-exemption eligibility, seller/ZIP/cost qualification or approval
 to read credentials, call Production, submit a declaration or activate a source.
 
