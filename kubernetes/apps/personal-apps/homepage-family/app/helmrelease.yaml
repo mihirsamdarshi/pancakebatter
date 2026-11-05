@@ -1,6 +1,6 @@
 ---
 # The family's start page, served at the bare family name through the shared
-# family-apps Tailscale node. It is a static list of three links: no Kubernetes
+# family-apps Tailscale node. It is a static list of two links: no Kubernetes
 # access (no ServiceAccount token, no RBAC), no widgets and no integrations.
 # Homepage still answers a few API routes without any widget (host counters,
 # update check, search and weather relays), so the route below lets only the
@@ -190,7 +190,7 @@ spec:
             layout:
               Apps:
                 style: row
-                columns: 3
+                columns: 2
           services.yaml: |
             - Apps:
                 - Quilts:
@@ -201,10 +201,6 @@ spec:
                     icon: mdi-file-document-multiple
                     href: https://reports.${SECRET_FAMILY_DOMAIN}
                     description: Research reports
-                - Jellyfin:
-                    icon: jellyfin.png
-                    href: https://jellyfin.${SECRET_FAMILY_DOMAIN}
-                    description: Movies and shows
                 # Requests (Seerr) comes back with Seerr's family route.
           widgets.yaml: |
             - greeting:
