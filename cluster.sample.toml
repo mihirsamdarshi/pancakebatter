@@ -122,8 +122,9 @@ external = ""
 # Must be the repo you cloned this template into.
 # Use `https://` if the repo is publicly readable (or `http://` for a
 # LAN-local git server). Use `ssh://git@` if it is
-# private: the template then wires up a deploy key (`deploy.key.pub`) so
-# Flux can clone over SSH; see the README for the extra setup step.
+# private: the template then creates and applies a deploy key
+# (`deploy.key.pub`) so Flux can clone over SSH; see the README for the extra
+# setup step. An `https://` or `http://` URL creates no deploy key.
 # REQUIRED. Examples:
 #   "https://github.com/onedr0p/home-ops.git"
 #   "ssh://git@gitlab.com/onedr0p/home-ops.git"

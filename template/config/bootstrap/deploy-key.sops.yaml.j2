@@ -1,3 +1,4 @@
+#% if repository.url.startswith('ssh://') %#
 ---
 apiVersion: v1
 kind: Secret
@@ -13,3 +14,4 @@ stringData:
     #% filter indent(width=4, first=False) %#
     #{ repository.known_hosts }#
     #% endfilter %#
+#% endif %#

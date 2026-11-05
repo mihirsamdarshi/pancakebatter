@@ -78,11 +78,16 @@ apps-namespaces:
 [private]
 apps-secrets:
     just log info "Applying secrets for apps" stage "{{ recipe_name() }}"
-    for secret in \
-        "{{ source_directory() }}/deploy-key.sops.yaml" \
-        "{{ source_directory() }}/sops-age.sops.yaml" \
+    secrets=(
+        "{{ source_directory() }}/sops-age.sops.yaml"
         "{{ kubernetes_dir }}/components/sops/cluster-secrets.sops.yaml"
-    do
+    )
+    # The deploy key is rendered only for ssh:// repository URLs; Flux reads an
+    # https:// repository without a credential.
+    if [[ -f "{{ source_directory() }}/deploy-key.sops.yaml" ]]; then
+        secrets=("{{ source_directory() }}/deploy-key.sops.yaml" "${secrets[@]}")
+    fi
+    for secret in "${secrets[@]}"; do
         name="$(basename "$secret" .sops.yaml)"
         if sops decrypt "$secret" \
                 | kubectl --namespace flux-system apply --server-side --filename - &>/dev/null; then
