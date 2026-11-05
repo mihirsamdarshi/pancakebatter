@@ -1,0 +1,11 @@
+---
+# CI yields to every other workload (all have priority 0 or higher). A
+# preempted job fails and is re-run. Never preempts others.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ci-low
+value: -100
+preemptionPolicy: Never
+globalDefault: false
+description: CI runner and job pods; yields to everything else.

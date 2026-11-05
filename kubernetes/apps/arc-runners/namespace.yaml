@@ -1,0 +1,15 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: arc-runners
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # The runner hook's init container (fs-init) sets no allowPrivilegeEscalation
+    # or capability drop, so it fails `restricted`. Enforce baseline here only;
+    # warn and audit stay at restricted so every violation remains visible.
+    # No SOPS component here: the namespace must not hold cluster-secrets.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
