@@ -1,6 +1,6 @@
 # Cloudflare security settings for the zone, managed with its own token
 # (cloudflare.sops.env here, not the DNS token). Run it through its just
-# recipes (mod.just): `init`, `entrypoint`, `import`, `plan`, `apply`.
+# recipes (mod.just): `just csec init|entrypoint|import|plan|apply`.
 #
 # The token needs exactly three zone-scoped permissions: Zone WAF (Edit), Bot
 # Management (Edit) and Zone (Read), on the one zone.
@@ -9,6 +9,12 @@ provider "cloudflare" {}
 variable "zone" {
   description = "Cloudflare zone (the public domain). Set via TF_VAR_zone from cloudflare.sops.env."
   type        = string
+}
+
+variable "ruleset_name" {
+  description = "Name of the zone's existing custom-rule entrypoint ruleset. In provider 5.28.1 a different name forces replacement, so it must equal what `just csec entrypoint` prints. Cloudflare names a new one \"default\"."
+  type        = string
+  default     = "default"
 }
 
 data "cloudflare_zone" "this" {
@@ -37,7 +43,7 @@ data "http" "github_meta" {
 
 locals {
   flux_webhook_host = "flux-webhook.${var.zone}"
-  github_hooks      = jsondecode(data.http.github_meta.response_body).hooks
+  github_hooks      = sort(distinct(try(jsondecode(data.http.github_meta.response_body).hooks, [])))
 
   # Every custom rule that already exists in the zone, copied here BEFORE the
   # first plan (mod.just `entrypoint` prints them). Each entry needs the rule's
@@ -60,7 +66,7 @@ locals {
 # and `check` fails the plan if any rule would be removed.
 resource "cloudflare_ruleset" "custom" {
   zone_id     = data.cloudflare_zone.this.zone_id
-  name        = "default"
+  name        = var.ruleset_name
   description = "Zone custom rules; managed by terraform/cloudflare-security"
   kind        = "zone"
   phase       = "http_request_firewall_custom"
@@ -73,6 +79,14 @@ resource "cloudflare_ruleset" "custom" {
       # request to the host", so refuse anything that is not clearly a list.
       condition     = length(local.github_hooks) >= 5
       error_message = "GitHub returned fewer than 5 hooks ranges; refusing to build the rule."
+    }
+    precondition {
+      condition     = alltrue([for c in local.github_hooks : can(cidrhost(c, 0))])
+      error_message = "A hooks entry is not a valid CIDR; refusing to build the rule."
+    }
+    precondition {
+      condition     = length([for c in local.github_hooks : c if !strcontains(c, ":")]) >= 1 && length([for c in local.github_hooks : c if strcontains(c, ":")]) >= 1
+      error_message = "The hooks list needs at least one IPv4 and one IPv6 range; refusing to build the rule."
     }
   }
 }
