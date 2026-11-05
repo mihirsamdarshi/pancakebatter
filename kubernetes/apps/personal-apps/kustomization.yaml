@@ -9,6 +9,9 @@ resources:
   # Namespace deal-watch-integrations. It is listed on its own so the
   # `namespace: deal-watch` in deal-watch/kustomization.yaml does not apply to it.
   - ./deal-watch/integrations
+  # The eBay receiver and its Cloudflare Tunnel: Flux Kustomization in flux-system,
+  # own Namespace deal-watch-ebay.
+  - ./deal-watch/ebay-receiver
   - ./scratch
   - ./reports
   # The Claude API proxy keeps its Flux Kustomization in flux-system and its own

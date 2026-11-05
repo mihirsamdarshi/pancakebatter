@@ -1,0 +1,115 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ebay-receiver
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ebay-receiver
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ebay-receiver
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: deal-watch-ebay-registry
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: receiver
+          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-ebay-receiver@sha256:44beb3418cba058805ed502f31a2d2b93eb484eb1c85687cfd23bb18d4c303ba
+          env:
+            # The exact public URL typed into the eBay portal, hashed byte for byte.
+            # It holds the zone, so it comes from this namespace's own SOPS Secret
+            # (built by the stage E secret script from cluster-secrets), not from
+            # a manifest substitution.
+            - name: ENDPOINT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ebay-receiver-endpoint
+                  key: url
+            - name: VERIFICATION_TOKEN_FILE
+              value: /run/ebay-notify/token
+            - name: EBAY_CREDENTIALS_FILE
+              value: /run/ebay-credentials/credentials.json
+            - name: DATA_DIR
+              value: /data
+            - name: PORT
+              value: "3000"
+            - name: INTERNAL_PORT
+              value: "3001"
+            - name: SELF_TEST
+              value: "1"
+            # One-way first-run setting (design 3.6). First deploy only; a follow-up
+            # change sets it to deny. See the stage F restore runbook.
+            - name: RECEIVER_INIT
+              value: allow
+          ports:
+            - name: public
+              containerPort: 3000
+            - name: internal
+              containerPort: 3001
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: internal
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: internal
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: internal
+            periodSeconds: 30
+            failureThreshold: 4
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /data
+            - name: notify-token
+              mountPath: /run/ebay-notify
+              readOnly: true
+            - name: app-credentials
+              mountPath: /run/ebay-credentials
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: data
+          persistentVolumeClaim:
+            claimName: ebay-receiver-data
+        - name: notify-token
+          secret:
+            secretName: ebay-notify-token
+            defaultMode: 288 # 0440
+        - name: app-credentials
+          secret:
+            secretName: ebay-app-credentials
+            defaultMode: 288 # 0440

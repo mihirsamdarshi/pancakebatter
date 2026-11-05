@@ -1,0 +1,21 @@
+---
+# Scrapes the receiver's internal port (3001) /metrics. The public port 3000 has no /metrics.
+# The kube-prometheus-stack selects PodMonitors in every namespace
+# (podMonitorSelectorNilUsesHelmValues: false). The CiliumNetworkPolicy must allow Prometheus
+# to reach 3001 (see networkpolicy.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: ebay-receiver
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - deal-watch-ebay
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ebay-receiver
+  podMetricsEndpoints:
+    - port: internal
+      path: /metrics
+      interval: 30s

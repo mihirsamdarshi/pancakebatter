@@ -24,6 +24,14 @@ spec:
               protocol: TCP
     - toEndpoints:
         - matchLabels:
+            io.kubernetes.pod.namespace: deal-watch-ebay
+            app.kubernetes.io/name: ebay-receiver
+      toPorts:
+        - ports:
+            - port: "3001"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
             io.kubernetes.pod.namespace: kube-system
             k8s-app: kube-dns
       toPorts:

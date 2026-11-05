@@ -1,0 +1,16 @@
+---
+# The receiver's own SQLite file and marker. Outside the app's volume so an app
+# restore cannot roll it back. Prune-disabled: a removed receiver keeps its data.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ebay-receiver-data
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-retain
+  resources:
+    requests:
+      storage: 1Gi

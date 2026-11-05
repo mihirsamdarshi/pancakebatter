@@ -1,0 +1,121 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ebay-receiver
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: ebay-receiver
+  ingress:
+    # Public path: cloudflared only, port 3000 only.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: deal-watch-ebay
+            app.kubernetes.io/name: cloudflared
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    # /state: the worker's pods only, port 3001 only.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: deal-watch-integrations
+            app.kubernetes.io/name: deal-watch-integrations
+      toPorts:
+        - ports:
+            - port: "3001"
+              protocol: TCP
+    # Kubelet probes /healthz on 3001.
+    - fromEntities: [host]
+      toPorts:
+        - ports:
+            - port: "3001"
+              protocol: TCP
+    # Prometheus scrapes /metrics on 3001 (PodMonitor ebay-receiver).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "3001"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # api.ebay.com, and the self-test's public URL (Cloudflare edge), on 443.
+    - toCIDRSet:
+        - cidr: 0.0.0.0/0
+          except:
+            - 0.0.0.0/8
+            - 10.0.0.0/8
+            - 100.64.0.0/10
+            - 127.0.0.0/8
+            - 169.254.0.0/16
+            - 172.16.0.0/12
+            - 192.0.0.0/24
+            - 192.168.0.0/16
+            - 198.18.0.0/15
+            - 224.0.0.0/4
+            - 240.0.0.0/4
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cloudflared
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+  ingress:
+    # Kubelet probe on the metrics port only. Nothing else, and no Service.
+    - fromEntities: [host]
+      toPorts:
+        - ports:
+            - port: "2000"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # The one origin: the receiver's public port.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: deal-watch-ebay
+            app.kubernetes.io/name: ebay-receiver
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    # Cloudflare edge, default region: region1 and region2.v2.argotunnel.com on 7844,
+    # TCP (http2) and UDP (quic). Cloudflare "Tunnel with firewall" documentation.
+    # The optional port-443 update checks are not allowed (--no-autoupdate).
+    - toCIDRSet:
+        - cidr: 198.41.192.0/24
+        - cidr: 198.41.200.0/24
+      toPorts:
+        - ports:
+            - port: "7844"
+              protocol: TCP
+            - port: "7844"
+              protocol: UDP

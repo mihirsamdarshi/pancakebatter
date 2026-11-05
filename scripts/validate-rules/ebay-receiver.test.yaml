@@ -1,0 +1,133 @@
+# Unit tests for prometheusrule.yaml in kubernetes/apps/personal-apps/deal-watch/ebay-receiver/app.
+rule_files:
+  - ebay-receiver.rules.yaml
+evaluation_interval: 30s
+tests:
+  - name: 'EbayReceiverBlocked fires after 10 minutes of BLOCKED, not before'
+    interval: 30s
+    input_series:
+      - series: 'ebay_receiver_blocked{namespace="deal-watch-ebay",pod="ebay-receiver-abc"}'
+        values: '0+0x10 1+0x60'
+      - series: 'ebay_receiver_state{namespace="deal-watch-ebay",pod="ebay-receiver-abc",reason="key-unavailable"}'
+        values: '0+0x10 1+0x60'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: EbayReceiverBlocked
+        exp_alerts: []
+      - eval_time: 14m
+        alertname: EbayReceiverBlocked
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: EbayReceiverBlocked
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: deal-watch-ebay
+              pod: ebay-receiver-abc
+            exp_annotations:
+              summary: 'eBay receiver has been BLOCKED for 10 minutes (reason key-unavailable)'
+              description: 'The worker pauses all eBay work while the state is not CLEAR. key-unavailable: the keyset cannot mint or getPublicKey fails (notification POSTs get 503). volume-reset: the data volume was lost or restored (design 3.6 re-initialization). unprocessed or db-unreadable: the database. selftest-failed: the public URL fails its own challenge. eBay marks the URL down after 24 hours of unacknowledged notifications.'
+  - name: 'EbayReceiverBlocked stays quiet for a short blip'
+    interval: 30s
+    input_series:
+      - series: 'ebay_receiver_blocked{namespace="deal-watch-ebay",pod="ebay-receiver-abc"}'
+        values: '0+0x4 1+0x10 0+0x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: EbayReceiverBlocked
+        exp_alerts: []
+  - name: 'EbayReceiverSelfTestFailing needs two failures in a row and the loop enabled'
+    interval: 30s
+    input_series:
+      - series: 'ebay_receiver_selftest_consecutive_failures{namespace="deal-watch-ebay",pod="ebay-receiver-abc"}'
+        values: '0+0x4 1+0x10 2+0x10 3+0x10 0+0x10'
+      - series: 'ebay_receiver_selftest_enabled{namespace="deal-watch-ebay",pod="ebay-receiver-abc"}'
+        values: '1+0x60'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: EbayReceiverSelfTestFailing
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: EbayReceiverSelfTestFailing
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: EbayReceiverSelfTestFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: deal-watch-ebay
+              pod: ebay-receiver-abc
+            exp_annotations:
+              summary: 'eBay receiver self-test has failed 2 times in a row'
+              description: 'The receiver asks its own public URL for a challenge every five minutes. The tunnel, DNS, Cloudflare or the endpoint is failing, so eBay cannot reach it either. The state turns BLOCKED after one hour of failures.'
+      - eval_time: 25m
+        alertname: EbayReceiverSelfTestFailing
+        exp_alerts: []
+  - name: 'EbayReceiverSelfTestFailing is silent when the loop is disabled'
+    interval: 30s
+    input_series:
+      - series: 'ebay_receiver_selftest_consecutive_failures{namespace="deal-watch-ebay",pod="ebay-receiver-abc"}'
+        values: '5+0x30'
+      - series: 'ebay_receiver_selftest_enabled{namespace="deal-watch-ebay",pod="ebay-receiver-abc"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: EbayReceiverSelfTestFailing
+        exp_alerts: []
+  - name: 'EbayReceiverDown fires when no pod is ready or the pod series is gone'
+    interval: 30s
+    input_series:
+      - series: 'kube_pod_status_ready{namespace="deal-watch-ebay",pod="ebay-receiver-abc",condition="true"}'
+        values: '1+0x10 0+0x40'
+      - series: 'kube_pod_status_ready{namespace="deal-watch-ebay",pod="cloudflared-xyz",condition="true"}'
+        values: '1+0x60'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: EbayReceiverDown
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: EbayReceiverDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: 'No ready eBay receiver pod for 5 minutes'
+              description: 'The pod is missing or not ready. Notifications get no answer from the tunnel, and the 24-hour mark-down clock runs. `kubectl -n deal-watch-ebay describe pod`.'
+  - name: 'EbayReceiverDown stays quiet while the receiver is ready'
+    interval: 30s
+    input_series:
+      - series: 'kube_pod_status_ready{namespace="deal-watch-ebay",pod="ebay-receiver-abc",condition="true"}'
+        values: '1+0x60'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: EbayReceiverDown
+        exp_alerts: []
+  - name: 'EbayReceiverMetricsMissing fires only when the pod is ready but no metrics arrive'
+    interval: 30s
+    input_series:
+      - series: 'kube_pod_status_ready{namespace="deal-watch-ebay",pod="ebay-receiver-abc",condition="true"}'
+        values: '1+0x80'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: EbayReceiverMetricsMissing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: EbayReceiverMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: deal-watch-ebay
+            exp_annotations:
+              summary: 'The eBay receiver is ready but its metrics are not being scraped'
+              description: 'The BLOCKED and self-test alerts cannot fire. Check the PodMonitor and the CiliumNetworkPolicy ingress rule for Prometheus on port 3001.'
+  - name: 'EbayReceiverMetricsMissing is quiet when metrics flow'
+    interval: 30s
+    input_series:
+      - series: 'kube_pod_status_ready{namespace="deal-watch-ebay",pod="ebay-receiver-abc",condition="true"}'
+        values: '1+0x80'
+      - series: 'ebay_receiver_blocked{namespace="deal-watch-ebay",pod="ebay-receiver-abc"}'
+        values: '0+0x80'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: EbayReceiverMetricsMissing
+        exp_alerts: []
