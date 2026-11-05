@@ -2,9 +2,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  # TODO before merge: add ./github-pat.sops.yaml here once the owner has
+  # TODO before merge: add ./github-app.sops.yaml here once the owner has
   # created the encrypted file (plan section 11). The HelmRelease needs the
-  # Secret `github-pat`; until then the scale set cannot start.
+  # Secret `github-app`; until then the scale set cannot start.
   # Rollback: never prune the Secret and the HelmRelease together; remove the
   # HelmRelease first, wait for the scale set to leave GitHub, then the Secret.
   - ./helmrelease.yaml
