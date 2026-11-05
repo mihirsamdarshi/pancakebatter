@@ -1,0 +1,30 @@
+---
+# Test fixture for scripts/validate-apps.sh: a job with its egress policy
+# beside egress: claude-proxy (the reports setup). Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-job-egress-claude-proxy
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/job-egress-claude-proxy
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: job-egress-claude-proxy
+    parts: [pullsecret, internal-route, job, job-egress]
+    egress: claude-proxy
+    vars:
+      JOB_SCHEDULE: "0 11 * * 0"
+      JOB_COMMAND: bun jobs/refresh.ts
+      JOB_READ_PATH: content
+      JOB_WORK_PATH: feeds
+      JOB_EGRESS_CIDR: 203.0.113.0/24

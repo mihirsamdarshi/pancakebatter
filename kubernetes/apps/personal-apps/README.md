@@ -178,6 +178,11 @@ variable.
 | `vars.TITLE`, `vars.DESCRIPTION`, `vars.ICON`  | `name`, `Platform app`, `mdi-application` | The LAN dashboard tile that `internal-route` registers (Homepage discovers the route). Title and description: start with a letter, only letters, digits, spaces and `.,()'&/+!?-`, at most 80, never a YAML boolean or null word (`yes`, `no`, `on`, `off`, `true`, ...). Icon: `mdi-<name>`, `si-<name>`, `sh-<name>` or `<name>.png`/`.svg`/`.webp` |
 | `vars.SQLITE_DBS`                               | none                                   | Space-separated database paths for `backup-sqlite`                                                                                                                                                                                    |
 | `vars.VOLSYNC_SCHEDULE`, `vars.SQLITE_SCHEDULE` | none                                   | Explicit UTC cron strings, required with `backup` / `backup-sqlite`                                                                                                                                                                   |
+| `vars.JOB_SCHEDULE`                             | none                                   | Required with `job`: an explicit UTC cron string of five fields, each in range (minute 0-59, hour 0-23, day 1-31, month 1-12 or `JAN`-`DEC`, weekday 0-6 or `SUN`-`SAT`), that starts with a digit (`0-59/15`, not `*/15`: Flux drops the quotes, and YAML reads a leading `*` as an alias) |
+| `vars.JOB_COMMAND`                              | none                                   | Required with `job`: the command, run as `/bin/sh -c "exec <JOB_COMMAND>"`. Only letters, digits, spaces and `./_=:-`, at most 200, no colon before a space or at the end                                                              |
+| `vars.JOB_READ_PATH`, `vars.JOB_WORK_PATH`      | none                                   | Required with `job`: folders relative to the volume root, mounted read only at `/job/read` and read and write at `/job/work`. Start with a letter, no `..` or hidden segments, never a YAML boolean or null word (`yes`, `no`, `on`, `off`, `true`, `null`, ...), and neither equals or contains the other |
+| `vars.JOB_DEADLINE`, `vars.JOB_MEMORY_LIMIT`    | `3600`, `512Mi`                        | With `job`: the run's time limit in seconds (1 to 86400) and its memory limit (at least the container's 64Mi request)                                                                                                               |
+| `vars.JOB_EGRESS_CIDR`                          | none                                   | Required with `job-egress`: one public IPv4 CIDR, `/16` to `/32`, that the job pods reach on 443/TCP                                                                                                                                  |
 
 Parts (`kubernetes/components/app-platform/`): `pullsecret` (a name only: the
 Secret is rendered by `apps-pull`), `internal-route` (`<HOST>.${SECRET_DOMAIN_LOCAL}`
@@ -186,8 +191,11 @@ on `envoy-internal`, no retries for writes, and the tile on the LAN dashboard
 annotations), `family-route` (only on request;
 see `network/family-apps/README.md`; needs `vars.FAMILY_HOST`),
 `family-route-legacy` (the transitional `family.${SECRET_DOMAIN_LOCAL}` name;
-list it after `family-route`), `backup` (the `volsync` component) and
-`backup-sqlite` (the `sqlite-export` component, with no service-account token).
+list it after `family-route`), `backup` (the `volsync` component),
+`backup-sqlite` (the `sqlite-export` component, with no service-account token),
+`job` (a CronJob that runs a command from the app's image; see "Scheduled
+jobs") and `job-egress` (443/TCP to one public CIDR for the job pods only;
+needs `job`).
 The `netpol` and `egress` keys add the `netpol` component and then
 `netpol-egress-internet` or `netpol-egress-claude-proxy` after the parts, so an
 explicit `parts: []` still gets the policy.
@@ -225,14 +233,67 @@ Tailscale, cluster). `egress: claude-proxy` adds only the claude-proxy pods on
 3000/TCP, for an app that runs a Claude agent: the proxy, outside the platform,
 holds the Anthropic API key and caps daily spend (`kubernetes/apps/personal-apps/claude-proxy/`,
 added by its own change),
-and admits only the namespaces its own policy lists. Nothing reaches the Kubernetes API, the NAS or other
+and admits only the app pods its own policy lists (by namespace and `app.kubernetes.io/name`). Nothing reaches the Kubernetes API, the NAS or other
 namespaces. DNS remains a tunnelling channel for a compromised app. Prometheus
-cannot scrape an app; that would be a reviewed addition.
+cannot scrape an app; that would be a reviewed addition. `job-egress` is the
+one rule for some pods only: a second policy that lets the job pods, and no
+other pod, reach one public CIDR on 443, and denies them the app's namespace
+and claude-proxy (see "Scheduled jobs").
 
 Hubble is off in this cluster. To see drops, run `cilium-dbg monitor --type drop`
 in the node's Cilium agent pod. Do not widen a policy to fix a drop without a
-reviewed reason: use `egress: internet` for public services, and redesign for
-anything private.
+reviewed reason: use `egress: internet` for public services, `job-egress` for a
+scheduled job that needs one public service, and redesign for anything private.
+
+### Scheduled jobs
+
+The `job` part adds the CronJob `<name>-job`. On `vars.JOB_SCHEDULE` (UTC) it
+runs `vars.JOB_COMMAND` from the app's own image, at the same digest as the
+Deployment, as `/bin/sh -c "exec <JOB_COMMAND>"` in the image's working
+directory, so the image needs `/bin/sh`. One run at a time, no retry, at most
+`JOB_DEADLINE` seconds (default 3600) and `JOB_MEMORY_LIMIT` of memory (default
+512Mi). A failed run waits for the next slot.
+
+- **Mounts:** the app's data volume twice, `JOB_READ_PATH` read only at
+  `/job/read` and `JOB_WORK_PATH` read and write at `/job/work` (both relative
+  to the volume root), plus an `emptyDir` at `/tmp`. The job finds the two
+  folders in `JOB_READ_DIR` and `JOB_WORK_DIR`, and the app picks up what the
+  job writes. The volume is node-local, so the job runs on the app's node,
+  beside the app. A folder that does not exist is created by the kubelet,
+  owned by root:root with the mode of the volume root (0777 on
+  `local-retain`). So a mistyped path mounts an empty folder and gives no
+  error: check both paths against the app. The reports app creates `feeds/`
+  when it starts.
+- **Pod:** the same rules as the app's pod: Pod Security `restricted`, the
+  app's uid and gid, a read-only root filesystem, no service-account token and
+  no Secret except the pull Secret. The entry's `env` does not reach it.
+- **Label:** the job pods carry `app.kubernetes.io/name: <name>-job`, which the
+  egress policy selects. The validator fails when any other pod of the app
+  carries it.
+- **Network:** without `job-egress`, the job pods have the same network as the
+  app's pods (the namespace policy and its `egress` mode). `job-egress` adds a
+  second CiliumNetworkPolicy, `<name>-job`, that selects only the job pods and
+  allows 443/TCP to one range, `vars.JOB_EGRESS_CIDR`, with no ingress rule.
+  Cilium adds up the policies that select a pod: the namespace policy keeps
+  default deny and DNS for every pod, and this one opens only the job pods to
+  that range. The app's other pods get nothing from it: with `egress: none` or
+  `egress: claude-proxy` they stay without internet.
+- **Not the app or the proxy:** the job pods are the only pods with internet
+  access, so the same policy denies them the app's own namespace (an app's
+  write routes may need no login, as the reports app's do) and the
+  `claude-proxy` namespace (its daily spend), with `egressDeny` rules. A
+  Cilium deny rule wins over every allow rule for the pods it selects, in any
+  policy ([Deny Policies](https://docs.cilium.io/en/v1.20/security/policy/deny/)),
+  so the namespace policy's own-namespace and claude-proxy rules no longer
+  apply to the job pods. DNS still works. The proxy's own policy also admits
+  only the reports app pods, not the job.
+- **Why a fixed CIDR:** the cluster uses no `toFQDNs` rules, so the policy
+  names an address, not a host. If the host moves to another address, the job
+  fails closed: its connections time out until the entry has the new CIDR. A
+  CDN address is shared, so the rule allows every site the CDN serves there,
+  not only the one the job needs. The validator accepts only a public IPv4
+  range from `/16` to `/32`: never one that overlaps the private ranges
+  `egress: internet` excepts, `0.0.0.0/8` or `127.0.0.0/8`.
 
 ### Escape hatch
 

@@ -23,10 +23,12 @@ One restricted namespace, `claude-proxy`, outside the personal app platform:
 - the API key from the Secret `claude-proxy-credentials` (key
   `anthropic-api-key`), mounted read-only at `/run/credentials`, mode 0440;
 - a pull Secret `claude-proxy-registry` with a read-only GHCR credential;
-- a CiliumNetworkPolicy. Ingress: port 3000 from pods in the `reports`
-  namespace and from the node (kubelet probes). Egress: cluster DNS, and port
-  443 on Anthropic's published inbound IPv4 ranges only, `160.79.104.0/23` and
-  `153.61.224.0/22` ([IP addresses](https://platform.claude.com/docs/en/api/ip-addresses),
+- a CiliumNetworkPolicy. Ingress: port 3000 from the reports app pods only
+  (label `app.kubernetes.io/name: reports` in the `reports` namespace, not its
+  scheduled job or other pods) and from the node (kubelet probes). Egress:
+  cluster DNS, and port 443 on Anthropic's published inbound IPv4 ranges only,
+  `160.79.104.0/23` and `153.61.224.0/22`
+  ([IP addresses](https://platform.claude.com/docs/en/api/ip-addresses),
   checked 2026-11-03). The cluster uses no FQDN rules; the proxy's code also
   sends requests only to `https://api.anthropic.com`.
 
@@ -131,7 +133,9 @@ It passes only when both SOPS files exist.
 
 ### 5. Let the reports app reach the proxy
 
-This policy admits the `reports` namespace. The reports entry sets
+This policy admits only the reports app pods: the label
+`app.kubernetes.io/name: reports` that the platform's base Deployment sets, in
+the `reports` namespace. The reports entry sets
 `egress: claude-proxy`, a platform egress mode that adds only these pods on
 3000/TCP to the app's default-deny policy
 (`kubernetes/components/app-platform/netpol-egress-claude-proxy/`). The app

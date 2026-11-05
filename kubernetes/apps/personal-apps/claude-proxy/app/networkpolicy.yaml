@@ -1,9 +1,12 @@
 ---
 # Default deny in both directions for every pod in the namespace.
 #
-# Ingress: port 3000 from pods in the reports namespace (the platform app that
-# runs the agent) and from the node (kubelet probes). The reports app reaches
-# this Service through the platform's `egress: claude-proxy` mode.
+# Ingress: port 3000 from the reports app pods only (the platform app that runs
+# the agent: label app.kubernetes.io/name=reports, which the platform's base
+# Deployment sets, in the reports namespace) and from the node (kubelet
+# probes). Other pods of that namespace, such as its scheduled job and the
+# VolSync mover, are not admitted. The reports app reaches this Service through
+# the platform's `egress: claude-proxy` mode.
 #
 # Egress: cluster DNS, and port 443 on Anthropic's published inbound IPv4
 # ranges only (the cluster is IPv4-only):
@@ -24,6 +27,7 @@ spec:
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: reports
+            app.kubernetes.io/name: reports
       toPorts:
         - ports:
             - port: "3000"

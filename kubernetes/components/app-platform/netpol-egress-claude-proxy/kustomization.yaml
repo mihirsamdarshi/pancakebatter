@@ -2,8 +2,9 @@
 # `egress: claude-proxy`: the claude-proxy pods on 3000/TCP, nothing else. The
 # app gets no internet: model calls go to the proxy, which holds the Anthropic
 # API key outside the platform and caps daily spend
-# (kubernetes/apps/personal-apps/claude-proxy/, added by its own change). The proxy admits only the namespaces its own
-# policy lists. Must come after `netpol`, which creates the policy this patches.
+# (kubernetes/apps/personal-apps/claude-proxy/, added by its own change). The proxy admits only the pods its own
+# policy lists (the app pods by their app.kubernetes.io/name label, not a
+# scheduled job). Must come after `netpol`, which creates the policy this patches.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 patches:

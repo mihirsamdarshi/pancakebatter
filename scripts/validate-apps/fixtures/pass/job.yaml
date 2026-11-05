@@ -1,0 +1,31 @@
+---
+# Test fixture for scripts/validate-apps.sh: a scheduled job with its egress
+# policy. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-job
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/job
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: job
+    parts: [pullsecret, internal-route, job, job-egress]
+    vars:
+      JOB_SCHEDULE: "0 11 * * 0"
+      JOB_COMMAND: bun jobs/refresh.ts --mode=full west-la
+      JOB_READ_PATH: content
+      JOB_WORK_PATH: feeds/inbox
+      JOB_DEADLINE: "2700"
+      JOB_MEMORY_LIMIT: 256Mi
+      JOB_EGRESS_CIDR: 203.0.113.0/24
