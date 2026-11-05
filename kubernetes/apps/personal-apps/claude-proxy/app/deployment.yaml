@@ -17,7 +17,7 @@ spec:
     spec:
       automountServiceAccountToken: false
       imagePullSecrets:
-        - name: claude-proxy-registry
+        - name: apps-ghcr
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
