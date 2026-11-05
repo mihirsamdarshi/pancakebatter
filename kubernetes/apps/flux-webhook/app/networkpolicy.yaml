@@ -1,0 +1,51 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cloudflared
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+  ingress:
+    # Kubelet probe on the metrics port only. Nothing else, and no Service.
+    - fromEntities: [host]
+      toPorts:
+        - ports:
+            - port: "2000"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # The one origin: notification-controller's webhook port. The Service
+    # webhook-receiver maps 80 to targetPort http-webhook (9292); the pod also
+    # listens on 9090 (events), 8080 (metrics) and 9440 (health), which stay
+    # closed. flux-system has no ingress policy, so nothing is needed there.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: flux-system
+            app: notification-controller
+      toPorts:
+        - ports:
+            - port: "9292"
+              protocol: TCP
+    # Cloudflare edge, default region: region1 and region2.v2.argotunnel.com on 7844,
+    # TCP (http2) and UDP (quic). Cloudflare "Tunnel with firewall" documentation.
+    # The optional port-443 update checks are not allowed (--no-autoupdate).
+    - toCIDRSet:
+        - cidr: 198.41.192.0/24
+        - cidr: 198.41.200.0/24
+      toPorts:
+        - ports:
+            - port: "7844"
+              protocol: TCP
+            - port: "7844"
+              protocol: UDP

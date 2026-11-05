@@ -101,3 +101,29 @@ resource "cloudflare_dns_record" "family_wildcard" {
   proxied = false
   comment = "Family apps (shared Tailscale gateway); managed by terraform/dns"
 }
+
+variable "flux_webhook_tunnel_id" {
+  description = "ID of the Cloudflare Tunnel flux-webhook (from `cloudflared tunnel create`). Null creates no record. Set it in the git-ignored terraform/dns/tunnel.auto.tfvars."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.flux_webhook_tunnel_id == null || can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.flux_webhook_tunnel_id))
+    error_message = "flux_webhook_tunnel_id must be a tunnel UUID."
+  }
+}
+
+# GitHub push webhooks for the Flux Receiver arrive through this proxied name
+# and the Cloudflare Tunnel flux-webhook (kubernetes/apps/flux-webhook). The
+# name sits directly under the zone, not under local., so it never overlaps
+# the unproxied internal wildcard above. Create it with this root, never with
+# `cloudflared tunnel route dns`: the CLI's cert.pem belongs to another zone.
+resource "cloudflare_dns_record" "flux_webhook" {
+  count   = var.flux_webhook_tunnel_id == null ? 0 : 1
+  zone_id = data.cloudflare_zone.this.zone_id
+  name    = "flux-webhook.${var.zone}"
+  type    = "CNAME"
+  content = "${var.flux_webhook_tunnel_id}.cfargotunnel.com"
+  ttl     = 1
+  proxied = true
+  comment = "GitHub webhook to Flux (Cloudflare Tunnel flux-webhook); managed by terraform/dns"
+}

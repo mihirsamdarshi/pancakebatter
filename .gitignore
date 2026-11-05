@@ -8,6 +8,7 @@
 /deploy.key
 /deploy.key.pub
 /flux-webhook-token.txt
+/terraform/dns/tunnel.auto.tfvars
 # Template config files (rendered from template/; holds credentials)
 /cluster.toml
 # Kubernetes

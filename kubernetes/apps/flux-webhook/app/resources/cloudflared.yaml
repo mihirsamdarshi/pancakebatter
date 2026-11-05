@@ -1,0 +1,10 @@
+# cloudflared routing for the locally managed tunnel flux-webhook (created with
+# the cloudflared CLI; its token is the cloudflared-token Secret). DNS sends only
+# flux-webhook.<zone> to this tunnel, so the rules need no hostname. Only the
+# Receiver's path reaches notification-controller's webhook port (Service
+# webhook-receiver, 80 -> 9292); its other ports (9090 events, 8080 metrics,
+# 9440 health) are not named here and the network policy blocks them.
+ingress:
+  - path: ^/hook/[0-9a-f]{64}$
+    service: http://webhook-receiver.flux-system.svc.cluster.local:80
+  - service: http_status:404

@@ -1,0 +1,15 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: flux-webhook
+resources:
+  - ./cloudflared-deployment.yaml
+  - ./networkpolicy.yaml
+  # TODO (owner step, before this can merge): add ./cloudflared-token.sops.yaml,
+  # the Secret `cloudflared-token` (key `token`) for the new locally managed
+  # tunnel flux-webhook. Without it the cloudflared pod cannot start.
+configMapGenerator:
+  # The hash suffix rolls cloudflared when its routing changes.
+  - name: cloudflared-config
+    files:
+      - config.yaml=./resources/cloudflared.yaml
