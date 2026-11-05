@@ -5,9 +5,8 @@ namespace: flux-webhook
 resources:
   - ./cloudflared-deployment.yaml
   - ./networkpolicy.yaml
-  # TODO (owner step, before this can merge): add ./cloudflared-token.sops.yaml,
-  # the Secret `cloudflared-token` (key `token`) for the new locally managed
-  # tunnel flux-webhook. Without it the cloudflared pod cannot start.
+  # The tunnel token (TUNNEL_TOKEN) of the locally managed tunnel flux-webhook.
+  - ./cloudflared-token.sops.yaml  # cloudflared-token (key token)
 configMapGenerator:
   # The hash suffix rolls cloudflared when its routing changes.
   - name: cloudflared-config
