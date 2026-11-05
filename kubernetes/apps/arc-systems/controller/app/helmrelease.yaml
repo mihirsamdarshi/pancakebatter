@@ -31,3 +31,6 @@ spec:
     flags:
       # The chart default is debug.
       logLevel: info
+      # Watch only arc-runners. The chart then creates namespaced Roles in
+      # arc-systems and arc-runners instead of a cluster-wide ClusterRole.
+      watchSingleNamespace: arc-runners
