@@ -12,8 +12,10 @@ spec:
   values:
     # Repository level, never the pancakebatter repo.
     githubConfigUrl: https://github.com/mihirsamdarshi/apps
-    # Secret in this namespace, key github_token (github-pat.sops.yaml).
-    githubConfigSecret: github-pat
+    # Secret in this namespace (github-app.sops.yaml), keys github_app_id,
+    # github_app_installation_id, github_app_private_key. The App is installed
+    # on the apps repo only (Administration read/write, Metadata read).
+    githubConfigSecret: github-app
     runnerScaleSetName: apps-ci
     minRunners: 0
     # Canary value; 2 after the canary (separate PR).
