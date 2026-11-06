@@ -2,9 +2,14 @@
 # The Namespace of the platform app reports: Git-defined, Pod Security
 # `restricted`, prune-disabled. Everything inside it comes from the entry
 # kubernetes/apps/flux-system/app-platform/apps/reports.yaml, not from this
-# folder. A custom `path` folder would be reports/app/, never this folder.
+# folder, except the Secret reports-mapkit that the entry's mapkit part reads:
+# a SOPS file the owner creates from 1Password ("Apple Maps (the mapkit part)"
+# in ../README.md). cluster-apps decrypts it. A custom `path` folder would be
+# reports/app/, never this folder.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: reports
 components:
   - ../../../components/personal-namespace
+resources:
+  - ./mapkit.sops.yaml
