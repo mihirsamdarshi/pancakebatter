@@ -7,9 +7,13 @@
 # the app pod has no internet access. Only the weekly job pod (below) reaches
 # one public address, on 443. Family members reach the app through the
 # family-apps share at reports.family.<zone>, with the same access as the LAN: reading,
-# agent runs (within the proxy's daily cap), publish and undo. Delete this
-# entry (and its line in kustomization.yaml) to stop updating it; the workload
-# keeps running until it is removed by hand.
+# agent runs (within the proxy's daily cap), publish and undo. The mapkit part
+# gives the app its one Secret, a MapKit JS token for the maps in the reports
+# (reports-mapkit, from mapkit.sops.yaml in personal-apps/reports/), which the
+# owner signs once a year; the private key never enters the cluster. The
+# browser loads Apple's map script and tiles; the pod reaches no Apple host.
+# Delete this entry (and its line in kustomization.yaml) to stop updating it;
+# the workload keeps running until it is removed by hand.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSetInputProvider
 metadata:
@@ -29,7 +33,7 @@ spec:
     limit: 1
   defaultValues:
     name: reports
-    parts: [pullsecret, internal-route, family-route, backup, job, job-egress]
+    parts: [pullsecret, internal-route, family-route, backup, job, job-egress, mapkit]
     egress: claude-proxy
     vars:
       TITLE: Reports
