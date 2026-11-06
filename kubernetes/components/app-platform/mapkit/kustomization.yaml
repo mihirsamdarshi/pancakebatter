@@ -1,0 +1,57 @@
+---
+# `mapkit`: Apple Maps for an app that draws maps with MapKit JS (the reports
+# app). The one exception to "apps receive no Secrets": the app container gets
+# exactly three keys of the Secret ${APP}-mapkit, a MapKit JS signing key with
+# its Key ID and Team ID, which can only sign map tokens. The Secret is a SOPS
+# file in the app's Namespace folder (personal-apps/<app>/mapkit.sops.yaml),
+# which the owner creates from 1Password. `optional: true` keeps the app
+# running without maps if the Secret or a key is missing; the app then answers
+# 404 for a token and shows a note in place of each map.
+#
+# MAPKIT_ORIGINS is the allow list of page origins that may get a token. It is
+# built from the same host names as the routes, so it follows them and the
+# zone never appears in Git. Without vars.FAMILY_HOST the second entry has an
+# empty first label, which the app ignores.
+#
+# Only the app's Deployment gets these (never the job's CronJob); the validator
+# checks the exact references. See "Apple Maps (the mapkit part)" in
+# kubernetes/apps/personal-apps/README.md.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target:
+      kind: Deployment
+      name: "[$][{]APP[}]"
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: MAPKIT_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ${APP}-mapkit
+              key: MAPKIT_PRIVATE_KEY
+              optional: true
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: MAPKIT_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: ${APP}-mapkit
+              key: MAPKIT_KEY_ID
+              optional: true
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: MAPKIT_TEAM_ID
+          valueFrom:
+            secretKeyRef:
+              name: ${APP}-mapkit
+              key: MAPKIT_TEAM_ID
+              optional: true
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: MAPKIT_ORIGINS
+          value: https://${HOST:=${APP}}.${SECRET_DOMAIN_LOCAL},https://${FAMILY_HOST:=}.${SECRET_FAMILY_DOMAIN}

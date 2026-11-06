@@ -1,0 +1,26 @@
+---
+# Test fixture for scripts/validate-apps.sh: the mapkit part without a family
+# route (the second origin then has an empty first label, which the app drops).
+# mapkit-secret: stand-in
+# Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-mapkit-lan-only
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/mapkit-lan-only
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: mapkit-lan-only
+    parts: [pullsecret, internal-route, mapkit]
+    egress: claude-proxy

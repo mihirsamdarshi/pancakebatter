@@ -41,10 +41,13 @@
 #      the own namespace and claude-proxy); only the job's CronJob carries the
 #      job pod label that policy selects;
 #   6. no credentials: no Secret reference in any pod spec, no service-account
-#      token, and gitleaks over the entries and every custom folder;
+#      token, and gitleaks over the entries and every custom folder. The one
+#      exception is the mapkit part: the app's Deployment, container app, may
+#      read exactly three keys of the Secret <name>-mapkit;
 #   6a. custom `path` folders on their own: plain workload kinds only;
 #   7. the pull Secret that `apps-pull` renders;
 #   8. the Namespace folder under kubernetes/apps/personal-apps, and renames;
+#      with the mapkit part, its SOPS Secret mapkit.sops.yaml there;
 #   9. the flux-operator CLI version equals the operator chart tag; the
 #      PrometheusRule app-platform exists, names every entry's namespace and
 #      passes promtool check and its unit tests.
@@ -334,7 +337,7 @@ def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|
 | (if ($d.name | isstr) then $d.name else "" end) as $name
 | (if ($d.namespace | isstr) then $d.namespace else $name end) as $ns
 | (if ($d.parts | type) == "array" then $d.parts else ["pullsecret", "internal-route", "backup"] end) as $parts
-| ["pullsecret", "internal-route", "family-route", "family-route-legacy", "backup", "backup-sqlite", "job", "job-egress"] as $known
+| ["pullsecret", "internal-route", "family-route", "family-route-legacy", "backup", "backup-sqlite", "job", "job-egress", "mapkit"] as $known
 | ["name", "namespace", "parts", "netpol", "netpolReason", "egress", "pin", "env", "path", "vars"] as $topkeys
 | ["CLAIM", "STORAGE", "STORAGE_CLASS", "HEALTH_PATH", "APP_UID", "APP_GID", "DATA_PATH", "CPU", "MEMORY", "MEMORY_LIMIT", "IMAGE", "PULL_SECRET", "HOST", "FAMILY_HOST", "TITLE", "DESCRIPTION", "ICON", "SQLITE_DBS", "VOLSYNC_SCHEDULE", "SQLITE_SCHEDULE", "JOB_SCHEDULE", "JOB_COMMAND", "JOB_READ_PATH", "JOB_WORK_PATH", "JOB_DEADLINE", "JOB_MEMORY_LIMIT", "JOB_EGRESS_CIDR"] as $varkeys
 | ["APP", "IMAGE_DIGEST", "APP_NAMESPACE", "VOLSYNC_NAMESPACE", "VOLSYNC_CLAIM"] as $reserved
@@ -476,9 +479,19 @@ JQ
 
 # Pod specs of a built manifest stream (slurped). Checks the restricted fields,
 # the read-only root filesystem, no service-account token, no Secret reference
-# and, when $ns is not empty, the namespace.
+# and, when $ns is not empty, the namespace. With $mapkit, the Deployment $app
+# may carry the mapkit part's three references, and only those: env entries
+# MAPKIT_PRIVATE_KEY, MAPKIT_KEY_ID and MAPKIT_TEAM_ID in container app, each
+# exactly {secretKeyRef: {name: <app>-mapkit, key: <its own name>, optional: true}}.
 read -r -d '' pods_jq <<'JQ' || true
 def containers: ((.initContainers // []) + (.containers // []) + (.ephemeralContainers // []));
+def mapkitref($app): . as $e
+  | ($e.name | IN("MAPKIT_PRIVATE_KEY", "MAPKIT_KEY_ID", "MAPKIT_TEAM_ID"))
+    and ($e | keys) == ["name", "valueFrom"]
+    and $e.valueFrom == {secretKeyRef: {name: "\($app)-mapkit", key: $e.name, optional: true}};
+def scannable($p; $s): if $mapkit and $p.kind == "Deployment" and $p.name == $app
+  then $s | .containers |= map(if .name == "app" then .env |= ((. // []) | map(select(mapkitref($app) | not))) else . end)
+  else $s end;
 def pods:
   .[] | select(type == "object" and .kind != null)
   | if .kind == "Pod" then {kind: .kind, name: .metadata.name, ns: .metadata.namespace, s: .spec}
@@ -491,7 +504,7 @@ def pods:
   | (
       (if $ns != "" and $p.ns != $ns then "\($id): namespace \($p.ns) is not \($ns)" else empty end),
       (if $s.automountServiceAccountToken != false then "\($id): automountServiceAccountToken must be false on every pod" else empty end),
-      ($s | [.. | objects | keys[] | select(IN("valueFrom", "secretKeyRef", "secretRef"))] | unique | .[] | "\($id): \(.) is forbidden (apps receive no Secrets, env values are plain)"),
+      (scannable($p; $s) | [.. | objects | keys[] | select(IN("valueFrom", "secretKeyRef", "secretRef"))] | unique | .[] | "\($id): \(.) is forbidden (apps receive no Secrets, env values are plain; the mapkit part allows only its three references)"),
       (($s.volumes // [])[] | select(has("secret")) | "\($id): secret volume \(.name) is forbidden"),
       (($s.volumes // [])[] | select((.projected.sources // []) | any(has("secret") or has("serviceAccountToken"))) | "\($id): projected volume \(.name) with a Secret or serviceAccountToken source is forbidden"),
       (($s.volumes // [])[] | (keys - ["name", "persistentVolumeClaim", "emptyDir", "configMap"]) as $bad | select(($bad | length) > 0) | "\($id): volume \(.name) of type \($bad | join(",")) is not allowed (persistentVolumeClaim, emptyDir and configMap only)"),
@@ -641,14 +654,33 @@ check_custom_path() {
     [[ -z "$kinds" ]] || fail "custom path $dir holds kinds that are not allowed: $kinds (allowed: Deployment, StatefulSet, Job, CronJob, Service, ConfigMap, PersistentVolumeClaim)"
     kinds="$(yq -o=json -N '.' "$tmp/custom.yaml" | jq -s -r '[.[] | select(type == "object" and .kind == "Service" and (((.spec.type // "ClusterIP") != "ClusterIP") or (.spec | has("externalIPs") or has("loadBalancerIP")))) | .metadata.name] | join(", ")')"
     [[ -z "$kinds" ]] || fail "custom path $dir: Service $kinds must be a plain ClusterIP Service (no NodePort, LoadBalancer, ExternalName or externalIPs)"
-    yq -o=json -N '.' "$tmp/custom.yaml" | jq -s -r --arg ns "" --argjson pull '["apps-ghcr"]' "$pods_jq" >"$tmp/custom.errs"
+    yq -o=json -N '.' "$tmp/custom.yaml" | jq -s -r --arg ns "" --argjson pull '["apps-ghcr"]' --argjson mapkit false --arg app "" "$pods_jq" >"$tmp/custom.errs"
     [[ ! -s "$tmp/custom.errs" ]] || fail "custom path $dir: $(tr '\n' ';' <"$tmp/custom.errs")"
     echo "    custom path $dir: plain workload kinds, no credentials"
 }
 
+# The mapkit part's Secret: one Opaque Secret <name>-mapkit with exactly the
+# three keys, every value SOPS-encrypted under stringData. Only its shape is
+# read, never a value. The owner makes it from 1Password with the pipeline in
+# the personal-apps README; an agent never writes it.
+check_mapkit_secret() {
+    local f="$1" name="$2" ns="$3"
+    [[ -f "$f" ]] || fail "$f is missing: the owner creates it from 1Password (see 'Apple Maps (the mapkit part)' in kubernetes/apps/personal-apps/README.md). Never write it by hand"
+    [[ "$(yq ea '[.] | length' "$f")" == "1" ]] || fail "$f must hold exactly one document"
+    [[ "$(yq '.apiVersion' "$f")" == "v1" && "$(yq '.kind' "$f")" == "Secret" && "$(yq '.metadata.name' "$f")" == "$name-mapkit" && "$(yq '.type' "$f")" == "Opaque" ]] \
+        || fail "$f must be an Opaque v1 Secret named $name-mapkit"
+    [[ "$(yq ".metadata.namespace // \"$ns\"" "$f")" == "$ns" ]] || fail "$f: the namespace must be $ns"
+    [[ "$(yq -o=json -I=0 '.stringData // {} | keys | sort' "$f")" == '["MAPKIT_KEY_ID","MAPKIT_PRIVATE_KEY","MAPKIT_TEAM_ID"]' ]] \
+        || fail "$f: stringData must hold exactly MAPKIT_PRIVATE_KEY, MAPKIT_KEY_ID and MAPKIT_TEAM_ID"
+    [[ "$(yq '[.stringData[] | test("^ENC\\[")] | all' "$f")" == "true" ]] || fail "$f: a stringData value is not SOPS-encrypted"
+    [[ "$(yq '.data // {} | length' "$f")" == "0" ]] || fail "$f has a data field; use stringData (flux build ks cannot mask an encrypted data value)"
+    yq -e '.sops.age' "$f" >/dev/null 2>&1 || fail "$f has no sops metadata (not encrypted)"
+    echo "    mapkit: $f is an encrypted Secret $name-mapkit with the three keys"
+}
+
 validate_entry() {
     local file="$1" stem fx=false errs name ns path parts_json pull_json host famhost netpol egress
-    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot
+    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot mapkit listed
     stem="$(basename "$file" .yaml)"
     entry_label="$stem"
     case "$file" in "$fixtures_dir"/*) fx=true ;; esac
@@ -695,6 +727,15 @@ validate_entry() {
         || fail "$nsdir/kustomization.yaml must use ../../../components/personal-namespace"
     yq -e ".resources[] | select(. == \"./$ns\")" "$nsroot/kustomization.yaml" >/dev/null 2>&1 \
         || fail "$nsroot/kustomization.yaml does not list ./$ns"
+    # 8a. The MapKit Secret, with the mapkit part only.
+    mapkit="$(echo "$parts_json" | jq 'index("mapkit") != null')"
+    listed="$(yq '[.resources // [] | .[] | select(. == "./mapkit.sops.yaml" or . == "mapkit.sops.yaml")] | length' "$nsdir/kustomization.yaml")"
+    if [[ "$mapkit" == true ]]; then
+        [[ "$listed" == "1" ]] || fail "$nsdir/kustomization.yaml must list ./mapkit.sops.yaml once: the mapkit part reads the Secret $name-mapkit from it"
+        check_mapkit_secret "$nsdir/mapkit.sops.yaml" "$name" "$ns"
+    else
+        [[ "$listed" == "0" && ! -e "$nsdir/mapkit.sops.yaml" ]] || fail "$nsdir holds mapkit.sops.yaml, but the entry has no mapkit part"
+    fi
 
     # 6a. A custom folder, on its own.
     [[ -z "$path" || "$path" == "$base_path" ]] || check_custom_path "${path#./}"
@@ -767,8 +808,17 @@ validate_entry() {
     # `env` becomes after substitution.
     errs="$(jq -r '[.[] | walk(if type == "object" and has("env") then del(.env) else . end) | .. | strings | select(contains("${"))] | unique | join(" ")' "$tmp/build.json")"
     [[ -z "$errs" ]] || fail "the build has an unsubstituted \${...} outside container env: $errs"
-    errs="$(jq -r --arg ns "$ns" --argjson pull "$pull_json" "$pods_jq" "$tmp/build.json")"
+    errs="$(jq -r --arg ns "$ns" --argjson pull "$pull_json" --argjson mapkit "$mapkit" --arg app "$name" "$pods_jq" "$tmp/build.json")"
     [[ -z "$errs" ]] || fail "pods: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
+    if [[ "$mapkit" == true ]]; then
+        # The part's four env entries, on the app container of the app's Deployment.
+        errs="$(jq -r --arg app "$name" --arg want "https://$host.$fake_local,https://$famhost.$fake_family" '
+            [.[] | select(.kind == "Deployment" and .metadata.name == $app) | .spec.template.spec.containers[] | select(.name == "app") | .env // [] | .[]] as $env
+            | ([$env[] | select(.valueFrom.secretKeyRef.name == "\($app)-mapkit") | .name] | sort) as $refs
+            | (if $refs != ["MAPKIT_KEY_ID", "MAPKIT_PRIVATE_KEY", "MAPKIT_TEAM_ID"] then "the mapkit part must give container app of Deployment \($app) exactly MAPKIT_PRIVATE_KEY, MAPKIT_KEY_ID and MAPKIT_TEAM_ID from \($app)-mapkit (got \($refs | join(", ")))" else empty end),
+              (if [$env[] | select(.name == "MAPKIT_ORIGINS") | .value] != [$want] then "MAPKIT_ORIGINS must be \($want) (the route hosts)" else empty end)' "$tmp/build.json")"
+        [[ -z "$errs" ]] || fail "mapkit: $errs"
+    fi
     errs="$(jq -r --arg ns "$ns" --arg name "$name" --argjson netpol "$netpol" --arg egress "$egress" \
         --argjson parts "$parts_json" --arg host "$host" --arg famhost "$famhost" \
         --argjson jobegress "$jobegress" --arg jobcidr "$jobcidr" \
@@ -893,8 +943,18 @@ scan_secrets() {
 # every file in fail/ must be rejected, with the text on its `# expect:` line.
 # pass/hello-default.yaml is a copy of the hello entry, so that the tests do not
 # depend on whether the live entry is in the tree.
+# A stand-in for the mapkit Secret, for the fixtures: "stand-in" and
+# "unlisted" have the right shape; "plain" has a value without ENC[.
+write_mapkit_standin() {
+    local f="$1" name="$2" kind="$3" enc='ENC[AES256_GCM,data:c3RhbmQtaW4=,iv:c3RhbmQtaW4=,tag:c3RhbmQtaW4=,type:str]' first
+    first="$enc"
+    [[ "$kind" != "plain" ]] || first="not-encrypted"
+    printf -- '---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: %s-mapkit\ntype: Opaque\nstringData:\n  MAPKIT_PRIVATE_KEY: %s\n  MAPKIT_KEY_ID: %s\n  MAPKIT_TEAM_ID: %s\nsops:\n  age:\n    - recipient: stand-in\n      enc: stand-in\n' \
+        "$name" "$first" "$enc" "$enc" >"$f"
+}
+
 run_self_test() {
-    local f expect out rc passed=0 failed=0 nsroot="$tmp/fixture-ns" c root name
+    local f expect out rc passed=0 failed=0 nsroot="$tmp/fixture-ns" c root name mapkit_case
     # An entry lives in the namespace of its own name, so each sample gets a
     # Namespace folder of that name under a temporary root (a sample marked
     # `# no-namespace-folder` gets none).
@@ -907,6 +967,14 @@ run_self_test() {
         mkdir -p "$nsroot/$name"
         printf -- '---\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nnamespace: %s\ncomponents:\n  - ../../../components/personal-namespace\n' "$name" >"$nsroot/$name/kustomization.yaml"
         yq -i ".resources += [\"./$name\"]" "$nsroot/kustomization.yaml"
+        # `# mapkit-secret: <case>` gives the sample's folder a mapkit.sops.yaml
+        # stand-in: its shape only, with placeholder ENC[...] values that hold
+        # no secret and are never decrypted.
+        mapkit_case="$(sed -n 's/^# mapkit-secret: //p' "$f")"
+        if [[ -n "$mapkit_case" ]]; then
+            [[ "$mapkit_case" == "listed-missing" ]] || write_mapkit_standin "$nsroot/$name/mapkit.sops.yaml" "$name" "$mapkit_case"
+            [[ "$mapkit_case" == "unlisted" ]] || yq -i '.resources += ["./mapkit.sops.yaml"]' "$nsroot/$name/kustomization.yaml"
+        fi
     done
     export VALIDATE_APPS_NS_ROOT="$nsroot"
     for f in "$fixtures_dir"/pass/*.yaml; do

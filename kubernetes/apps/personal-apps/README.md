@@ -57,7 +57,9 @@ app. There are two ways to run one:
   so they get an `apps-ghcr` copy too. Those namespaces must exist (their own
   Kustomizations create them), or no copy is applied.
 - `kubernetes/apps/personal-apps/<namespace>/`: the app's Namespace, Git-defined,
-  Pod Security `restricted`, prune-disabled. Only the Namespace lives here.
+  Pod Security `restricted`, prune-disabled. Only the Namespace lives here,
+  plus `mapkit.sops.yaml` for an entry with the `mapkit` part (see "Apple Maps
+  (the mapkit part)").
 - Failures go to Discord through the Flux `Provider` and `Alert` in
   `app-platform/app`. The Alert covers Flux events only. The PrometheusRule
   `app-platform` (`observability/kube-prometheus-stack/app`) alerts when an
@@ -198,8 +200,9 @@ see `network/family-apps/README.md`; needs `vars.FAMILY_HOST`),
 list it after `family-route`), `backup` (the `volsync` component),
 `backup-sqlite` (the `sqlite-export` component, with no service-account token),
 `job` (a CronJob that runs a command from the app's image; see "Scheduled
-jobs") and `job-egress` (443/TCP to one public CIDR for the job pods only;
-needs `job`).
+jobs"), `job-egress` (443/TCP to one public CIDR for the job pods only;
+needs `job`) and `mapkit` (a MapKit JS key from the Secret `<name>-mapkit`, for
+an app that draws Apple maps; see "Apple Maps (the mapkit part)").
 The `netpol` and `egress` keys add the `netpol` component and then
 `netpol-egress-internet` or `netpol-egress-claude-proxy` after the parts, so an
 explicit `parts: []` still gets the policy.
@@ -220,7 +223,9 @@ The generated Deployment assumes it; the `apps` template enforces it.
   `linux/amd64`, one replica with strategy `Recreate` (SQLite is single-writer).
 - **Receives no Secrets**: no `valueFrom`, `secretKeyRef`, `envFrom` of a Secret
   or Secret volume, and `automountServiceAccountToken` is false on every pod. The
-  only Secret a pod references is the `apps-ghcr` image pull Secret.
+  only Secret a pod references is the `apps-ghcr` image pull Secret. The one
+  exception is the `mapkit` part: the app container of the app's Deployment
+  reads three keys of `<name>-mapkit`, and nothing else does.
 - **Takes its own pre-migration copy** into `$DATA_DIR/backups/`. Pinning an old
   digest does not roll data back.
 - Reaches the network only as the policy allows (below).
@@ -317,7 +322,84 @@ directory, so the image needs `/bin/sh`. One run at a time, no retry, at most
    `kustomization.yaml` and is never the Namespace folder itself.
 4. Out of the platform: no entry, a normal app under `kubernetes/apps/<ns>/`.
 
-Postgres or any service that needs a credential is deferred; apps hold none.
+Postgres or any service that needs a credential is deferred; apps hold none,
+except the MapKit JS key of the `mapkit` part.
+
+### Apple Maps (the mapkit part)
+
+The reports app draws Apple maps with MapKit JS. The browser loads Apple's
+script and map tiles. The app signs a short token for its own pages with a
+MapKit JS private key (a `.p8` file from the Apple Developer account). That
+key is the one credential a platform app may hold. It can sign map tokens
+only, so a leak can use up the account's MapKit quota but reach nothing else.
+
+The `mapkit` part adds four environment variables to the container `app` of
+the app's Deployment:
+
+| Variable | From |
+| --- | --- |
+| `MAPKIT_PRIVATE_KEY`, `MAPKIT_KEY_ID`, `MAPKIT_TEAM_ID` | The Secret `<name>-mapkit`, `secretKeyRef` with `optional: true` |
+| `MAPKIT_ORIGINS` | `https://<HOST>.${SECRET_DOMAIN_LOCAL},https://<FAMILY_HOST>.${SECRET_FAMILY_DOMAIN}`, the same names as the routes |
+
+With `optional: true`, the app starts without the Secret or a key. It then
+shows a note in place of each map. Without `vars.FAMILY_HOST` the second
+origin has an empty first label, and the app ignores it.
+
+The Secret is a SOPS file in the app's Namespace folder,
+`kubernetes/apps/personal-apps/<name>/mapkit.sops.yaml`, listed in that
+folder's `kustomization.yaml`. `cluster-apps` applies and decrypts it. The
+validator requires the file with the part and refuses it without the part. It
+checks the shape only: one `Opaque` Secret `<name>-mapkit` with exactly the
+three keys, each value encrypted under `stringData`, and `sops` metadata. It
+also refuses any other Secret reference, and these references anywhere except
+the app container of the app's Deployment. The job's CronJob never gets them.
+
+The owner creates the file from 1Password. Run this from the repository root,
+in bash or zsh, with `op` signed in and the repo's mise tools on the `PATH`.
+Replace the three references with the 1Password item that holds the key: the
+`.p8` file attached to the item (or a field with its PEM text), the Key ID and
+the Team ID.
+
+```sh
+( set -o pipefail
+  f=kubernetes/apps/personal-apps/reports/mapkit.sops.yaml
+  jq -n --rawfile key <(op read 'op://<vault>/<item>/<key file>.p8') \
+        --rawfile kid <(op read --no-newline 'op://<vault>/<item>/<Key ID field>') \
+        --rawfile team <(op read --no-newline 'op://<vault>/<item>/<Team ID field>') \
+    '($kid | gsub("\\s"; "")) as $k | ($team | gsub("\\s"; "")) as $t
+     | if ($key | test("-----BEGIN PRIVATE KEY-----")) and ($k | test("^[A-Z0-9]{10}$")) and ($t | test("^[A-Z0-9]{10}$"))
+       then {apiVersion: "v1", kind: "Secret", metadata: {name: "reports-mapkit", namespace: "reports"}, type: "Opaque",
+             stringData: {MAPKIT_PRIVATE_KEY: $key, MAPKIT_KEY_ID: $k, MAPKIT_TEAM_ID: $t}}
+       else error("a reference did not give a PEM private key or a 10-character ID") end' \
+    | sops encrypt --filename-override "$f" --input-type json --output-type yaml /dev/stdin > "$f.tmp" \
+    && grep -q 'ENC\[' "$f.tmp" && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
+```
+
+The values go from `op` to `jq` through pipes (`/dev/fd`), never through a
+command line, a variable in the environment or a file. Only the encrypted
+output is written, to `<file>.tmp` first. A failure leaves no new file and
+keeps an existing one. Encrypting needs the age recipient in `.sops.yaml`
+only, not the private age key.
+
+Check the shape, without decrypting (the keys stay readable):
+
+```sh
+yq '.stringData | keys' kubernetes/apps/personal-apps/reports/mapkit.sops.yaml
+# - MAPKIT_PRIVATE_KEY
+# - MAPKIT_KEY_ID
+# - MAPKIT_TEAM_ID
+```
+
+After the first merge, read the app's log (`kubectl -n reports logs
+deployment/reports`). It must say `maps on for 2 origin(s)`. If it says `maps
+off`, the pod started before Flux applied the Secret: restart the Deployment
+once (`kubectl -n reports rollout restart deployment/reports`).
+
+Rotation: make a new key in the Apple Developer account, run the pipeline with
+the new references, merge, and then revoke the old key. The app reads the
+Secret at start, so the merge restarts nothing by itself: restart the
+Deployment after Flux applies the new Secret
+(`kubectl -n reports rollout restart deployment/reports`).
 
 ### Creating ghcr-apps-read
 
@@ -384,8 +466,8 @@ unaffected.
 - Never remove `fluxcd.controlplane.io/prune: disabled` from the `apps-pull`
   Secret template: a stale copy is harmless, a missing one during an outage is
   not.
-- Never give an app a Secret, and never set `netpol: false` without a stated
-  reason. Never add a `world` entity or a bare `0.0.0.0/0` rule to a policy.
+- Never give an app a Secret (the `mapkit` part's MapKit JS key is the one
+  exception), and never set `netpol: false` without a stated reason. Never add a `world` entity or a bare `0.0.0.0/0` rule to a policy.
 - Do not add any CI-to-tailnet path (Receiver, `tag:ci`, an OAuth client) until
   the tailnet policy has been narrowed in its own project. Deploys poll every 2
   minutes meanwhile.
