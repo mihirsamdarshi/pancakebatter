@@ -95,7 +95,8 @@ ten minutes before.
 | scratch (throwaway)    | 12:35          | 12:45                 |
 | reports                | none           | 13:00                 |
 | job-tracker            | 13:05          | 13:15                 |
-| next platform apps     | 13:20, 13:35 … | 13:30, 13:45 …        |
+| fantasy                | 13:20          | 13:30                 |
+| next platform apps     | 13:35, 13:50 … | 13:45, 14:00 …        |
 
 ## SQLite
 

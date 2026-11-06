@@ -12,3 +12,4 @@ resources:
   - ./quilt-planner.yaml
   - ./reports.yaml
   - ./job-tracker.yaml
+  - ./fantasy.yaml

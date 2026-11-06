@@ -15,6 +15,7 @@ resources:
   - ./scratch
   - ./reports
   - ./job-tracker
+  - ./fantasy
   # The Claude API proxy keeps its Flux Kustomization in flux-system and its own
   # Namespace claude-proxy. Platform apps reach it with `egress: claude-proxy`.
   - ./claude-proxy
