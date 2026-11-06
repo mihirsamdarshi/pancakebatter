@@ -11,7 +11,12 @@
 # MAPKIT_ORIGINS is the allow list of page origins that may get a token. It is
 # built from the same host names as the routes, so it follows them and the
 # zone never appears in Git. Without vars.FAMILY_HOST the second entry has an
-# empty first label, which the app ignores.
+# empty first label, which the app ignores. The transitional host of
+# family-route-legacy is not in the list: maps there get no token and show the
+# note (reports does not use that part).
+#
+# Reloader (kube-system) restarts the Deployment when the Secret changes, so a
+# rotated key takes effect without a manual restart.
 #
 # Only the app's Deployment gets these (never the job's CronJob); the validator
 # checks the exact references. See "Apple Maps (the mapkit part)" in
@@ -55,3 +60,13 @@ patches:
         value:
           name: MAPKIT_ORIGINS
           value: https://${HOST:=${APP}}.${SECRET_DOMAIN_LOCAL},https://${FAMILY_HOST:=}.${SECRET_FAMILY_DOMAIN}
+  - target:
+      kind: Deployment
+      name: "[$][{]APP[}]"
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: _
+        annotations:
+          secret.reloader.stakater.com/reload: ${APP}-mapkit

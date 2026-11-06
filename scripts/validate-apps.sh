@@ -120,8 +120,9 @@ conform() {
 # --- Facts from Git ---------------------------------------------------------
 
 # Writes, under $tmp: the StorageClasses with reclaimPolicy Retain, the names of
-# Secrets declared in Git, the names of Flux Kustomizations declared in Git and
-# the backup schedules they set.
+# the pull Secrets (kubernetes.io/dockerconfigjson) declared in Git, the names of
+# Flux Kustomizations declared in Git and the backup schedules they set. Only a
+# pull Secret may be vars.PULL_SECRET, so the mapkit Secret can never be one.
 collect_git_facts() {
     local f
     find kubernetes -type f -name '*.yaml' ! -name kustomization.yaml -print0 | sort -z >"$tmp/all-manifests"
@@ -129,7 +130,7 @@ collect_git_facts() {
     : >"$tmp/git.volsync" && : >"$tmp/git.sqlite"
     while IFS= read -r -d '' f; do
         yq -N 'select(.kind == "StorageClass" and .reclaimPolicy == "Retain") | .metadata.name' "$f" >>"$tmp/retain.list"
-        yq -N 'select(.kind == "Secret") | .metadata.name' "$f" >>"$tmp/secrets.list"
+        yq -N 'select(.kind == "Secret" and .type == "kubernetes.io/dockerconfigjson") | .metadata.name' "$f" >>"$tmp/secrets.list"
         yq -N 'select(.apiVersion == "kustomize.toolkit.fluxcd.io/*" and .kind == "Kustomization") | .metadata.name' "$f" >>"$tmp/ks.names"
         yq -N 'select(.apiVersion == "kustomize.toolkit.fluxcd.io/*" and .kind == "Kustomization") | .spec.postBuild.substitute.VOLSYNC_SCHEDULE // ""' "$f" >>"$tmp/git.volsync"
         yq -N 'select(.apiVersion == "kustomize.toolkit.fluxcd.io/*" and .kind == "Kustomization") | .spec.postBuild.substitute.SQLITE_SCHEDULE // ""' "$f" >>"$tmp/git.sqlite"
@@ -406,7 +407,7 @@ def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|
         else empty end),
     (if ($v | has("STORAGE_CLASS")) and (($v.STORAGE_CLASS | tostring) | IN($retain[]) | not) then "vars.STORAGE_CLASS \($v.STORAGE_CLASS) is not a StorageClass with reclaimPolicy Retain in Git (\($retain | join(", ")))" else empty end),
     (($v.PULL_SECRET // "apps-ghcr") as $ps
-      | if $ps != "apps-ghcr" and ($ps | tostring | IN($pullsecrets[]) | not) then "vars.PULL_SECRET \($ps) is not a Secret declared in Git" else empty end),
+      | if $ps != "apps-ghcr" and ($ps | tostring | IN($pullsecrets[]) | not) then "vars.PULL_SECRET \($ps) is not a Secret declared in Git (only kubernetes.io/dockerconfigjson Secrets count)" else empty end),
     (("CPU", "MEMORY", "MEMORY_LIMIT", "STORAGE", "JOB_MEMORY_LIMIT") as $k
       | if ($v | has($k)) and ($v[$k] | qty | not) then "vars.\($k) is not a Kubernetes quantity" else empty end),
     (if ($v | has("HEALTH_PATH")) and (($v.HEALTH_PATH | isstr | not) or ($v.HEALTH_PATH | startswith("/") | not)) then "vars.HEALTH_PATH must start with /" else empty end),
@@ -660,11 +661,20 @@ check_custom_path() {
 }
 
 # The mapkit part's Secret: one Opaque Secret <name>-mapkit with exactly the
-# three keys, every value SOPS-encrypted under stringData. Only its shape is
-# read, never a value. The owner makes it from 1Password with the pipeline in
-# the personal-apps README; an agent never writes it.
+# three keys, every value SOPS-encrypted under stringData, and sops metadata
+# that matches the .sops.yaml rule for its path (the recipient, the regex, a
+# MAC). cluster-apps decrypts it, and a file it cannot decrypt would stop the
+# whole cluster-apps build, so a stand-in or a file for another key fails here.
+# Only metadata and the shape are read, never a value. The owner makes it from
+# 1Password with the pipeline in the personal-apps README; an agent never
+# writes it.
+mapkit_rule() {
+    # The first creation rule that matches the Secret's path, as sops picks it.
+    yq -o=json -I=0 '[.creation_rules[] | select(.path_regex as $r | "kubernetes/apps/personal-apps/x/mapkit.sops.yaml" | test($r))][0]' .sops.yaml
+}
+
 check_mapkit_secret() {
-    local f="$1" name="$2" ns="$3"
+    local f="$1" name="$2" ns="$3" rule
     [[ -f "$f" ]] || fail "$f is missing: the owner creates it from 1Password (see 'Apple Maps (the mapkit part)' in kubernetes/apps/personal-apps/README.md). Never write it by hand"
     [[ "$(yq ea '[.] | length' "$f")" == "1" ]] || fail "$f must hold exactly one document"
     [[ "$(yq '.apiVersion' "$f")" == "v1" && "$(yq '.kind' "$f")" == "Secret" && "$(yq '.metadata.name' "$f")" == "$name-mapkit" && "$(yq '.type' "$f")" == "Opaque" ]] \
@@ -675,12 +685,23 @@ check_mapkit_secret() {
     [[ "$(yq '[.stringData[] | test("^ENC\\[")] | all' "$f")" == "true" ]] || fail "$f: a stringData value is not SOPS-encrypted"
     [[ "$(yq '.data // {} | length' "$f")" == "0" ]] || fail "$f has a data field; use stringData (flux build ks cannot mask an encrypted data value)"
     yq -e '.sops.age' "$f" >/dev/null 2>&1 || fail "$f has no sops metadata (not encrypted)"
-    echo "    mapkit: $f is an encrypted Secret $name-mapkit with the three keys"
+    rule="$(mapkit_rule)"
+    [[ "$rule" != "null" && -n "$rule" ]] || fail ".sops.yaml has no creation rule for kubernetes/apps/personal-apps/"
+    yq -o=json -I=0 '.sops' "$f" | jq -e --argjson rule "$rule" '
+        (.age | length) == 1
+        and .age[0].recipient == $rule.age
+        and (.age[0].enc | test("^-----BEGIN AGE ENCRYPTED FILE-----\n[A-Za-z0-9+/=\n]+-----END AGE ENCRYPTED FILE-----\n?$"))
+        and .encrypted_regex == $rule.encrypted_regex
+        and (.mac_only_encrypted // false) == ($rule.mac_only_encrypted // false)
+        and (.mac | type == "string" and test("^ENC\\[AES256_GCM,data:"))
+        and (.lastmodified | type == "string" and length > 0)' >/dev/null \
+        || fail "$f: its sops metadata does not match the .sops.yaml rule for kubernetes/ (one age recipient $(echo "$rule" | jq -r .age), encrypted_regex, mac_only_encrypted, an encrypted MAC); encrypt it with sops and the repo's .sops.yaml"
+    echo "    mapkit: $f is an encrypted Secret $name-mapkit with the three keys, for the repo's age recipient"
 }
 
 validate_entry() {
     local file="$1" stem fx=false errs name ns path parts_json pull_json host famhost netpol egress
-    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot mapkit listed
+    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot mapkit listed other
     stem="$(basename "$file" .yaml)"
     entry_label="$stem"
     case "$file" in "$fixtures_dir"/*) fx=true ;; esac
@@ -731,7 +752,16 @@ validate_entry() {
     mapkit="$(echo "$parts_json" | jq 'index("mapkit") != null')"
     listed="$(yq '[.resources // [] | .[] | select(. == "./mapkit.sops.yaml" or . == "mapkit.sops.yaml")] | length' "$nsdir/kustomization.yaml")"
     if [[ "$mapkit" == true ]]; then
-        [[ "$listed" == "1" ]] || fail "$nsdir/kustomization.yaml must list ./mapkit.sops.yaml once: the mapkit part reads the Secret $name-mapkit from it"
+        # The folder holds the Secret, and cluster-apps applies the folder as it
+        # is, with no pod check: so it may hold nothing else that could read it.
+        [[ "$(yq -o=json -I=0 'keys - ["apiVersion", "kind", "namespace", "components", "resources"]' "$nsdir/kustomization.yaml")" == "[]" ]] \
+            || fail "$nsdir/kustomization.yaml: with the mapkit part it may set only apiVersion, kind, namespace, components and resources"
+        [[ "$(yq -o=json -I=0 '.components' "$nsdir/kustomization.yaml")" == '["../../../components/personal-namespace"]' ]] \
+            || fail "$nsdir/kustomization.yaml: with the mapkit part its only component is ../../../components/personal-namespace"
+        [[ "$(yq -o=json -I=0 '.resources // []' "$nsdir/kustomization.yaml")" == '["./mapkit.sops.yaml"]' ]] \
+            || fail "$nsdir/kustomization.yaml must list exactly ./mapkit.sops.yaml: with the mapkit part the folder holds the Namespace and the Secret $name-mapkit, nothing else"
+        other="$(find "$nsdir" -mindepth 1 ! -name kustomization.yaml ! -name mapkit.sops.yaml -print -quit)"
+        [[ -z "$other" ]] || fail "$nsdir holds $other: with the mapkit part the folder holds only kustomization.yaml and mapkit.sops.yaml"
         check_mapkit_secret "$nsdir/mapkit.sops.yaml" "$name" "$ns"
     else
         [[ "$listed" == "0" && ! -e "$nsdir/mapkit.sops.yaml" ]] || fail "$nsdir holds mapkit.sops.yaml, but the entry has no mapkit part"
@@ -943,14 +973,22 @@ scan_secrets() {
 # every file in fail/ must be rejected, with the text on its `# expect:` line.
 # pass/hello-default.yaml is a copy of the hello entry, so that the tests do not
 # depend on whether the live entry is in the tree.
-# A stand-in for the mapkit Secret, for the fixtures: "stand-in" and
-# "unlisted" have the right shape; "plain" has a value without ENC[.
+# A stand-in for the mapkit Secret, for the fixtures. It has the shape and the
+# sops metadata of a real file for the repo's recipient, with placeholder
+# ENC[...] values that hold nothing and are never decrypted. "plain" has a
+# value without ENC[; "wrong-recipient" is for another age key.
 write_mapkit_standin() {
-    local f="$1" name="$2" kind="$3" enc='ENC[AES256_GCM,data:c3RhbmQtaW4=,iv:c3RhbmQtaW4=,tag:c3RhbmQtaW4=,type:str]' first
+    local f="$1" name="$2" kind="$3" enc='ENC[AES256_GCM,data:c3RhbmQtaW4=,iv:c3RhbmQtaW4=,tag:c3RhbmQtaW4=,type:str]' first rule recipient
     first="$enc"
     [[ "$kind" != "plain" ]] || first="not-encrypted"
-    printf -- '---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: %s-mapkit\ntype: Opaque\nstringData:\n  MAPKIT_PRIVATE_KEY: %s\n  MAPKIT_KEY_ID: %s\n  MAPKIT_TEAM_ID: %s\nsops:\n  age:\n    - recipient: stand-in\n      enc: stand-in\n' \
-        "$name" "$first" "$enc" "$enc" >"$f"
+    rule="$(mapkit_rule)"
+    recipient="$(echo "$rule" | jq -r .age)"
+    [[ "$kind" != "wrong-recipient" ]] || recipient="age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+    printf -- '---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: %s-mapkit\ntype: Opaque\nstringData:\n  MAPKIT_PRIVATE_KEY: %s\n  MAPKIT_KEY_ID: %s\n  MAPKIT_TEAM_ID: %s\nsops:\n  age:\n    - enc: |\n        -----BEGIN AGE ENCRYPTED FILE-----\n        c3RhbmQtaW4=\n        -----END AGE ENCRYPTED FILE-----\n      recipient: %s\n  encrypted_regex: %s\n  lastmodified: "2026-01-01T00:00:00Z"\n  mac: %s\n  mac_only_encrypted: %s\n  version: 3.13.3\n' \
+        "$name" "$first" "$enc" "$enc" "$recipient" "$(echo "$rule" | jq -r .encrypted_regex)" "$enc" "$(echo "$rule" | jq -r '.mac_only_encrypted // false')" >"$f"
+    if [[ "$kind" == "extra" ]]; then
+        printf -- '---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: reader\nspec:\n  containers:\n    - name: c\n      image: busybox\n      envFrom:\n        - secretRef:\n            name: %s-mapkit\n' "$name" >"$(dirname "$f")/reader.yaml"
+    fi
 }
 
 run_self_test() {
@@ -974,6 +1012,7 @@ run_self_test() {
         if [[ -n "$mapkit_case" ]]; then
             [[ "$mapkit_case" == "listed-missing" ]] || write_mapkit_standin "$nsroot/$name/mapkit.sops.yaml" "$name" "$mapkit_case"
             [[ "$mapkit_case" == "unlisted" ]] || yq -i '.resources += ["./mapkit.sops.yaml"]' "$nsroot/$name/kustomization.yaml"
+            [[ "$mapkit_case" != "extra" ]] || yq -i '.resources += ["./reader.yaml"]' "$nsroot/$name/kustomization.yaml"
         fi
     done
     export VALIDATE_APPS_NS_ROOT="$nsroot"

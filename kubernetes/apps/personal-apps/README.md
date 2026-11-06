@@ -330,8 +330,11 @@ except the MapKit JS key of the `mapkit` part.
 The reports app draws Apple maps with MapKit JS. The browser loads Apple's
 script and map tiles. The app signs a short token for its own pages with a
 MapKit JS private key (a `.p8` file from the Apple Developer account). That
-key is the one credential a platform app may hold. It can sign map tokens
-only, so a leak can use up the account's MapKit quota but reach nothing else.
+key is the one credential a platform app may hold. Create a key for this use
+only, with MapKit JS as its only enabled service. Never reuse a key that has
+other services (push notifications, Sign in with Apple, WeatherKit). Such a
+key can sign map tokens only, so a leak can use up the account's MapKit quota
+but reach nothing else.
 
 The `mapkit` part adds four environment variables to the container `app` of
 the app's Deployment:
@@ -349,10 +352,24 @@ The Secret is a SOPS file in the app's Namespace folder,
 `kubernetes/apps/personal-apps/<name>/mapkit.sops.yaml`, listed in that
 folder's `kustomization.yaml`. `cluster-apps` applies and decrypts it. The
 validator requires the file with the part and refuses it without the part. It
-checks the shape only: one `Opaque` Secret `<name>-mapkit` with exactly the
-three keys, each value encrypted under `stringData`, and `sops` metadata. It
-also refuses any other Secret reference, and these references anywhere except
-the app container of the app's Deployment. The job's CronJob never gets them.
+reads the metadata and the shape only, never a value:
+
+- One `Opaque` Secret `<name>-mapkit` with exactly the three keys, each value
+  encrypted under `stringData`.
+- `sops` metadata that matches the `.sops.yaml` rule for `kubernetes/`: one
+  age recipient (the repo's), the same `encrypted_regex` and
+  `mac_only_encrypted`, and an encrypted MAC. `cluster-apps` must be able to
+  decrypt the file: if it cannot, the whole `cluster-apps` build stops until
+  Git is fixed.
+- With the part, the folder holds only `kustomization.yaml` and
+  `mapkit.sops.yaml`, and its `kustomization.yaml` lists only
+  `./mapkit.sops.yaml`. `cluster-apps` applies the folder without a pod check,
+  so nothing else may sit beside the Secret.
+
+The validator also refuses any other Secret reference, and these references
+anywhere except the app container of the app's Deployment. The job's CronJob
+never gets them. Only a `kubernetes.io/dockerconfigjson` Secret can be
+`vars.PULL_SECRET`.
 
 The owner creates the file from 1Password. Run this from the repository root,
 in bash or zsh, with `op` signed in and the repo's mise tools on the `PATH`.
@@ -363,6 +380,8 @@ the Team ID.
 ```sh
 ( set -o pipefail
   f=kubernetes/apps/personal-apps/reports/mapkit.sops.yaml
+  op read 'op://<vault>/<item>/<key file>.p8' | openssl pkey -noout -text_pub 2>/dev/null | grep prime256v1 >/dev/null \
+    || { echo "failed: the key is not an ECDSA P-256 private key" >&2; exit 1; }
   jq -n --rawfile key <(op read 'op://<vault>/<item>/<key file>.p8') \
         --rawfile kid <(op read --no-newline 'op://<vault>/<item>/<Key ID field>') \
         --rawfile team <(op read --no-newline 'op://<vault>/<item>/<Team ID field>') \
@@ -375,8 +394,9 @@ the Team ID.
     && grep -q 'ENC\[' "$f.tmp" && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
 ```
 
-The values go from `op` to `jq` through pipes (`/dev/fd`), never through a
-command line, a variable in the environment or a file. Only the encrypted
+The first line checks that the key is a P-256 key; `-text_pub` prints the
+public half only. The values go from `op` to `jq` through pipes (`/dev/fd`),
+never through a command line, a variable in the environment or a file. Only the encrypted
 output is written, to `<file>.tmp` first. A failure leaves no new file and
 keeps an existing one. Encrypting needs the age recipient in `.sops.yaml`
 only, not the private age key.
@@ -397,9 +417,8 @@ once (`kubectl -n reports rollout restart deployment/reports`).
 
 Rotation: make a new key in the Apple Developer account, run the pipeline with
 the new references, merge, and then revoke the old key. The app reads the
-Secret at start, so the merge restarts nothing by itself: restart the
-Deployment after Flux applies the new Secret
-(`kubectl -n reports rollout restart deployment/reports`).
+Secret at start. The part sets `secret.reloader.stakater.com/reload` on the
+Deployment, so Reloader restarts it when Flux applies the new Secret.
 
 ### Creating ghcr-apps-read
 
