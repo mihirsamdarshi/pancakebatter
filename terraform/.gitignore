@@ -17,4 +17,5 @@ override.tf.json
 # Saved plans hold resolved variables (including the zone name).
 *.plan
 plan.out
+plan.json
 tfplan

@@ -1,9 +1,12 @@
-# Cloudflare security settings for the zone, managed with its own token
-# (cloudflare.sops.env here, not the DNS token). Run it through its just
+# Cloudflare security settings for the zone, managed with the shared
+# Terraform-only user token (1Password `Cloudflare User API Token`, the same
+# token terraform/dns uses; cloudflare.sops.env here). Run it through its just
 # recipes (mod.just): `just csec init|entrypoint|import|plan|apply`.
 #
-# The token needs exactly three zone-scoped permissions: Zone WAF (Edit), Bot
-# Management (Edit) and Zone (Read), on the one zone.
+# The token has four zone-scoped permissions on the one zone: Zone Read, DNS
+# Edit, Zone WAF Edit and Bot Management Edit. This root needs only Zone Read,
+# Zone WAF Edit and Bot Management Edit. The cluster's cert-manager uses a
+# separate account token, which is never used here.
 provider "cloudflare" {}
 
 variable "zone" {
