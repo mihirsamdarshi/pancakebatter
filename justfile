@@ -20,6 +20,9 @@ mod? vms 'terraform'
 [group('dns')]
 mod? dns 'terraform/dns'
 
+[group('security')]
+mod? csec 'terraform/cloudflare-security'
+
 [group('tailscale')]
 mod? tailscale 'kubernetes/apps/network/tailscale'
 
