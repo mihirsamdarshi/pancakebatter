@@ -5,10 +5,14 @@
 #   just dns secrets   regenerate cloudflare.sops.env from 1Password
 #   just dns ids       IDs and the full `terraform import` command
 # Each one except init decrypts cloudflare.sops.env into the environment of a
-# single `sops exec-env` process. It sets CLOUDFLARE_API_TOKEN (Zone:Read +
-# Zone:DNS:Edit on the one zone) and TF_VAR_zone. The zone comes from the
-# encrypted env file only for convenience: the domain itself is public (DNS,
-# Certificate Transparency logs) and is not a secret.
+# single `sops exec-env` process. It sets CLOUDFLARE_API_TOKEN and TF_VAR_zone.
+# The token is a Terraform-only user token (Zone Read, DNS Edit, Zone WAF Edit,
+# Bot Management Edit, on the one zone) from 1Password `Cloudflare User API
+# Token`. terraform/dns and terraform/cloudflare-security share it. The
+# cluster's cert-manager uses a separate account token, which is never used
+# here. The zone comes from the encrypted env file only for convenience: the
+# domain itself is public (DNS, Certificate Transparency logs) and is not a
+# secret.
 provider "cloudflare" {}
 
 variable "zone" {
