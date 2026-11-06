@@ -760,7 +760,7 @@ validate_entry() {
             || fail "$nsdir/kustomization.yaml: with the mapkit part its only component is ../../../components/personal-namespace"
         [[ "$(yq -o=json -I=0 '.resources // []' "$nsdir/kustomization.yaml")" == '["./mapkit.sops.yaml"]' ]] \
             || fail "$nsdir/kustomization.yaml must list exactly ./mapkit.sops.yaml: with the mapkit part the folder holds the Namespace and the Secret $name-mapkit, nothing else"
-        other="$(find "$nsdir" -mindepth 1 ! -name kustomization.yaml ! -name mapkit.sops.yaml -print -quit)"
+        other="$(find "$nsdir" -mindepth 1 ! -name kustomization.yaml ! -name mapkit.sops.yaml ! -name .DS_Store -print -quit)"
         [[ -z "$other" ]] || fail "$nsdir holds $other: with the mapkit part the folder holds only kustomization.yaml and mapkit.sops.yaml"
         check_mapkit_secret "$nsdir/mapkit.sops.yaml" "$name" "$ns"
     else
