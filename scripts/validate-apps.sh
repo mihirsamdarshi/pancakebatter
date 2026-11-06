@@ -43,7 +43,7 @@
 #   6. no credentials: no Secret reference in any pod spec, no service-account
 #      token, and gitleaks over the entries and every custom folder. The one
 #      exception is the mapkit part: the app's Deployment, container app, may
-#      read exactly three keys of the Secret <name>-mapkit;
+#      read the one key MAPKIT_TOKEN of the Secret <name>-mapkit;
 #   6a. custom `path` folders on their own: plain workload kinds only;
 #   7. the pull Secret that `apps-pull` renders;
 #   8. the Namespace folder under kubernetes/apps/personal-apps, and renames;
@@ -481,13 +481,13 @@ JQ
 # Pod specs of a built manifest stream (slurped). Checks the restricted fields,
 # the read-only root filesystem, no service-account token, no Secret reference
 # and, when $ns is not empty, the namespace. With $mapkit, the Deployment $app
-# may carry the mapkit part's three references, and only those: env entries
-# MAPKIT_PRIVATE_KEY, MAPKIT_KEY_ID and MAPKIT_TEAM_ID in container app, each
-# exactly {secretKeyRef: {name: <app>-mapkit, key: <its own name>, optional: true}}.
+# may carry the mapkit part's one reference, and only that: the env entry
+# MAPKIT_TOKEN in container app, exactly
+# {secretKeyRef: {name: <app>-mapkit, key: MAPKIT_TOKEN, optional: true}}.
 read -r -d '' pods_jq <<'JQ' || true
 def containers: ((.initContainers // []) + (.containers // []) + (.ephemeralContainers // []));
 def mapkitref($app): . as $e
-  | ($e.name | IN("MAPKIT_PRIVATE_KEY", "MAPKIT_KEY_ID", "MAPKIT_TEAM_ID"))
+  | $e.name == "MAPKIT_TOKEN"
     and ($e | keys) == ["name", "valueFrom"]
     and $e.valueFrom == {secretKeyRef: {name: "\($app)-mapkit", key: $e.name, optional: true}};
 def scannable($p; $s): if $mapkit and $p.kind == "Deployment" and $p.name == $app
@@ -505,7 +505,7 @@ def pods:
   | (
       (if $ns != "" and $p.ns != $ns then "\($id): namespace \($p.ns) is not \($ns)" else empty end),
       (if $s.automountServiceAccountToken != false then "\($id): automountServiceAccountToken must be false on every pod" else empty end),
-      (scannable($p; $s) | [.. | objects | keys[] | select(IN("valueFrom", "secretKeyRef", "secretRef"))] | unique | .[] | "\($id): \(.) is forbidden (apps receive no Secrets, env values are plain; the mapkit part allows only its three references)"),
+      (scannable($p; $s) | [.. | objects | keys[] | select(IN("valueFrom", "secretKeyRef", "secretRef"))] | unique | .[] | "\($id): \(.) is forbidden (apps receive no Secrets, env values are plain; the mapkit part allows only its MAPKIT_TOKEN reference)"),
       (($s.volumes // [])[] | select(has("secret")) | "\($id): secret volume \(.name) is forbidden"),
       (($s.volumes // [])[] | select((.projected.sources // []) | any(has("secret") or has("serviceAccountToken"))) | "\($id): projected volume \(.name) with a Secret or serviceAccountToken source is forbidden"),
       (($s.volumes // [])[] | (keys - ["name", "persistentVolumeClaim", "emptyDir", "configMap"]) as $bad | select(($bad | length) > 0) | "\($id): volume \(.name) of type \($bad | join(",")) is not allowed (persistentVolumeClaim, emptyDir and configMap only)"),
@@ -661,7 +661,8 @@ check_custom_path() {
 }
 
 # The mapkit part's Secret: one Opaque Secret <name>-mapkit with exactly the
-# three keys, every value SOPS-encrypted under stringData, and sops metadata
+# key MAPKIT_TOKEN (a MapKit JS token, never a signing key), SOPS-encrypted
+# under stringData, and sops metadata
 # that matches the .sops.yaml rule for its path (the recipient, the regex, a
 # MAC). cluster-apps decrypts it, and a file it cannot decrypt would stop the
 # whole cluster-apps build, so a stand-in or a file for another key fails here.
@@ -680,8 +681,8 @@ check_mapkit_secret() {
     [[ "$(yq '.apiVersion' "$f")" == "v1" && "$(yq '.kind' "$f")" == "Secret" && "$(yq '.metadata.name' "$f")" == "$name-mapkit" && "$(yq '.type' "$f")" == "Opaque" ]] \
         || fail "$f must be an Opaque v1 Secret named $name-mapkit"
     [[ "$(yq ".metadata.namespace // \"$ns\"" "$f")" == "$ns" ]] || fail "$f: the namespace must be $ns"
-    [[ "$(yq -o=json -I=0 '.stringData // {} | keys | sort' "$f")" == '["MAPKIT_KEY_ID","MAPKIT_PRIVATE_KEY","MAPKIT_TEAM_ID"]' ]] \
-        || fail "$f: stringData must hold exactly MAPKIT_PRIVATE_KEY, MAPKIT_KEY_ID and MAPKIT_TEAM_ID"
+    [[ "$(yq -o=json -I=0 '.stringData // {} | keys | sort' "$f")" == '["MAPKIT_TOKEN"]' ]] \
+        || fail "$f: stringData must hold exactly MAPKIT_TOKEN (the signed token; the private key never enters the cluster)"
     [[ "$(yq '[.stringData[] | test("^ENC\\[")] | all' "$f")" == "true" ]] || fail "$f: a stringData value is not SOPS-encrypted"
     [[ "$(yq '.data // {} | length' "$f")" == "0" ]] || fail "$f has a data field; use stringData (flux build ks cannot mask an encrypted data value)"
     yq -e '.sops.age' "$f" >/dev/null 2>&1 || fail "$f has no sops metadata (not encrypted)"
@@ -696,7 +697,7 @@ check_mapkit_secret() {
         and (.mac | type == "string" and test("^ENC\\[AES256_GCM,data:"))
         and (.lastmodified | type == "string" and length > 0)' >/dev/null \
         || fail "$f: its sops metadata does not match the .sops.yaml rule for kubernetes/ (one age recipient $(echo "$rule" | jq -r .age), encrypted_regex, mac_only_encrypted, an encrypted MAC); encrypt it with sops and the repo's .sops.yaml"
-    echo "    mapkit: $f is an encrypted Secret $name-mapkit with the three keys, for the repo's age recipient"
+    echo "    mapkit: $f is an encrypted Secret $name-mapkit with MAPKIT_TOKEN, for the repo's age recipient"
 }
 
 validate_entry() {
@@ -841,11 +842,11 @@ validate_entry() {
     errs="$(jq -r --arg ns "$ns" --argjson pull "$pull_json" --argjson mapkit "$mapkit" --arg app "$name" "$pods_jq" "$tmp/build.json")"
     [[ -z "$errs" ]] || fail "pods: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
     if [[ "$mapkit" == true ]]; then
-        # The part's four env entries, on the app container of the app's Deployment.
+        # The part's two env entries, on the app container of the app's Deployment.
         errs="$(jq -r --arg app "$name" --arg want "https://$host.$fake_local,https://$famhost.$fake_family" '
             [.[] | select(.kind == "Deployment" and .metadata.name == $app) | .spec.template.spec.containers[] | select(.name == "app") | .env // [] | .[]] as $env
             | ([$env[] | select(.valueFrom.secretKeyRef.name == "\($app)-mapkit") | .name] | sort) as $refs
-            | (if $refs != ["MAPKIT_KEY_ID", "MAPKIT_PRIVATE_KEY", "MAPKIT_TEAM_ID"] then "the mapkit part must give container app of Deployment \($app) exactly MAPKIT_PRIVATE_KEY, MAPKIT_KEY_ID and MAPKIT_TEAM_ID from \($app)-mapkit (got \($refs | join(", ")))" else empty end),
+            | (if $refs != ["MAPKIT_TOKEN"] then "the mapkit part must give container app of Deployment \($app) exactly MAPKIT_TOKEN from \($app)-mapkit (got \($refs | join(", ")))" else empty end),
               (if [$env[] | select(.name == "MAPKIT_ORIGINS") | .value] != [$want] then "MAPKIT_ORIGINS must be \($want) (the route hosts)" else empty end)' "$tmp/build.json")"
         [[ -z "$errs" ]] || fail "mapkit: $errs"
     fi
@@ -984,8 +985,8 @@ write_mapkit_standin() {
     rule="$(mapkit_rule)"
     recipient="$(echo "$rule" | jq -r .age)"
     [[ "$kind" != "wrong-recipient" ]] || recipient="age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
-    printf -- '---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: %s-mapkit\ntype: Opaque\nstringData:\n  MAPKIT_PRIVATE_KEY: %s\n  MAPKIT_KEY_ID: %s\n  MAPKIT_TEAM_ID: %s\nsops:\n  age:\n    - enc: |\n        -----BEGIN AGE ENCRYPTED FILE-----\n        c3RhbmQtaW4=\n        -----END AGE ENCRYPTED FILE-----\n      recipient: %s\n  encrypted_regex: %s\n  lastmodified: "2026-01-01T00:00:00Z"\n  mac: %s\n  mac_only_encrypted: %s\n  version: 3.13.3\n' \
-        "$name" "$first" "$enc" "$enc" "$recipient" "$(echo "$rule" | jq -r .encrypted_regex)" "$enc" "$(echo "$rule" | jq -r '.mac_only_encrypted // false')" >"$f"
+    printf -- '---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: %s-mapkit\ntype: Opaque\nstringData:\n  MAPKIT_TOKEN: %s\nsops:\n  age:\n    - enc: |\n        -----BEGIN AGE ENCRYPTED FILE-----\n        c3RhbmQtaW4=\n        -----END AGE ENCRYPTED FILE-----\n      recipient: %s\n  encrypted_regex: %s\n  lastmodified: "2026-01-01T00:00:00Z"\n  mac: %s\n  mac_only_encrypted: %s\n  version: 3.13.3\n' \
+        "$name" "$first" "$recipient" "$(echo "$rule" | jq -r .encrypted_regex)" "$enc" "$(echo "$rule" | jq -r '.mac_only_encrypted // false')" >"$f"
     if [[ "$kind" == "extra" ]]; then
         printf -- '---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: reader\nspec:\n  containers:\n    - name: c\n      image: busybox\n      envFrom:\n        - secretRef:\n            name: %s-mapkit\n' "$name" >"$(dirname "$f")/reader.yaml"
     fi
