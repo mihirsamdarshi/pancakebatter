@@ -40,10 +40,10 @@
           "uid": "prometheus"
         },
         "query": {
-          "query": "label_values(kube_namespace_status_phase{namespace=~\"hello|deal-watch|scratch|reports|job-tracker\"}, namespace)",
+          "query": "label_values(kube_namespace_status_phase{namespace=~\"hello|deal-watch|scratch|reports|job-tracker|fantasy\"}, namespace)",
           "refId": "var-namespace"
         },
-        "definition": "label_values(kube_namespace_status_phase{namespace=~\"hello|deal-watch|scratch|reports|job-tracker\"}, namespace)",
+        "definition": "label_values(kube_namespace_status_phase{namespace=~\"hello|deal-watch|scratch|reports|job-tracker|fantasy\"}, namespace)",
         "refresh": 2,
         "sort": 1,
         "multi": true,
@@ -57,7 +57,7 @@
             "$__all"
           ]
         },
-        "allValue": "hello|deal-watch|scratch|reports|job-tracker"
+        "allValue": "hello|deal-watch|scratch|reports|job-tracker|fantasy"
       }
     ]
   },
