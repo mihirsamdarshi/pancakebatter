@@ -23,8 +23,8 @@ One restricted namespace, `claude-proxy`, outside the personal app platform:
 - the API key from the Secret `claude-proxy-credentials` (key
   `anthropic-api-key`), mounted read-only at `/run/credentials`, mode 0440;
 - a pull Secret `claude-proxy-registry` with a read-only GHCR credential;
-- a CiliumNetworkPolicy. Ingress: port 3000 from the app pods of the reports
-  and job-tracker platform apps only (label `app.kubernetes.io/name: <app>` in
+- a CiliumNetworkPolicy. Ingress: port 3000 from the app pods of the reports,
+  job-tracker and fantasy platform apps only (label `app.kubernetes.io/name: <app>` in
   the namespace of the same name, not their scheduled jobs, export jobs or
   other pods) and from the node (kubelet probes). Egress:
   cluster DNS, and port 443 on Anthropic's published inbound IPv4 ranges only,
@@ -132,17 +132,17 @@ bash scripts/validate-kubernetes.sh
 
 It passes only when both SOPS files exist.
 
-### 5. Let the reports and job-tracker apps reach the proxy
+### 5. Let the reports, job-tracker and fantasy apps reach the proxy
 
-This policy admits only the app pods of two platform apps, reports and
-job-tracker: the label `app.kubernetes.io/name: <app>` that the platform's base
-Deployment sets, in the namespace of the same name. Both entries set
+This policy admits only the app pods of three platform apps, reports,
+job-tracker and fantasy: the label `app.kubernetes.io/name: <app>` that the platform's base
+Deployment sets, in the namespace of the same name. All three entries set
 `egress: claude-proxy`, a platform egress mode that adds only these pods on
 3000/TCP to the app's default-deny policy
 (`kubernetes/components/app-platform/netpol-egress-claude-proxy/`). Each app
 calls `http://claude-proxy.claude-proxy.svc.cluster.local:3000` and sends a
-placeholder key that this proxy replaces, so neither app namespace holds a key.
-The two apps share the one `DAILY_CAP_USD`. To admit another app, add a
+placeholder key that this proxy replaces, so no app namespace holds a key.
+The three apps share the one `DAILY_CAP_USD`. To admit another app, add a
 `matchLabels` item for it to the policy's `fromEndpoints` list, in a reviewed
 change.
 
