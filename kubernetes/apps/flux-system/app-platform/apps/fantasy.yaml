@@ -1,0 +1,58 @@
+---
+# fantasy: Fantasy Weekly, a weekly Sleeper roster and waiver-wire analysis.
+# A weekly job pod (below) pulls the league data from Sleeper into the data
+# volume; the app ingests it, applies its rules and asks the claude-proxy
+# service (egress: claude-proxy) for a write-up. The proxy holds the Anthropic
+# API key outside the platform; this namespace holds no key, and the app pod
+# has no internet access. The data is one SQLite database on the data volume,
+# exported and backed up nightly. Delete this entry (and its line in
+# kustomization.yaml) to stop updating it; the workload keeps running until it
+# is removed by hand.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-fantasy
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/fantasy
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: fantasy
+    parts: [pullsecret, internal-route, backup, backup-sqlite, job, job-egress]
+    egress: claude-proxy
+    vars:
+      TITLE: Fantasy Weekly
+      DESCRIPTION: Sleeper roster and waiver-wire analysis
+      ICON: mdi-football
+      SQLITE_DBS: fantasy.db
+      MEMORY: 256Mi
+      MEMORY_LIMIT: 1Gi
+      VOLSYNC_SCHEDULE: "30 13 * * *"
+      SQLITE_SCHEDULE: "20 13 * * *"
+      # The weekly job pulls the owner's Sleeper leagues (config/sleeper.json is
+      # its only input) into pulls/, and the app ingests each finished pull.
+      # Tuesdays at 13:00 UTC, with 30 minutes to finish. The job pod cannot
+      # reach the app or claude-proxy (job-egress denies both).
+      JOB_SCHEDULE: "0 13 * * 2"
+      JOB_COMMAND: bun jobs/pull-sleeper.ts
+      JOB_READ_PATH: config
+      JOB_WORK_PATH: pulls
+      JOB_DEADLINE: "1800"
+      # Both Sleeper API hosts (api.sleeper.app and api.sleeper.com) resolved
+      # into this shared Cloudflare range on Nov 6, 2026 from the home network.
+      # It is a shared range, so this rule allows any site Cloudflare serves
+      # there, not only Sleeper. The cluster uses no toFQDNs rules, so if the
+      # addresses move, the job fails closed (its connections time out) until
+      # this CIDR is updated. The job may still be running at the 13:20 export
+      # and 13:30 backup; that is accepted (the export reads only fantasy.db,
+      # which the job never writes).
+      JOB_EGRESS_CIDR: 104.18.14.0/23
