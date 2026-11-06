@@ -26,6 +26,9 @@ mod? csec 'terraform/cloudflare-security'
 [group('tailscale')]
 mod? tailscale 'kubernetes/apps/network/tailscale'
 
+[group('external-secrets')]
+mod? external-secrets 'kubernetes/apps/external-secrets'
+
 [doc('Check the local agent notes in docs/agents (front matter, freshness, links)')]
 [group('docs')]
 docs-check *args:
