@@ -1,0 +1,47 @@
+---
+# Defaults for the job pod the runner hook creates. The $job container fields
+# are applied; other pod-spec keys overwrite the hook's own.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: arc-hook-template
+data:
+  content: |
+    spec:
+      priorityClassName: ci-low
+      automountServiceAccountToken: false
+      # The hook sets no ownerReferences and no deadline. If a runner pod dies
+      # (cancel, drain, OOM) the job pod would run `tail -f /dev/null` forever
+      # and hold quota. This cap is above the longest job timeout today (30
+      # min). Jobs on apps-ci must set timeout-minutes of 45 or less (lint 10,
+      # check 30 today); a job without it is killed at 50 minutes.
+      activeDeadlineSeconds: 3000
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      # Only the $job container gets the hardening and resources below. Service
+      # containers (`services:`) would get the pod-level settings and the
+      # LimitRange defaults only; apps has none today.
+      containers:
+        - name: $job
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          # Fix the 2Gi after the canary measures check (quilt-planner).
+          # Raising the job limit later needs three files changed together:
+          # this limit, the LimitRange max and the ResourceQuota in limits.yaml.
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+              ephemeral-storage: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+              ephemeral-storage: 6Gi
