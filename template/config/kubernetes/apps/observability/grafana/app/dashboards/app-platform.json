@@ -1,7 +1,7 @@
 {
   "title": "App platform",
   "uid": "app-platform",
-  "description": "The personal app platform (hello, deal-watch, scratch, reports, job-tracker): workloads, resources, traffic through Envoy, volumes and backups.",
+  "description": "The personal app platform (hello, deal-watch, scratch, reports, job-tracker, fantasy): workloads, resources, traffic through Envoy, volumes and backups.",
   "editable": false,
   "schemaVersion": 41,
   "tags": [

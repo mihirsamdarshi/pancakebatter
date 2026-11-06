@@ -47,9 +47,12 @@ spec:
       JOB_READ_PATH: config
       JOB_WORK_PATH: pulls
       JOB_DEADLINE: "1800"
-      # Both Sleeper API hosts resolved into this shared Cloudflare range on
-      # Nov 6, 2026 from the home network. It is a shared range, so this rule
-      # allows any site Cloudflare serves there, not only Sleeper. The cluster
-      # uses no toFQDNs rules, so if the addresses move, the job fails closed
-      # (its connections time out) until this CIDR is updated.
+      # Both Sleeper API hosts (api.sleeper.app and api.sleeper.com) resolved
+      # into this shared Cloudflare range on Nov 6, 2026 from the home network.
+      # It is a shared range, so this rule allows any site Cloudflare serves
+      # there, not only Sleeper. The cluster uses no toFQDNs rules, so if the
+      # addresses move, the job fails closed (its connections time out) until
+      # this CIDR is updated. The job may still be running at the 13:20 export
+      # and 13:30 backup; that is accepted (the export reads only fantasy.db,
+      # which the job never writes).
       JOB_EGRESS_CIDR: 104.18.14.0/23
