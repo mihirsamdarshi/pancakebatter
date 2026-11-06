@@ -689,7 +689,8 @@ check_mapkit_secret() {
     rule="$(mapkit_rule)"
     [[ "$rule" != "null" && -n "$rule" ]] || fail ".sops.yaml has no creation rule for kubernetes/apps/personal-apps/"
     yq -o=json -I=0 '.sops' "$f" | jq -e --argjson rule "$rule" '
-        (.age | length) == 1
+        ((keys - ["age", "encrypted_regex", "lastmodified", "mac", "mac_only_encrypted", "version"]) == [])
+        and (.age | length) == 1
         and .age[0].recipient == $rule.age
         and (.age[0].enc | test("^-----BEGIN AGE ENCRYPTED FILE-----\n[A-Za-z0-9+/=\n]+-----END AGE ENCRYPTED FILE-----\n?$"))
         and .encrypted_regex == $rule.encrypted_regex
