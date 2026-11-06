@@ -338,8 +338,10 @@ The token is the one credential a platform app may hold, and it is a narrow
 one:
 
 - Every reader's browser gets it, so it is not secret from readers.
-- It works only on the host names in its `origin` claim, and only for MapKit
-  JS (`scope: mapkit_js`).
+- Browsers use it only on the host names in its `origin` claim, and only for
+  MapKit JS (`scope: mapkit_js`). A script can send any `Origin` header, so a
+  copied token works from a script until it expires or the owner revokes the
+  key that signed it. Its cost is the account's MapKit quota; it signs nothing.
 - It expires 364 days after it is signed.
 - It is kept in a SOPS Secret because its `origin` claim names the site's
   hosts, and the zone never goes into Git.
@@ -383,9 +385,9 @@ never gets it. Only a `kubernetes.io/dockerconfigjson` Secret can be
 
 #### Sign the token, the first time and every year
 
-Run this on the owner's computer, from the repository root, in bash or zsh,
-with `op` signed in, the repo's age key available to `sops` (for the two
-zones), and `jq`, `sops` and `node` on the `PATH`. Replace the three
+Run this on the owner's computer, from the root of a checkout you trust, in
+bash or zsh, with `op` signed in, the repo's age key available to `sops` (for
+the two zones), and `jq`, `yq`, `sops` and `node` on the `PATH`. Replace the three
 references with the 1Password item that holds the key: the `.p8` file attached
 to the item (or a field with its PEM text), the Key ID and the Team ID.
 
@@ -398,7 +400,7 @@ to the item (or a field with its PEM text), the Key ID and the Team ID.
   jq -n --rawfile key <(op read 'op://<vault>/<item>/<key file>.p8') \
         --rawfile kid <(op read --no-newline 'op://<vault>/<item>/<Key ID field>') \
         --rawfile team <(op read --no-newline 'op://<vault>/<item>/<Team ID field>') \
-        --arg origin "reports.$lan,reports.$fam" \
+        --rawfile origin <(printf '%s' "reports.$lan,reports.$fam") \
         '{key: $key, kid: ($kid | gsub("\\s"; "")), team: ($team | gsub("\\s"; "")), origin: $origin, days: 364}' \
     | node -e '
 const c = require("node:crypto"), fail = (m) => { process.stderr.write("failed: " + m + "\n"); process.exit(1); };
@@ -416,7 +418,8 @@ let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
 });' \
     | jq '{apiVersion: "v1", kind: "Secret", metadata: {name: "reports-mapkit", namespace: "reports"}, type: "Opaque", stringData: {MAPKIT_TOKEN: .token}}' \
     | sops encrypt --filename-override "$f" --input-type json --output-type yaml /dev/stdin > "$f.tmp" \
-    && grep -q 'ENC\[' "$f.tmp" && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
+    && [ "$(yq '[.stringData[] | test("^ENC\\[")] | all' "$f.tmp")" = true ] \
+    && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
 ```
 
 The key and the IDs go from `op` to `jq` to `node` through pipes (`/dev/fd`),
@@ -440,13 +443,14 @@ https://reports.family.<zone>; the token expires on <date>`. If it says `maps
 off`, the pod started before the Secret arrived: restart the Deployment once
 (`kubectl -n reports rollout restart deployment/reports`).
 
-Renew once a year, with the same command. In the token's last 30 days the
+Renew once a year, with the same command. Set a calendar reminder a month
+before the expiry date that the command prints. In the token's last 30 days the
 app's log warns once a day, and every map shows a note: "The site's Apple Maps
 token expires on <date>." After it expires, every map shows "Map unavailable:
 the site's Apple Maps token expired on <date>" with its list of places, until
-the new token is merged. To replace a lost or leaked key, make a new key in the
-Apple Developer account, sign a new token with it, merge, and then revoke the
-old key (that ends every token it signed).
+the new token is merged. To replace a lost or leaked key or token, make a new
+key in the Apple Developer account, sign a new token with it, merge, and then
+revoke the old key (that ends every token it signed).
 
 ### Creating ghcr-apps-read
 
