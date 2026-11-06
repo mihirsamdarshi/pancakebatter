@@ -1,13 +1,15 @@
 ---
 # Default deny in both directions for every pod in the namespace.
 #
-# Ingress: port 3000 from the app pods of two platform apps only, and from the
-# node (kubelet probes). The two apps are reports (it runs the agent) and
-# job-tracker (it runs a job-research scout): label app.kubernetes.io/name=<app>,
-# which the platform's base Deployment sets, in the namespace of the same name.
+# Ingress: port 3000 from the app pods of three platform apps only, and from the
+# node (kubelet probes). The three apps are reports (it runs the agent),
+# job-tracker (it runs a job-research scout) and fantasy (it writes the weekly
+# Sleeper analysis): label app.kubernetes.io/name=<app>, which the platform's
+# base Deployment sets, in the namespace of the same name.
 # Other pods of those namespaces, such as a scheduled job, the SQLite export
-# and the VolSync mover, are not admitted. Both apps reach this Service through
-# the platform's `egress: claude-proxy` mode and share the proxy's daily cap.
+# and the VolSync mover, are not admitted. All three apps reach this Service
+# through the platform's `egress: claude-proxy` mode and share the proxy's
+# daily cap.
 #
 # Egress: cluster DNS, and port 443 on Anthropic's published inbound IPv4
 # ranges only (the cluster is IPv4-only):
@@ -32,6 +34,9 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: job-tracker
             app.kubernetes.io/name: job-tracker
+        - matchLabels:
+            io.kubernetes.pod.namespace: fantasy
+            app.kubernetes.io/name: fantasy
       toPorts:
         - ports:
             - port: "3000"
