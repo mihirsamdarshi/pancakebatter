@@ -494,7 +494,7 @@ What is where:
 | --- | --- |
 | `components/app-platform/share/` | The part: `GUEST_PORT`, `GUEST_COLLECTIONS`, `GUEST_HOSTS` and the `guest` container port, the Service `<name>-share`, the policy `<name>-share`. `mapkit` adds the guest host to `MAPKIT_ORIGINS` |
 | `personal-apps/reports-share/` | cloudflared: Namespace (restricted), Flux Kustomization, Deployment (non-root, read-only root, no capabilities, `/ready` probes), its policy, the routing in `app/resources/cloudflared.yaml` and the credentials Secret |
-| `terraform/dns/main.tf` | The proxied CNAME `share.<zone>` to `<tunnel id>.cfargotunnel.com` (variable `reports_share_tunnel_id`) |
+| `terraform/dns/main.tf`, `terraform/dns/access.tf` | The proxied CNAME `share.<zone>` to `<tunnel id>.cfargotunnel.com` (variable `reports_share_tunnel_id`), and the Access login: the one-time PIN login method, the policy that lists the guest emails (variable `reports_share_guest_emails`) and the Access application |
 
 The tunnel is locally managed: the routing is in Git, the credentials are a file
 (`credentials.json`) in the SOPS Secret `reports-share-tunnel`. Three values stay
@@ -515,10 +515,37 @@ Nobody but the owner handles the credentials; do not paste them into chat.
    and the tunnel id beside it. Then delete the local `<id>.json`. The
    `cert.pem` from the login can create tunnels in the zone: keep it in
    1Password too, or delete it.
-4. In Cloudflare Zero Trust, create the Access application and policy (below)
-   and note the team name (the part before `.cloudflareaccess.com`) and the
-   application's aud tag.
-5. From the repo root, in bash or zsh, set the three `cluster-secrets` keys (the
+4. Zero Trust team, once. If the account has no Zero Trust team yet, open
+   Zero Trust in the Cloudflare dashboard, pick a team name and choose the Free
+   plan. Note the team name: it is the part of the team domain before
+   `.cloudflareaccess.com` (Settings, General).
+5. Add two permissions to the Cloudflare token (1Password item "Cloudflare User
+   API Token"), at the account level: **Access: Apps and Policies** and **Access:
+   Identity Providers**, each with Edit (shown as Write in newer dashboards).
+6. Merge the Terraform change (it holds `terraform/dns/access.tf`), then update
+   the main checkout with `but pull`. Merging it changes nothing in the cluster
+   or in Cloudflare.
+7. In the main checkout, add two lines to the git-ignored
+   `terraform/dns/tunnel.auto.tfvars` (keep the line for the other tunnel). The
+   guest address belongs only in this file, never in Git:
+
+   ```hcl
+   reports_share_tunnel_id    = "<tunnel id from step 2>"
+   reports_share_guest_emails = ["guest@example.com"]
+   ```
+
+8. Run `just dns plan`. It must show exactly these four resources to add, and
+   nothing to change or destroy: the DNS record `reports_share`, the login
+   method `reports_share_otp`, the policy `reports_share_guests` and the
+   application `reports_share`. If it shows anything else, stop.
+9. Run `just dns apply`. If it fails on the login method because the account
+   already has One-time PIN (an account can have only one), import it as the
+   comment at the top of `terraform/dns/access.tf` says, then plan again; the
+   plan then shows three to add.
+10. Print the application's aud tag. From `terraform/dns`:
+    `sops exec-env cloudflare.sops.env 'terraform output -raw reports_share_access_aud'`.
+    The team name is from step 4.
+11. From the repo root, in bash or zsh, set the three `cluster-secrets` keys (the
    loop waits for you to type each value; nothing is printed, and it stops at an
    empty value):
 
@@ -531,7 +558,7 @@ Nobody but the owner handles the credentials; do not paste them into chat.
    done
    ```
 
-6. From the repo root, in bash or zsh, write the credentials Secret from
+12. From the repo root, in bash or zsh, write the credentials Secret from
    1Password. It replaces the placeholder the PR contains. Replace the `op://`
    reference with the real item. The `jq` step refuses anything that is not a
    tunnel credentials file:
@@ -546,14 +573,10 @@ Nobody but the owner handles the credentials; do not paste them into chat.
        && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
    ```
 
-7. Create the DNS record with Terraform, not with `cloudflared tunnel route dns`.
-   Add a line `reports_share_tunnel_id = "<id>"` to the git-ignored
-   `terraform/dns/tunnel.auto.tfvars` (keep the line for the other tunnel), then
-   run `just dns plan` and `just dns apply`.
-8. Re-sign the MapKit token so its `origin` claim also names `share.<zone>` (see
+13. Re-sign the MapKit token so its `origin` claim also names `share.<zone>` (see
    "Apple Maps (the mapkit part)"). Without it the maps on the guest view show a
    note.
-9. Commit the two changed files (`cluster-secrets.sops.yaml`,
+14. Commit the two changed files (`cluster-secrets.sops.yaml`,
    `tunnel-credentials.sops.yaml`) and merge. Then test end to end:
    - `kubectl -n reports-share logs deploy/cloudflared` says `Registered tunnel
      connection` and has no `AccessJWTValidator` errors;
@@ -570,26 +593,25 @@ hash does not change when only a key does.
 Never add a private-network route (a CIDR or hostname route) to this tunnel:
 WARP traffic bypasses the Access check.
 
-The Access application, in Zero Trust under Access, Applications:
+Never create the DNS record with `cloudflared tunnel route dns`: Terraform owns
+it.
 
-- Type self-hosted, application domain `share.<zone>`, session duration 24
-  hours.
-- One policy, action Allow, rule "Emails" listing only the guest's address. No
-  other rule and no other policy.
-- Login methods: One-time PIN only. Turn on One-time PIN under Settings,
-  Authentication first, then turn off every other identity provider for this
-  application.
-- Leave the path empty, so the application covers the whole host.
-- No other setting. Keep "Enable instant auth" and "Bypass" off.
+The Access login is in `terraform/dns/access.tf`: a self-hosted application for
+the whole host `share.<zone>` (no path), session 24 hours, One-time PIN as the
+only login method with automatic redirect to it, hidden from the app launcher,
+and one Allow policy that lists only the guest emails. There is no bypass and no
+other policy. Do not change it in the dashboard; change it in Terraform.
 
-Add another guest: add the address to the policy. Remove one: delete the address
-from the policy, then revoke the user's sessions (Zero Trust, Access, Users,
-revoke). Turn the whole share off, fastest first: delete the Access policy (the
-edge then refuses everyone), or in Terraform set the tunnel id to `null` and
-apply (the name stops resolving), or remove `share` from the parts of
-`app-platform/apps/reports.yaml` and delete the folder `reports-share/` (the
-port, Service and cloudflared go away), then run `cloudflared tunnel delete
-reports-share`. To finish, also delete the Access application, remove the three
+Add another guest: add the address to `reports_share_guest_emails` in
+`tunnel.auto.tfvars`, then run `just dns plan` and `just dns apply`. Remove one:
+delete the address from the list, apply, then revoke the user's sessions in the
+dashboard (Zero Trust, Access, Users, revoke). Turn the whole share off, fastest
+first: set `reports_share_guest_emails = []` and apply (the Access application
+and policy are destroyed and the edge refuses everyone), or set the tunnel id to
+`null` and apply (that destroys the name and the Access login too), or remove
+`share` from the parts of `app-platform/apps/reports.yaml` and delete the folder
+`reports-share/` (the port, Service and cloudflared go away), then run
+`cloudflared tunnel delete reports-share`. To finish, also remove the three
 `SECRET_SHARE_*` keys from `cluster-secrets`, and delete the `reports-share`
 Namespace by hand: it is prune-disabled, so it stays behind.
 
