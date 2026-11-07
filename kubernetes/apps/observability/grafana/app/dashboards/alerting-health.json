@@ -341,6 +341,57 @@
           "legendFormat": "{{job}}"
         }
       ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Alloy dropped log lines per hour, by reason",
+      "description": "Lines Alloy discarded before Loki. drop_stage = over the size limit (8 KB pods, 4 KB syslog); ratelimit_drop_stage = over the line-rate cap (this one alerts); source_not_allowed = a syslog sender that is not on the list.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (pod, component_id, reason) (increase(loki_process_dropped_lines_total[1h]))",
+          "legendFormat": "{{pod}} {{component_id}} {{reason}}",
+          "interval": "1h"
+        }
+      ]
     }
   ]
 }
