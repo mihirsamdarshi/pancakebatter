@@ -5,6 +5,9 @@ metadata:
   name: tdarr
 spec:
   dependsOn:
+    # The ExternalSecrets in app/ read the ClusterSecretStore `homelab`.
+    - name: external-secrets-stores
+      namespace: external-secrets
     - name: local-path-provisioner
       namespace: storage
     - name: nvidia-device-plugin
