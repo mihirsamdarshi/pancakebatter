@@ -494,7 +494,7 @@ What is where:
 | --- | --- |
 | `components/app-platform/share/` | The part: `GUEST_PORT`, `GUEST_COLLECTIONS`, `GUEST_HOSTS` and the `guest` container port, the Service `<name>-share`, the policy `<name>-share`. `mapkit` adds the guest host to `MAPKIT_ORIGINS` |
 | `personal-apps/reports-share/` | cloudflared: Namespace (restricted), Flux Kustomization, Deployment (non-root, read-only root, no capabilities, `/ready` probes), its policy, the routing in `app/resources/cloudflared.yaml` and the credentials Secret |
-| `terraform/dns/main.tf`, `terraform/dns/access.tf` | The proxied CNAME `share.<zone>` to `<tunnel id>.cfargotunnel.com` (variable `reports_share_tunnel_id`), and the Access login: the one-time PIN login method, the policy that lists the guest emails (variable `reports_share_guest_emails`) and the Access application |
+| `terraform/dns/main.tf`, `terraform/dns/access.tf` | The proxied CNAME `share.<zone>` to `<tunnel id>.cfargotunnel.com` (variable `reports_share_tunnel_id`), and the Access login: the one-time PIN login method, the policy for the guest emails (seeded from `reports_share_guest_emails`, then kept in the dashboard) and the Access application |
 
 The tunnel is locally managed: the routing is in Git, the credentials are a file
 (`credentials.json`) in the SOPS Secret `reports-share-tunnel`. Three values stay
@@ -614,13 +614,20 @@ The Access login is in `terraform/dns/access.tf`: a self-hosted application for
 the whole host `share.<zone>` (no path), session 24 hours, One-time PIN as the
 only login method with automatic redirect to it, hidden from the app launcher,
 and one Allow policy that lists only the guest emails. There is no bypass and no
-other policy. Do not change it in the dashboard; change it in Terraform.
+other policy. Change everything except the guest list in Terraform.
 
-Add another guest: add the address to `reports_share_guest_emails` in
-`tunnel.auto.tfvars`, then run `just dns plan` and `just dns apply`. Remove one:
-delete the address from the list, apply, then revoke the user's sessions in the
-dashboard (Zero Trust, Team & resources, Users, pick the user, revoke the
-session; the menus move, so search the dashboard for "Users" if it differs).
+The guest list lives in the dashboard. `reports_share_guest_emails` only seeds it
+when the policy is created; Terraform then ignores the policy's emails, so an
+apply never undoes a dashboard edit. Keep at least one address in the tfvars
+list: it is also the switch that keeps the share on.
+
+- Add a guest: Zero Trust, Access, Policies, "reports-share guests", edit, add
+  the address under Include as one more "Emails" value, save. It works at once.
+  Add single addresses only: never a domain, "Everyone" or another rule.
+- Remove a guest: delete the address from the same policy and save, then end
+  their current login, which otherwise lasts up to 24 hours: Zero Trust, Team &
+  resources, Users, pick the user, revoke the session (the menus move, so search
+  the dashboard for "Users" if it differs).
 
 Turn the whole share off, fastest first:
 
@@ -640,7 +647,8 @@ To finish, also remove the three `SECRET_SHARE_*` keys from `cluster-secrets`,
 and delete the `reports-share` Namespace by hand: it is prune-disabled, so it
 stays behind. If you turned the share off in the dashboard (deleted the
 application or the policy) instead, set `reports_share_guest_emails = []` before
-the next apply, or Terraform recreates them.
+the next apply, or Terraform recreates them. A recreated policy starts again
+from the tfvars list, not from the list you kept in the dashboard.
 
 Turning the share back on creates a new Access application with a new aud tag.
 After the apply, from the main checkout, update the one key and restart
