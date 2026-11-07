@@ -6,7 +6,7 @@
 #    sops -d --extract '["stringData"]["seededApiKey"]' kubernetes/apps/media/tdarr/app/secret.sops.yaml
 #    The UI is at tdarr.${SECRET_DOMAIN_LOCAL} (internal gateway only).
 #  - The internal node authenticates with the same key: env apiKey comes from
-#    tdarr-secret/seededApiKey (docs: a seeded key is valid as a node key; the
+#    tdarr-secret-eso/seededApiKey (docs: a seeded key is valid as a node key; the
 #    env var overrides the node config file). Changing the admin password
 #    later does not change the key.
 #  - Workers are seeded by env on the node's first start (documented env vars
@@ -83,11 +83,11 @@ spec:
               apiKey:
                 valueFrom:
                   secretKeyRef:
-                    name: tdarr-secret
+                    name: tdarr-secret-eso
                     key: seededApiKey
             envFrom:
               - secretRef:
-                  name: tdarr-secret
+                  name: tdarr-secret-eso
             probes:
               # tcpSocket: GET / serves the whole UI.
               liveness: &probe
