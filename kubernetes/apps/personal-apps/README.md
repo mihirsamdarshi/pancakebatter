@@ -643,7 +643,7 @@ Turn the whole share off, fastest first:
   the first route too: remove the tunnel and email lines from `tunnel.auto.tfvars`
   and run `just dns apply`, then `cloudflared tunnel delete reports-share`.
 
-To finish, also remove the three `SECRET_SHARE_*` keys from `cluster-secrets`,
+To finish, also remove every `SECRET_SHARE_*` key (six in all) from `cluster-secrets`,
 and delete the `reports-share` Namespace by hand: it is prune-disabled, so it
 stays behind. If you turned the share off in the dashboard (deleted the
 application or the policy) instead, set `reports_share_guest_emails = []` before
@@ -665,21 +665,33 @@ kubectl -n reports-share rollout restart deploy/cloudflared
 #### IDs for share-admin
 
 The service that edits the guest list (`integrations/reports-share-admin`) needs
-the IDs of the Access application and of the guest policy, as two more
-`cluster-secrets` keys: `SECRET_SHARE_ACCESS_APP_ID` and
-`SECRET_SHARE_ACCESS_POLICY_ID`. They are IDs, not credentials. Read them from
-the main checkout (no `sops exec-env` needed; each prints nothing while the
-share is off):
+three IDs as `cluster-secrets` keys: `SECRET_SHARE_ACCESS_APP_ID` (the Access
+application), `SECRET_SHARE_ACCESS_POLICY_ID` (the guest policy) and
+`SECRET_SHARE_ACCESS_ACCOUNT_ID` (the Cloudflare account). They are IDs, not
+credentials.
+
+Outputs reach the state only through an apply, so after the merge run
+`just dns apply` once (it changes no resource; it only stores the new outputs).
+Then read them from the main checkout (no `sops exec-env` needed):
 
 ```sh
 terraform -chdir=terraform/dns output -raw reports_share_access_app_id
 terraform -chdir=terraform/dns output -raw reports_share_access_policy_id
+terraform -chdir=terraform/dns output -raw reports_share_access_account_id
 ```
 
-Set them with the same `sops set` loop as step 11. The account ID is not an
-output; it is in the dashboard URL (`dash.cloudflare.com/<account_id>/...`). A
-new application or policy (see turning the share back on) has new IDs: set the
-keys again.
+While the share is off (no application or policy exists) the first two fail
+with "not found"; that is expected. Set one key at a time, in zsh, from the
+repo root (nothing is printed; change the output name and the key together):
+
+```sh
+terraform -chdir=terraform/dns output -raw reports_share_access_app_id \
+  | jq -Rs . \
+  | sops set --value-stdin kubernetes/components/sops/cluster-secrets.sops.yaml '["stringData"]["SECRET_SHARE_ACCESS_APP_ID"]'
+```
+
+A new application or policy (see turning the share back on) has new IDs: set
+the keys again.
 
 ### Creating ghcr-apps-read
 
