@@ -11,3 +11,5 @@ resources:
   - ./ocirepository.yaml
   - ./data-nfs.yaml
   - ./secret.sops.yaml
+  - ./externalsecret.yaml
+  - ./externalsecret-canary.yaml
