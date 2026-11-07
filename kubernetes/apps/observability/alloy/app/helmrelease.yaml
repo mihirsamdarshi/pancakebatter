@@ -147,4 +147,4 @@ spec:
       metricRelabelings:
         - sourceLabels: [__name__]
           action: keep
-          regex: loki_(source_syslog_.*|process_dropped_lines_total|write_(sent|dropped)_(bytes|entries)_total|write_batch_retries_total|write_request_duration_seconds_(sum|count))|alloy_build_info|alloy_resources_(process_resident_memory_bytes|process_cpu_seconds_total)
+          regex: loki_(source_syslog_.*|process_dropped_lines_total|process_dropped_lines_by_label_total|write_(sent|dropped)_(bytes|entries)_total|write_batch_retries_total|write_request_duration_seconds_(sum|count))|alloy_build_info|alloy_config_(last_load_successful|last_load_success_timestamp_seconds)|alloy_resources_(process_resident_memory_bytes|process_cpu_seconds_total)
