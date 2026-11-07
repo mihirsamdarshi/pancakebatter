@@ -4,7 +4,7 @@
 #
 # Labels (anything not listed stays in the line or in structured metadata):
 # job=pods, namespace, app, container; pod and node as structured metadata.
-# Per node: 50 lines/s (burst 500) and 8 KB per line. Loki's own byte cap
+# Per pod: 50 lines/s (burst 500) and 8 KB per line. Loki's own byte cap
 # (50 KB/s for all sources) is the hard limit.
 #
 # Host networking: Alloy's port 12345 (UI and /metrics) binds on the node IP,
@@ -113,9 +113,10 @@ spec:
               longer_than = "8KB"
             }
             stage.limit {
-              rate  = 50
-              burst = 500
-              drop  = true
+              rate          = 50
+              burst         = 500
+              drop          = true
+              by_label_name = "pod"
             }
             stage.structured_metadata {
               values = {
@@ -146,4 +147,4 @@ spec:
       metricRelabelings:
         - sourceLabels: [__name__]
           action: keep
-          regex: loki_(source_syslog_.*|process_dropped_lines_total|write_(sent|dropped)_(bytes|entries)_total|write_batch_retries_total|write_request_duration_seconds_(sum|count))|alloy_build_info|alloy_resources_(process_resident_memory_bytes|process_cpu_seconds_total)
+          regex: loki_(source_syslog_.*|process_dropped_lines_total|process_dropped_lines_by_label_total|write_(sent|dropped)_(bytes|entries)_total|write_batch_retries_total|write_request_duration_seconds_(sum|count))|alloy_build_info|alloy_config_(last_load_successful|last_load_success_timestamp_seconds)|alloy_resources_(process_resident_memory_bytes|process_cpu_seconds_total)
