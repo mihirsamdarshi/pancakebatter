@@ -1,0 +1,78 @@
+---
+# Selecting every pod of the namespace turns on default deny in both
+# directions; the rules below are the only ways in and out.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cloudflared
+spec:
+  endpointSelector: {}
+  ingress:
+    # Kubelet probe on the metrics port only. Nothing else, and no Service.
+    - fromEntities: [host]
+      toPorts:
+        - ports:
+            - port: "2000"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # The one origin: the reports app pod, guest port 3001 only. Port 3000 (full
+    # access) and every other namespace's pods stay closed. The app side
+    # (components/app-platform/share) admits only this on 3001.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: reports
+            app.kubernetes.io/name: reports
+      toPorts:
+        - ports:
+            - port: "3001"
+              protocol: TCP
+    # Cloudflare edge, default region: region1 and region2.v2.argotunnel.com on 7844,
+    # TCP (http2) and UDP (quic). Cloudflare "Tunnel with firewall" documentation.
+    - toCIDRSet:
+        - cidr: 198.41.192.0/24
+        - cidr: 198.41.200.0/24
+      toPorts:
+        - ports:
+            - port: "7844"
+              protocol: TCP
+            - port: "7844"
+              protocol: UDP
+    # 443/TCP to Cloudflare's published ranges (https://www.cloudflare.com/ips-v4,
+    # checked 2026-11-06). Needed for `originRequest.access`: cloudflared fetches the
+    # Access signing keys from the team's cloudflareaccess.com host, which Cloudflare
+    # serves from these ranges, to check every token. Without it, every request
+    # fails closed. The update check is off (--no-autoupdate).
+    # Trade-off, on purpose: the whole published range, not two addresses. A
+    # compromised cloudflared can already reach Cloudflare's edge on 7844 with its
+    # own credentials, so narrowing 443 adds little; and two documented IPs would
+    # break the share silently the day Cloudflare moves them.
+    - toCIDRSet:
+        - cidr: 173.245.48.0/20
+        - cidr: 103.21.244.0/22
+        - cidr: 103.22.200.0/22
+        - cidr: 103.31.4.0/22
+        - cidr: 141.101.64.0/18
+        - cidr: 108.162.192.0/18
+        - cidr: 190.93.240.0/20
+        - cidr: 188.114.96.0/20
+        - cidr: 197.234.240.0/22
+        - cidr: 198.41.128.0/17
+        - cidr: 162.158.0.0/15
+        - cidr: 104.16.0.0/13
+        - cidr: 104.24.0.0/14
+        - cidr: 172.64.0.0/13
+        - cidr: 131.0.72.0/22
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

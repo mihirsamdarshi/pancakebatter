@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: reports-mapkit
+  namespace: reports
+type: Opaque
+stringData:
+  MAPKIT_TOKEN: ENC[AES256_GCM,data:snqYSStIRW4jKT5Hu6atS7FOi2UONkf3zGKjM9Pc/7e0nOV0bin31atmAHPccpwOVQfrPN8SsJIRSOi/B7VIQBfIX0fTPY9LHy+GxriI/FsgDRqSeI7ZWcPj+dUWpdgG/k9iqiYnM3gkXMe9DOiuWGOYbGUDWBPQhaP99zC52j7fIxirDZ5wfcgaf9H2jjpcSRmnCbdFIBeiDr4+oKXFVTNCv3MvemVXEom2enqjulba+xt0QvpbuorJAsf59NAO+12fKNNKOtRDdJyRPE2jyVbYdzfuz1arTuQgnkmOLXldN5FstHW3WpWBVmrY+dYMZ8pT0LYX93KWAMkIpGl1/HNMhj721TZqJ97a9B9Yvu7qtIESobmmHotHhFrlzPjo3rxy2msEpQwxfO0c32pPRNadVdK/YHsQcDT7Y/QB9qlFUwMfnwkU9OQCb29dnR556QZiyW3B4qbYhAP1vBclXGPHTtg7tWOEDBtzF84h,iv:OHls3gkjQHAm8OvjRGBCpwZAUS0J4hjXSv74gVV+dhc=,tag:2w/BXlbj946LJq2Gnb7Cpw==,type:str]
+sops:
+  age:
+    - enc: |
+        -----BEGIN AGE ENCRYPTED FILE-----
+        YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBEbERITUdaTEFFWGhIV3k3
+        RXF1YThzK1gzQXhBbFlKNnIzZXQxMGZRVlJNCktnU25tRG52YnpIRkJud3Q5OEd2
+        andpbG9pTGhjaDZoem52SVRNcnN1OFUKLS0tIGkwQUpyeTRRUnRwYXFvdFYzYVhl
+        NzQ5dm12UDNnZTJKNHNXY2JTdnBpZkkKDUzKbijD/NCB9BarczBApqI1fKlaU/Ab
+        4hSi5hX2Lfv4B0jdRr/R9iQRybmUbXy0oswRPPF5N6Cge2Q65J3QVg==
+        -----END AGE ENCRYPTED FILE-----
+      recipient: age13p9s7k5su7ns4ys54qfj2cn2kekcv0h0jxg2hdgl68cy9yajvauqk82apf
+  encrypted_regex: ^(data|stringData)$
+  lastmodified: "2026-11-07T18:36:17Z"
+  mac: ENC[AES256_GCM,data:UQENzxT/U+AmPN1peR5Nfa2zyp3Dw0btcjACkUhDYC5Zui9skXns81rpw6MGd9Xjqblr9dY/xOOuE5g4RrMfNbDsEAtDExG7Mvjx9rSH/NL80HzkPCLVaspBn/YoZJ7WhaTinsUOO4Tx9e9bUCBQCDPBNMpsSOuEP+jhKc166nc=,iv:d2sfCYeGU1R/R0k626yoztCDLhl278AlXT1ahGL6Ajk=,tag:XIuizPHO3cgBblDJg6tfrQ==,type:str]
+  mac_only_encrypted: true
+  version: 3.13.3

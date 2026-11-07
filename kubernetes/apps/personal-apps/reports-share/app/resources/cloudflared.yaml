@@ -1,0 +1,27 @@
+# cloudflared routing for the locally managed tunnel reports-share (created with
+# the cloudflared CLI; its credentials are the reports-share-tunnel Secret). One
+# host reaches one origin: share.<zone> to the reports app's guest Service on
+# 3001, which is read-only and answers for the collection the entry names. Port
+# 3000 (full access) is not named anywhere, and the network policy blocks it.
+# Everything else gets 404.
+#
+# Flux fills the dollar-brace values from cluster-secrets; the owner sets the three
+# SECRET_SHARE_* keys (see the README). The tunnel id, the team name and the aud
+# tag are not secrets for the app, but they stay out of this public repo.
+#
+# originRequest.access makes cloudflared itself check the Cloudflare Access
+# token on every request: a request without a valid token for this Access
+# application (audTag) is refused here, even if it reached the tunnel some
+# other way. This is the second lock behind Access at Cloudflare's edge.
+tunnel: ${SECRET_SHARE_TUNNEL_ID}
+credentials-file: /etc/cloudflared/credentials/credentials.json
+ingress:
+  - hostname: share.${SECRET_DOMAIN}
+    service: http://reports-share.reports.svc.cluster.local:3001
+    originRequest:
+      access:
+        required: true
+        teamName: ${SECRET_SHARE_ACCESS_TEAM}
+        audTag:
+          - ${SECRET_SHARE_ACCESS_AUD}
+  - service: http_status:404

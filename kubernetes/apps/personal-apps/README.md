@@ -57,7 +57,9 @@ app. There are two ways to run one:
   so they get an `apps-ghcr` copy too. Those namespaces must exist (their own
   Kustomizations create them), or no copy is applied.
 - `kubernetes/apps/personal-apps/<namespace>/`: the app's Namespace, Git-defined,
-  Pod Security `restricted`, prune-disabled. Only the Namespace lives here.
+  Pod Security `restricted`, prune-disabled. Only the Namespace lives here,
+  plus `mapkit.sops.yaml` for an entry with the `mapkit` part (see "Apple Maps
+  (the mapkit part)").
 - Failures go to Discord through the Flux `Provider` and `Alert` in
   `app-platform/app`. The Alert covers Flux events only. The PrometheusRule
   `app-platform` (`observability/kube-prometheus-stack/app`) alerts when an
@@ -198,8 +200,12 @@ see `network/family-apps/README.md`; needs `vars.FAMILY_HOST`),
 list it after `family-route`), `backup` (the `volsync` component),
 `backup-sqlite` (the `sqlite-export` component, with no service-account token),
 `job` (a CronJob that runs a command from the app's image; see "Scheduled
-jobs") and `job-egress` (443/TCP to one public CIDR for the job pods only;
-needs `job`).
+jobs"), `job-egress` (443/TCP to one public CIDR for the job pods only;
+needs `job`) and `mapkit` (a MapKit JS token from the Secret `<name>-mapkit`,
+for an app that draws Apple maps; see "Apple Maps (the mapkit part)") and
+`share` (a read-only guest port reached through a Cloudflare Tunnel behind
+Cloudflare Access; needs `vars.SHARE_HOST` and `vars.GUEST_COLLECTIONS` and the
+folder `personal-apps/<name>-share/`; see "Guest sharing (the share part)").
 The `netpol` and `egress` keys add the `netpol` component and then
 `netpol-egress-internet` or `netpol-egress-claude-proxy` after the parts, so an
 explicit `parts: []` still gets the policy.
@@ -220,7 +226,9 @@ The generated Deployment assumes it; the `apps` template enforces it.
   `linux/amd64`, one replica with strategy `Recreate` (SQLite is single-writer).
 - **Receives no Secrets**: no `valueFrom`, `secretKeyRef`, `envFrom` of a Secret
   or Secret volume, and `automountServiceAccountToken` is false on every pod. The
-  only Secret a pod references is the `apps-ghcr` image pull Secret.
+  only Secret a pod references is the `apps-ghcr` image pull Secret. The one
+  exception is the `mapkit` part: the app container of the app's Deployment
+  reads the one key `MAPKIT_TOKEN` of `<name>-mapkit`, and nothing else does.
 - **Takes its own pre-migration copy** into `$DATA_DIR/backups/`. Pinning an old
   digest does not roll data back.
 - Reaches the network only as the policy allows (below).
@@ -317,7 +325,334 @@ directory, so the image needs `/bin/sh`. One run at a time, no retry, at most
    `kustomization.yaml` and is never the Namespace folder itself.
 4. Out of the platform: no entry, a normal app under `kubernetes/apps/<ns>/`.
 
-Postgres or any service that needs a credential is deferred; apps hold none.
+Postgres or any service that needs a credential is deferred; apps hold none,
+except the MapKit JS token of the `mapkit` part.
+
+### Apple Maps (the mapkit part)
+
+The reports app draws Apple maps with MapKit JS. The browser loads Apple's
+script and map tiles, and asks the app for a MapKit JS token. The token is an
+ES256 JWT that the owner signs on their own computer, once a year, with the
+MapKit private key (a `.p8` file from the Apple Developer account). The
+private key never enters the cluster or Git. Create a key for this use only,
+with MapKit JS as its only enabled service.
+
+The token is the one credential a platform app may hold, and it is a narrow
+one:
+
+- Every reader's browser gets it, so it is not secret from readers.
+- Browsers use it only on the host names in its `origin` claim, and only for
+  MapKit JS (`scope: mapkit_js`). A script can send any `Origin` header, so a
+  copied token works from a script until it expires or the owner revokes the
+  key that signed it. Its cost is the account's MapKit quota; it signs nothing.
+- It expires 364 days after it is signed.
+- It is kept in a SOPS Secret because its `origin` claim names the site's
+  hosts, and the zone never goes into Git.
+
+The `mapkit` part adds two environment variables to the container `app` of
+the app's Deployment:
+
+| Variable | From |
+| --- | --- |
+| `MAPKIT_TOKEN` | The Secret `<name>-mapkit`, `secretKeyRef` with `optional: true` |
+| `MAPKIT_ORIGINS` | `https://<HOST>.${SECRET_DOMAIN_LOCAL},https://<FAMILY_HOST>.${SECRET_FAMILY_DOMAIN},https://<SHARE_HOST>.<zone>`, the same names as the routes and the guest host of the `share` part |
+
+With `optional: true`, the app starts without the Secret, and shows a note in
+place of each map. Without `vars.FAMILY_HOST` the second origin has an empty
+first label, and the app ignores it; the same holds for the third origin
+without `vars.SHARE_HOST`. The part also sets
+`secret.reloader.stakater.com/reload: <name>-mapkit` on the Deployment, so
+Reloader restarts the app when the token changes.
+
+The Secret is a SOPS file in the app's Namespace folder,
+`kubernetes/apps/personal-apps/<name>/mapkit.sops.yaml`, listed in that
+folder's `kustomization.yaml`. `cluster-apps` applies and decrypts it. The
+validator requires the file with the part and refuses it without the part. It
+reads the metadata and the shape only, never a value:
+
+- One `Opaque` Secret `<name>-mapkit` with exactly the key `MAPKIT_TOKEN`,
+  encrypted under `stringData`.
+- `sops` metadata that matches the `.sops.yaml` rule for `kubernetes/`: one
+  age recipient (the repo's), the same `encrypted_regex` and
+  `mac_only_encrypted`, and an encrypted MAC. `cluster-apps` must be able to
+  decrypt the file: if it cannot, the whole `cluster-apps` build stops until
+  Git is fixed.
+- With the part, the folder holds only `kustomization.yaml` and
+  `mapkit.sops.yaml`, and its `kustomization.yaml` lists only
+  `./mapkit.sops.yaml`. `cluster-apps` applies the folder without a pod check,
+  so nothing else may sit beside the Secret.
+
+The validator also refuses any other Secret reference, and this reference
+anywhere except the app container of the app's Deployment. The job's CronJob
+never gets it. Only a `kubernetes.io/dockerconfigjson` Secret can be
+`vars.PULL_SECRET`.
+
+#### Sign the token, the first time and every year
+
+Run this on the owner's computer, from the root of a checkout you trust, in
+bash or zsh (type `zsh` first; a fish shell cannot run it), with `op` signed in, the repo's age key available to `sops` (for
+the two zones), and `jq`, `yq`, `sops` and `node` on the `PATH`. Replace the three
+references with the 1Password item that holds the key: the `.p8` file attached
+to the item (or a field with its PEM text), the Key ID and the Team ID.
+
+```sh
+( set -o pipefail
+  f=kubernetes/apps/personal-apps/reports/mapkit.sops.yaml
+  cs=kubernetes/components/sops/cluster-secrets.sops.yaml
+  lan="$(sops decrypt --extract '["stringData"]["SECRET_DOMAIN_LOCAL"]' "$cs")" \
+    && fam="$(sops decrypt --extract '["stringData"]["SECRET_FAMILY_DOMAIN"]' "$cs")" \
+    && dom="$(sops decrypt --extract '["stringData"]["SECRET_DOMAIN"]' "$cs")" || exit 1
+  jq -n --rawfile key <(op read 'op://<vault>/<item>/<key file>.p8') \
+        --rawfile kid <(op read --no-newline 'op://<vault>/<item>/<Key ID field>') \
+        --rawfile team <(op read --no-newline 'op://<vault>/<item>/<Team ID field>') \
+        --rawfile origin <(printf '%s' "reports.$lan,reports.$fam,share.$dom") \
+        '{key: $key, kid: ($kid | gsub("\\s"; "")), team: ($team | gsub("\\s"; "")), origin: $origin, days: 364}' \
+    | node -e '
+const c = require("node:crypto"), fail = (m) => { process.stderr.write("failed: " + m + "\n"); process.exit(1); };
+let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+  const v = JSON.parse(s), id = /^[A-Z0-9]{10}$/;
+  if (!id.test(v.kid) || !id.test(v.team)) fail("the Key ID and the Team ID must be 10 capital letters or digits");
+  let key; try { key = c.createPrivateKey(v.key); } catch { fail("the private key is not a PEM key"); }
+  if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails.namedCurve !== "prime256v1") fail("the private key is not ECDSA P-256");
+  const iat = Math.floor(Date.now() / 1000), exp = iat + v.days * 86400, b = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const data = b({ alg: "ES256", kid: v.kid, typ: "JWT" }) + "." + b({ iss: v.team, iat, exp, scope: "mapkit_js", origin: v.origin });
+  const sig = c.sign("sha256", Buffer.from(data), { key, dsaEncoding: "ieee-p1363" });
+  if (!c.verify("sha256", Buffer.from(data), { key: c.createPublicKey(key), dsaEncoding: "ieee-p1363" }, sig)) fail("the signature did not check out");
+  process.stderr.write("the token expires on " + new Date(exp * 1000).toISOString().slice(0, 10) + "\n");
+  process.stdout.write(JSON.stringify({ token: data + "." + sig.toString("base64url") }));
+});' \
+    | jq '{apiVersion: "v1", kind: "Secret", metadata: {name: "reports-mapkit", namespace: "reports"}, type: "Opaque", stringData: {MAPKIT_TOKEN: .token}}' \
+    | sops encrypt --filename-override "$f" --input-type json --output-type yaml /dev/stdin > "$f.tmp" \
+    && [ "$(yq '[.stringData[] | test("^ENC\\[")] | all' "$f.tmp")" = true ] \
+    && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
+```
+
+The key and the IDs go from `op` to `jq` to `node` through pipes (`/dev/fd`),
+never through a command line, a variable in the environment or a file. The
+token goes from `node` to `sops` through pipes too. Only the encrypted output
+is written, to `<file>.tmp` first. A failure leaves no new file and keeps an
+existing one. Nothing prints the key, the IDs or the token. The token's
+`origin` claim names the three hosts (LAN, family and the guest host),
+comma-separated, which Apple documents for
+`origin`; Apple documents no longest lifetime, so the token lasts 364 days.
+
+Check the shape, without decrypting (the key name stays readable):
+
+```sh
+yq '.stringData | keys' kubernetes/apps/personal-apps/reports/mapkit.sops.yaml
+# - MAPKIT_TOKEN
+```
+
+Commit and merge the file. Reloader restarts the app when Flux applies the new
+Secret. The app's log then says `maps on for https://reports.local.<zone>,
+https://reports.family.<zone>; the token expires on <date>`. If it says `maps
+off`, the pod started before the Secret arrived: restart the Deployment once
+(`kubectl -n reports rollout restart deployment/reports`).
+
+Renew once a year, with the same command. Set a calendar reminder a month
+before the expiry date that the command prints. In the token's last 30 days the
+app's log warns once a day, and every map shows a note: "The site's Apple Maps
+token expires on <date>." After it expires, every map shows "Map unavailable:
+the site's Apple Maps token expired on <date>" with its list of places, until
+the new token is merged. To replace a lost or leaked key or token, make a new
+key in the Apple Developer account, sign a new token with it, merge, and then
+revoke the old key (that ends every token it signed).
+
+### Guest sharing (the share part)
+
+The `share` part gives one outside person, such as a realtor, a read-only view
+of one collection of an app (reports: `fay-ave`) at `share.<zone>`. They need no
+Tailscale. Nothing else is exposed.
+
+What it exposes: the app's guest port, 3001, which serves only the collections
+in `vars.GUEST_COLLECTIONS`, read-only, and only for the host
+`<SHARE_HOST>.<zone>`. The main port, 3000, stays full access and is
+reachable only from the two gateways (LAN and family).
+
+The path: browser, Cloudflare Access (email one-time PIN), Cloudflare edge, the
+tunnel `reports-share`, cloudflared in the Namespace `<name>-share`, the Service
+`<name>-share` (3001 only), the app pod.
+
+The two locks:
+
+1. **Who may ask.** Cloudflare Access at the edge allows only the listed emails,
+   and cloudflared checks the Access token itself
+   (`originRequest.access.required` with the application's aud tag in
+   `reports-share/app/resources/cloudflared.yaml`), so a request without a valid
+   token is refused even if it reached the tunnel another way.
+2. **What it can reach.** Two Cilium policies. cloudflared may reach only the
+   reports pod on 3001/TCP, cluster DNS and Cloudflare (7844 for the tunnel, 443
+   for the Access signing keys, both to Cloudflare's published ranges); it can
+   never reach port 3000 or another namespace. The `share` part's policy
+   `<name>-share` lets only the cloudflared pods in `<name>-share` reach the app
+   on 3001, and the namespace policy still admits 3000 only from the gateways.
+   The validator compares both with the design.
+
+What is where:
+
+| File | What |
+| --- | --- |
+| `components/app-platform/share/` | The part: `GUEST_PORT`, `GUEST_COLLECTIONS`, `GUEST_HOSTS` and the `guest` container port, the Service `<name>-share`, the policy `<name>-share`. `mapkit` adds the guest host to `MAPKIT_ORIGINS` |
+| `personal-apps/reports-share/` | cloudflared: Namespace (restricted), Flux Kustomization, Deployment (non-root, read-only root, no capabilities, `/ready` probes), its policy, the routing in `app/resources/cloudflared.yaml` and the credentials Secret |
+| `terraform/dns/main.tf`, `terraform/dns/access.tf` | The proxied CNAME `share.<zone>` to `<tunnel id>.cfargotunnel.com` (variable `reports_share_tunnel_id`), and the Access login: the one-time PIN login method, the policy that lists the guest emails (variable `reports_share_guest_emails`) and the Access application |
+
+The tunnel is locally managed: the routing is in Git, the credentials are a file
+(`credentials.json`) in the SOPS Secret `reports-share-tunnel`. Three values stay
+out of this public repo, as `cluster-secrets` keys that Flux substitutes into the
+routing: `SECRET_SHARE_TUNNEL_ID`, `SECRET_SHARE_ACCESS_TEAM` and
+`SECRET_SHARE_ACCESS_AUD`. Set them before the cloudflared Kustomization
+reconciles, or it renders an empty tunnel id and cloudflared stays down.
+
+#### Set it up (the owner)
+
+Nobody but the owner handles the credentials; do not paste them into chat.
+
+1. Install cloudflared and log in (the browser asks for the zone):
+   `brew install cloudflared`, then `cloudflared tunnel login`.
+2. Create the tunnel: `cloudflared tunnel create reports-share`. It prints the
+   tunnel id and writes `~/.cloudflared/<id>.json`.
+3. Save that file in 1Password as a document or a field named `credentials.json`,
+   and the tunnel id beside it. Then delete the local `<id>.json`. The
+   `cert.pem` from the login can create tunnels in the zone: keep it in
+   1Password too, or delete it.
+4. Zero Trust team, once. If the account has no Zero Trust team yet, open
+   Zero Trust in the Cloudflare dashboard, pick a team name and choose the Free
+   plan. Note the team name: it is the part of the team domain before
+   `.cloudflareaccess.com` (Settings, General).
+5. Add two permissions to the Cloudflare token (1Password item "Cloudflare User
+   API Token"), at the account level: **Access: Apps and Policies** and **Access:
+   Identity Providers**, each with Edit (the API docs call it Write), and
+   Account Resources must include your account. The token is shared with
+   `terraform/cloudflare-security`; that is accepted on purpose.
+6. Merge the Terraform change (it holds `terraform/dns/access.tf`), then update
+   the main checkout with `but pull`. Merging it changes nothing in the cluster
+   or in Cloudflare.
+7. In the main checkout, put these lines in the git-ignored
+   `terraform/dns/tunnel.auto.tfvars`. The file must ALSO hold the Flux webhook
+   line, or the plan wants to destroy the flux-webhook record. The guest
+   address belongs only in this file, never in Git, and a validation error
+   prints the line, so do not paste it anywhere:
+
+   ```hcl
+   flux_webhook_tunnel_id     = "<flux-webhook tunnel id>"
+   reports_share_tunnel_id    = "<tunnel id from step 2>"
+   reports_share_guest_emails = ["guest@example.com"]
+   ```
+
+8. Run `just dns plan`. It must show exactly 4 to add, 0 to change and 0 to
+   destroy: the DNS record `reports_share`, the login method
+   `reports_share_otp`, the policy `reports_share_guests` and the application
+   `reports_share`. `just dns plan` ends with exit code 2 when there are
+   changes; that is normal. If the plan shows anything else, above all a
+   destroy, stop and do not apply.
+9. Run `just dns apply`. If creating the login method fails, either with an
+   auth error (the token permission is not accepted for it) or because the
+   account already has One-time PIN (an account may have only one), use the
+   fallback: in the dashboard turn on One-time PIN once (Zero Trust,
+   Integrations, Identity providers, Add new, One-time PIN), copy its ID, add
+   `reports_share_otp_idp_id = "<id>"` to the tfvars file and plan again. The
+   plan then shows 3 to add, and Terraform creates no login method. If an apply
+   fails part way, import what it created (the import commands are in the
+   comment at the top of `access.tf`) and plan again: the plan then shows only
+   what was not created.
+10. Print the application's aud tag. From the main checkout:
+    `terraform -chdir=terraform/dns output -raw reports_share_access_aud` (it
+    needs no `sops exec-env`). The team name is from step 4.
+11. Steps 11 to 14 run on the branch of this PR (the share part). From the repo
+    root, type `zsh` first (a fish shell cannot run the loop), then set the
+    three `cluster-secrets` keys (the loop waits for you to type each value;
+    nothing is printed, and it stops at an empty value):
+
+    ```sh
+    cs=kubernetes/components/sops/cluster-secrets.sops.yaml
+    for k in SECRET_SHARE_TUNNEL_ID SECRET_SHARE_ACCESS_TEAM SECRET_SHARE_ACCESS_AUD; do
+      printf '%s: ' "$k" >&2; IFS= read -r -s v; echo >&2
+      [ -n "$v" ] || { echo "empty $k: stopped" >&2; break; }
+      printf '%s' "$v" | jq -Rs . | sops set --value-stdin "$cs" "[\"stringData\"][\"$k\"]"
+    done
+    ```
+
+12. From the repo root, in zsh (type `zsh` first), write the credentials Secret
+    from 1Password. It replaces the placeholder the PR contains. Replace the
+    `op://` reference with the real item. The `jq` step refuses anything that is
+    not a tunnel credentials file:
+
+    ```sh
+    ( set -o pipefail
+      f=kubernetes/apps/personal-apps/reports-share/app/tunnel-credentials.sops.yaml
+      op read 'op://<vault>/<item>/credentials.json' \
+        | jq -Rs 'if (try (fromjson | (.AccountTag and .TunnelSecret and .TunnelID)) catch false) then {apiVersion: "v1", kind: "Secret", metadata: {name: "reports-share-tunnel", namespace: "reports-share"}, type: "Opaque", stringData: {"credentials.json": .}} else error("not a tunnel credentials file") end' \
+        | sops encrypt --filename-override "$f" --input-type json --output-type yaml /dev/stdin > "$f.tmp" \
+        && [ "$(yq '[.stringData[] | test("^ENC\\[")] | all' "$f.tmp")" = true ] \
+        && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
+    ```
+
+13. Re-sign the MapKit token so its `origin` claim also names `share.<zone>` (see
+    "Apple Maps (the mapkit part)", and type `zsh` first). Without it the maps
+    on the guest view show a note.
+14. Commit the two changed files (`cluster-secrets.sops.yaml`,
+    `tunnel-credentials.sops.yaml`) and merge. Then test end to end:
+    - `kubectl -n reports-share logs deploy/cloudflared` says `Registered tunnel
+      connection` and has no `AccessJWTValidator` errors;
+    - `curl -sI https://share.<zone>/` answers 302 to `<team>.cloudflareaccess.com`;
+    - in a private browser window, `https://share.<zone>/` shows the one-time PIN
+      page;
+    - the listed email gets a code, gets in, and `fay-ave` loads;
+    - an email that is not listed gets no email with a code.
+
+After changing any `SECRET_SHARE_*` key later, run
+`kubectl -n reports-share rollout restart deploy/cloudflared`: the routing's
+hash does not change when only a key does.
+
+Never add a private-network route (a CIDR or hostname route) to this tunnel:
+WARP traffic bypasses the Access check.
+
+Never create the DNS record with `cloudflared tunnel route dns`: Terraform owns
+it.
+
+The Access login is in `terraform/dns/access.tf`: a self-hosted application for
+the whole host `share.<zone>` (no path), session 24 hours, One-time PIN as the
+only login method with automatic redirect to it, hidden from the app launcher,
+and one Allow policy that lists only the guest emails. There is no bypass and no
+other policy. Do not change it in the dashboard; change it in Terraform.
+
+Add another guest: add the address to `reports_share_guest_emails` in
+`tunnel.auto.tfvars`, then run `just dns plan` and `just dns apply`. Remove one:
+delete the address from the list, apply, then revoke the user's sessions in the
+dashboard (Zero Trust, Team & resources, Users, pick the user, revoke the
+session; the menus move, so search the dashboard for "Users" if it differs).
+
+Turn the whole share off, fastest first:
+
+- Set `reports_share_guest_emails = []` and run `just dns apply`. The name, the
+  Access application and the policy go together (the name first, then the
+  application), so the share stops resolving and the edge refuses everyone. The
+  one-time PIN method stays; it is account-wide.
+- Or set `reports_share_tunnel_id` to `null` and apply. That destroys the same
+  three and also the one-time PIN method, if Terraform created it, which other
+  Access applications may use. Set `reports_share_otp_idp_id` first if they do.
+- Or remove `share` from the parts of `app-platform/apps/reports.yaml` and delete
+  the folder `reports-share/` (the port, Service and cloudflared go away). Do
+  the first route too: remove the tunnel and email lines from `tunnel.auto.tfvars`
+  and run `just dns apply`, then `cloudflared tunnel delete reports-share`.
+
+To finish, also remove the three `SECRET_SHARE_*` keys from `cluster-secrets`,
+and delete the `reports-share` Namespace by hand: it is prune-disabled, so it
+stays behind. If you turned the share off in the dashboard (deleted the
+application or the policy) instead, set `reports_share_guest_emails = []` before
+the next apply, or Terraform recreates them.
+
+Turning the share back on creates a new Access application with a new aud tag.
+After the apply, from the main checkout, update the one key and restart
+cloudflared (in zsh; commit and merge the changed `cluster-secrets.sops.yaml`
+like step 14):
+
+```sh
+terraform -chdir=terraform/dns output -raw reports_share_access_aud \
+  | jq -Rs . \
+  | sops set --value-stdin kubernetes/components/sops/cluster-secrets.sops.yaml '["stringData"]["SECRET_SHARE_ACCESS_AUD"]'
+kubectl -n reports-share rollout restart deploy/cloudflared
+```
 
 ### Creating ghcr-apps-read
 
@@ -384,8 +719,8 @@ unaffected.
 - Never remove `fluxcd.controlplane.io/prune: disabled` from the `apps-pull`
   Secret template: a stale copy is harmless, a missing one during an outage is
   not.
-- Never give an app a Secret, and never set `netpol: false` without a stated
-  reason. Never add a `world` entity or a bare `0.0.0.0/0` rule to a policy.
+- Never give an app a Secret (the `mapkit` part's MapKit JS token is the one
+  exception), and never set `netpol: false` without a stated reason. Never add a `world` entity or a bare `0.0.0.0/0` rule to a policy.
 - Do not add any CI-to-tailnet path (Receiver, `tag:ci`, an OAuth client) until
   the tailnet policy has been narrowed in its own project. Deploys poll every 2
   minutes meanwhile.
