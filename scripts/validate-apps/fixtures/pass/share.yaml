@@ -1,0 +1,30 @@
+---
+# Test fixture for scripts/validate-apps.sh: the share part beside the family
+# route and the mapkit part. The self-test gives it a Namespace folder, a
+# cloudflared folder (share-share) and a stand-in mapkit Secret.
+# mapkit-secret: stand-in
+# Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share
+    parts: [pullsecret, internal-route, family-route, mapkit, share]
+    vars:
+      FAMILY_HOST: guests
+      SHARE_HOST: view
+      GUEST_COLLECTIONS: alpha,beta-2

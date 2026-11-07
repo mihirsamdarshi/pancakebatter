@@ -13,7 +13,9 @@
 # MAPKIT_ORIGINS is the allow list of page origins that may get the token. It
 # is built from the same host names as the routes, so it follows them and the
 # zone never appears in Git. Without vars.FAMILY_HOST the second entry has an
-# empty first label, which the app ignores. The transitional host of
+# empty first label, which the app ignores. The third entry is the guest host
+# of the share part (vars.SHARE_HOST under the bare zone), empty the same
+# way without that part. The transitional host of
 # family-route-legacy is not in the list: maps there get no token and show the
 # note (reports does not use that part).
 #
@@ -43,7 +45,7 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: MAPKIT_ORIGINS
-          value: https://${HOST:=${APP}}.${SECRET_DOMAIN_LOCAL},https://${FAMILY_HOST:=}.${SECRET_FAMILY_DOMAIN}
+          value: https://${HOST:=${APP}}.${SECRET_DOMAIN_LOCAL},https://${FAMILY_HOST:=}.${SECRET_FAMILY_DOMAIN},https://${SHARE_HOST:=}.${SECRET_DOMAIN}
   - target:
       kind: Deployment
       name: "[$][{]APP[}]"

@@ -12,6 +12,9 @@
 # (reports-mapkit, from mapkit.sops.yaml in personal-apps/reports/), which the
 # owner signs once a year; the private key never enters the cluster. The
 # browser loads Apple's map script and tiles; the pod reaches no Apple host.
+# The share part opens a second, read-only port (3001) for one guest collection,
+# reached at share.<zone> through the Cloudflare Tunnel in personal-apps/reports-share/
+# behind Cloudflare Access; the main port stays on the LAN and family routes only.
 # Delete this entry (and its line in kustomization.yaml) to stop updating it;
 # the workload keeps running until it is removed by hand.
 apiVersion: fluxcd.controlplane.io/v1
@@ -33,7 +36,7 @@ spec:
     limit: 1
   defaultValues:
     name: reports
-    parts: [pullsecret, internal-route, family-route, backup, job, job-egress, mapkit]
+    parts: [pullsecret, internal-route, family-route, backup, job, job-egress, mapkit, share]
     egress: claude-proxy
     vars:
       TITLE: Reports
@@ -41,6 +44,10 @@ spec:
       ICON: mdi-file-document-multiple
       # reports.family.<zone>, for family members through the family-apps share.
       FAMILY_HOST: reports
+      # share.<zone>, the guest view for one outside person (the share part), and
+      # the collection it may read.
+      SHARE_HOST: share
+      GUEST_COLLECTIONS: fay-ave
       # One agent run at a time; the Agent SDK's hosting guide starts at 1 GiB and 1 CPU per agent.
       # STORAGE stays at the 1Gi default: local-retain cannot expand a bound volume, and the
       # reports plus their git history are tens of MB.

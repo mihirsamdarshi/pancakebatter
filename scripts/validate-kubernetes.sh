@@ -413,7 +413,13 @@ validate_tree() {
         # Until October 26, 2026 SECRET_DOMAIN meant local.<zone>, so a manifest
         # written before then would silently point at <app>.<zone>. A file that
         # really means the bare zone goes in zone_allow.
-        zone_allow=()
+        # The share part's guest host share.<zone> sits directly under the zone
+        # on purpose (outside local. and family.), like flux-webhook.<zone>.
+        zone_allow=(
+            kubernetes/components/app-platform/share/kustomization.yaml
+            kubernetes/components/app-platform/mapkit/kustomization.yaml
+            kubernetes/apps/personal-apps/reports-share/app/resources/cloudflared.yaml
+        )
         rc=0
         # Any substitution form: ${V}, ${V:=x}, ${V=x}, ${V/a/b}, ${V#x}, ${#V}...
         grep -rnE '\$\{#?SECRET_DOMAIN([^A-Za-z0-9_]|$)' kubernetes >"$tmp/zone" || rc=$?
