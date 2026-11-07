@@ -390,7 +390,7 @@ never gets it. Only a `kubernetes.io/dockerconfigjson` Secret can be
 #### Sign the token, the first time and every year
 
 Run this on the owner's computer, from the root of a checkout you trust, in
-bash or zsh, with `op` signed in, the repo's age key available to `sops` (for
+bash or zsh (type `zsh` first; a fish shell cannot run it), with `op` signed in, the repo's age key available to `sops` (for
 the two zones), and `jq`, `yq`, `sops` and `node` on the `PATH`. Replace the three
 references with the 1Password item that holds the key: the `.p8` file attached
 to the item (or a field with its PEM text), the Key ID and the Team ID.
@@ -521,70 +521,84 @@ Nobody but the owner handles the credentials; do not paste them into chat.
    `.cloudflareaccess.com` (Settings, General).
 5. Add two permissions to the Cloudflare token (1Password item "Cloudflare User
    API Token"), at the account level: **Access: Apps and Policies** and **Access:
-   Identity Providers**, each with Edit (shown as Write in newer dashboards).
+   Identity Providers**, each with Edit (the API docs call it Write), and
+   Account Resources must include your account. The token is shared with
+   `terraform/cloudflare-security`; that is accepted on purpose.
 6. Merge the Terraform change (it holds `terraform/dns/access.tf`), then update
    the main checkout with `but pull`. Merging it changes nothing in the cluster
    or in Cloudflare.
-7. In the main checkout, add two lines to the git-ignored
-   `terraform/dns/tunnel.auto.tfvars` (keep the line for the other tunnel). The
-   guest address belongs only in this file, never in Git:
+7. In the main checkout, put these lines in the git-ignored
+   `terraform/dns/tunnel.auto.tfvars`. The file must ALSO hold the Flux webhook
+   line, or the plan wants to destroy the flux-webhook record. The guest
+   address belongs only in this file, never in Git, and a validation error
+   prints the line, so do not paste it anywhere:
 
    ```hcl
+   flux_webhook_tunnel_id     = "<flux-webhook tunnel id>"
    reports_share_tunnel_id    = "<tunnel id from step 2>"
    reports_share_guest_emails = ["guest@example.com"]
    ```
 
-8. Run `just dns plan`. It must show exactly these four resources to add, and
-   nothing to change or destroy: the DNS record `reports_share`, the login
-   method `reports_share_otp`, the policy `reports_share_guests` and the
-   application `reports_share`. If it shows anything else, stop.
-9. Run `just dns apply`. If it fails on the login method because the account
-   already has One-time PIN (an account can have only one), import it as the
-   comment at the top of `terraform/dns/access.tf` says, then plan again; the
-   plan then shows three to add.
-10. Print the application's aud tag. From `terraform/dns`:
-    `sops exec-env cloudflare.sops.env 'terraform output -raw reports_share_access_aud'`.
-    The team name is from step 4.
-11. From the repo root, in bash or zsh, set the three `cluster-secrets` keys (the
-   loop waits for you to type each value; nothing is printed, and it stops at an
-   empty value):
+8. Run `just dns plan`. It must show exactly 4 to add, 0 to change and 0 to
+   destroy: the DNS record `reports_share`, the login method
+   `reports_share_otp`, the policy `reports_share_guests` and the application
+   `reports_share`. `just dns plan` ends with exit code 2 when there are
+   changes; that is normal. If the plan shows anything else, above all a
+   destroy, stop and do not apply.
+9. Run `just dns apply`. If creating the login method fails, either with an
+   auth error (the token permission is not accepted for it) or because the
+   account already has One-time PIN (an account may have only one), use the
+   fallback: in the dashboard turn on One-time PIN once (Zero Trust,
+   Integrations, Identity providers, Add new, One-time PIN), copy its ID, add
+   `reports_share_otp_idp_id = "<id>"` to the tfvars file and plan again. The
+   plan then shows 3 to add, and Terraform creates no login method. If an apply
+   fails part way, import what it created (the import commands are in the
+   comment at the top of `access.tf`) and plan again: the plan then shows only
+   what was not created.
+10. Print the application's aud tag. From the main checkout:
+    `terraform -chdir=terraform/dns output -raw reports_share_access_aud` (it
+    needs no `sops exec-env`). The team name is from step 4.
+11. Steps 11 to 14 run on the branch of this PR (the share part). From the repo
+    root, type `zsh` first (a fish shell cannot run the loop), then set the
+    three `cluster-secrets` keys (the loop waits for you to type each value;
+    nothing is printed, and it stops at an empty value):
 
-   ```sh
-   cs=kubernetes/components/sops/cluster-secrets.sops.yaml
-   for k in SECRET_SHARE_TUNNEL_ID SECRET_SHARE_ACCESS_TEAM SECRET_SHARE_ACCESS_AUD; do
-     printf '%s: ' "$k" >&2; IFS= read -r -s v; echo >&2
-     [ -n "$v" ] || { echo "empty $k: stopped" >&2; break; }
-     printf '%s' "$v" | jq -Rs . | sops set --value-stdin "$cs" "[\"stringData\"][\"$k\"]"
-   done
-   ```
+    ```sh
+    cs=kubernetes/components/sops/cluster-secrets.sops.yaml
+    for k in SECRET_SHARE_TUNNEL_ID SECRET_SHARE_ACCESS_TEAM SECRET_SHARE_ACCESS_AUD; do
+      printf '%s: ' "$k" >&2; IFS= read -r -s v; echo >&2
+      [ -n "$v" ] || { echo "empty $k: stopped" >&2; break; }
+      printf '%s' "$v" | jq -Rs . | sops set --value-stdin "$cs" "[\"stringData\"][\"$k\"]"
+    done
+    ```
 
-12. From the repo root, in bash or zsh, write the credentials Secret from
-   1Password. It replaces the placeholder the PR contains. Replace the `op://`
-   reference with the real item. The `jq` step refuses anything that is not a
-   tunnel credentials file:
+12. From the repo root, in zsh (type `zsh` first), write the credentials Secret
+    from 1Password. It replaces the placeholder the PR contains. Replace the
+    `op://` reference with the real item. The `jq` step refuses anything that is
+    not a tunnel credentials file:
 
-   ```sh
-   ( set -o pipefail
-     f=kubernetes/apps/personal-apps/reports-share/app/tunnel-credentials.sops.yaml
-     op read 'op://<vault>/<item>/credentials.json' \
-       | jq -Rs 'if (try (fromjson | (.AccountTag and .TunnelSecret and .TunnelID)) catch false) then {apiVersion: "v1", kind: "Secret", metadata: {name: "reports-share-tunnel", namespace: "reports-share"}, type: "Opaque", stringData: {"credentials.json": .}} else error("not a tunnel credentials file") end' \
-       | sops encrypt --filename-override "$f" --input-type json --output-type yaml /dev/stdin > "$f.tmp" \
-       && [ "$(yq '[.stringData[] | test("^ENC\\[")] | all' "$f.tmp")" = true ] \
-       && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
-   ```
+    ```sh
+    ( set -o pipefail
+      f=kubernetes/apps/personal-apps/reports-share/app/tunnel-credentials.sops.yaml
+      op read 'op://<vault>/<item>/credentials.json' \
+        | jq -Rs 'if (try (fromjson | (.AccountTag and .TunnelSecret and .TunnelID)) catch false) then {apiVersion: "v1", kind: "Secret", metadata: {name: "reports-share-tunnel", namespace: "reports-share"}, type: "Opaque", stringData: {"credentials.json": .}} else error("not a tunnel credentials file") end' \
+        | sops encrypt --filename-override "$f" --input-type json --output-type yaml /dev/stdin > "$f.tmp" \
+        && [ "$(yq '[.stringData[] | test("^ENC\\[")] | all' "$f.tmp")" = true ] \
+        && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
+    ```
 
 13. Re-sign the MapKit token so its `origin` claim also names `share.<zone>` (see
-   "Apple Maps (the mapkit part)"). Without it the maps on the guest view show a
-   note.
+    "Apple Maps (the mapkit part)", and type `zsh` first). Without it the maps
+    on the guest view show a note.
 14. Commit the two changed files (`cluster-secrets.sops.yaml`,
-   `tunnel-credentials.sops.yaml`) and merge. Then test end to end:
-   - `kubectl -n reports-share logs deploy/cloudflared` says `Registered tunnel
-     connection` and has no `AccessJWTValidator` errors;
-   - `curl -sI https://share.<zone>/` answers 302 to `<team>.cloudflareaccess.com`;
-   - in a private browser window, `https://share.<zone>/` shows the one-time PIN
-     page;
-   - the listed email gets a code, gets in, and `fay-ave` loads;
-   - an email that is not listed is refused (no code is sent).
+    `tunnel-credentials.sops.yaml`) and merge. Then test end to end:
+    - `kubectl -n reports-share logs deploy/cloudflared` says `Registered tunnel
+      connection` and has no `AccessJWTValidator` errors;
+    - `curl -sI https://share.<zone>/` answers 302 to `<team>.cloudflareaccess.com`;
+    - in a private browser window, `https://share.<zone>/` shows the one-time PIN
+      page;
+    - the listed email gets a code, gets in, and `fay-ave` loads;
+    - an email that is not listed gets no email with a code.
 
 After changing any `SECRET_SHARE_*` key later, run
 `kubectl -n reports-share rollout restart deploy/cloudflared`: the routing's
@@ -605,15 +619,40 @@ other policy. Do not change it in the dashboard; change it in Terraform.
 Add another guest: add the address to `reports_share_guest_emails` in
 `tunnel.auto.tfvars`, then run `just dns plan` and `just dns apply`. Remove one:
 delete the address from the list, apply, then revoke the user's sessions in the
-dashboard (Zero Trust, Access, Users, revoke). Turn the whole share off, fastest
-first: set `reports_share_guest_emails = []` and apply (the Access application
-and policy are destroyed and the edge refuses everyone), or set the tunnel id to
-`null` and apply (that destroys the name and the Access login too), or remove
-`share` from the parts of `app-platform/apps/reports.yaml` and delete the folder
-`reports-share/` (the port, Service and cloudflared go away), then run
-`cloudflared tunnel delete reports-share`. To finish, also remove the three
-`SECRET_SHARE_*` keys from `cluster-secrets`, and delete the `reports-share`
-Namespace by hand: it is prune-disabled, so it stays behind.
+dashboard (Zero Trust, Team & resources, Users, pick the user, revoke the
+session; the menus move, so search the dashboard for "Users" if it differs).
+
+Turn the whole share off, fastest first:
+
+- Set `reports_share_guest_emails = []` and run `just dns apply`. The name, the
+  Access application and the policy go together (the name first, then the
+  application), so the share stops resolving and the edge refuses everyone. The
+  one-time PIN method stays; it is account-wide.
+- Or set `reports_share_tunnel_id` to `null` and apply. That destroys the same
+  three and also the one-time PIN method, if Terraform created it, which other
+  Access applications may use. Set `reports_share_otp_idp_id` first if they do.
+- Or remove `share` from the parts of `app-platform/apps/reports.yaml` and delete
+  the folder `reports-share/` (the port, Service and cloudflared go away). Do
+  the first route too: remove the tunnel and email lines from `tunnel.auto.tfvars`
+  and run `just dns apply`, then `cloudflared tunnel delete reports-share`.
+
+To finish, also remove the three `SECRET_SHARE_*` keys from `cluster-secrets`,
+and delete the `reports-share` Namespace by hand: it is prune-disabled, so it
+stays behind. If you turned the share off in the dashboard (deleted the
+application or the policy) instead, set `reports_share_guest_emails = []` before
+the next apply, or Terraform recreates them.
+
+Turning the share back on creates a new Access application with a new aud tag.
+After the apply, from the main checkout, update the one key and restart
+cloudflared (in zsh; commit and merge the changed `cluster-secrets.sops.yaml`
+like step 14):
+
+```sh
+terraform -chdir=terraform/dns output -raw reports_share_access_aud \
+  | jq -Rs . \
+  | sops set --value-stdin kubernetes/components/sops/cluster-secrets.sops.yaml '["stringData"]["SECRET_SHARE_ACCESS_AUD"]'
+kubectl -n reports-share rollout restart deploy/cloudflared
+```
 
 ### Creating ghcr-apps-read
 
