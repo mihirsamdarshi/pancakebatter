@@ -1,0 +1,39 @@
+---
+# Rejected: the mapkit part's exact reference, on a CronJob. The exception
+# covers container app of the app's Deployment only.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ${APP}-reader
+spec:
+  schedule: "0 3 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          imagePullSecrets:
+            - name: apps-ghcr
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: app
+              image: ghcr.io/mihirsamdarshi/apps/${APP}@${IMAGE_DIGEST}
+              env:
+                - name: MAPKIT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${APP}-mapkit
+                      key: MAPKIT_TOKEN
+                      optional: true
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL

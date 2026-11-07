@@ -1,0 +1,58 @@
+---
+# `mapkit`: Apple Maps for an app that draws maps with MapKit JS (the reports
+# app). The one exception to "apps receive no Secrets": the app container gets
+# one key of the Secret ${APP}-mapkit, MAPKIT_TOKEN, a MapKit JS token that the
+# owner signs on their own computer once a year. It is not a signing key: the
+# private key never enters the cluster. Every reader's browser gets the token,
+# and it works only on the host names in its origin claim; the Secret keeps it
+# out of Git because it names those hosts. The Secret is a SOPS file in the
+# app's Namespace folder (personal-apps/<app>/mapkit.sops.yaml), which the
+# owner creates. `optional: true` keeps the app running without it; the app
+# then answers 404 for a token and shows a note in place of each map.
+#
+# MAPKIT_ORIGINS is the allow list of page origins that may get the token. It
+# is built from the same host names as the routes, so it follows them and the
+# zone never appears in Git. Without vars.FAMILY_HOST the second entry has an
+# empty first label, which the app ignores. The third entry is the guest host
+# of the share part (vars.SHARE_HOST under the bare zone), empty the same
+# way without that part. The transitional host of
+# family-route-legacy is not in the list: maps there get no token and show the
+# note (reports does not use that part).
+#
+# Reloader (kube-system) restarts the Deployment when the Secret changes, so a
+# renewed token takes effect without a manual restart.
+#
+# Only the app's Deployment gets these (never the job's CronJob); the validator
+# checks the exact reference. See "Apple Maps (the mapkit part)" in
+# kubernetes/apps/personal-apps/README.md.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target:
+      kind: Deployment
+      name: "[$][{]APP[}]"
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: MAPKIT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: ${APP}-mapkit
+              key: MAPKIT_TOKEN
+              optional: true
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: MAPKIT_ORIGINS
+          value: https://${HOST:=${APP}}.${SECRET_DOMAIN_LOCAL},https://${FAMILY_HOST:=}.${SECRET_FAMILY_DOMAIN},https://${SHARE_HOST:=}.${SECRET_DOMAIN}
+  - target:
+      kind: Deployment
+      name: "[$][{]APP[}]"
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: _
+        annotations:
+          secret.reloader.stakater.com/reload: ${APP}-mapkit

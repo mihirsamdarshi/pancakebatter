@@ -1,0 +1,25 @@
+---
+# expect: must list exactly ./mapkit.sops.yaml: with the mapkit part the folder holds
+# mapkit-secret: extra
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-mapkit-ns-extra-resource
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/mapkit-ns-extra-resource
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: mapkit-ns-extra-resource
+    parts: [pullsecret, internal-route, mapkit]
+    egress: claude-proxy
