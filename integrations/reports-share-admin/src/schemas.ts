@@ -31,6 +31,17 @@ export const GuestsBodySchema = z.strictObject({
     .refine((emails) => new Set(emails).size === emails.length, "must not repeat an address"),
 });
 
+// PATCH /guests: a change to the list. At least one address in total.
+export const GuestsPatchSchema = z
+  .strictObject({
+    add: z.array(EmailSchema).max(MAX_GUESTS).optional(),
+    remove: z.array(EmailSchema).max(MAX_GUESTS).optional(),
+  })
+  .refine(
+    (body) => (body.add?.length ?? 0) + (body.remove?.length ?? 0) > 0,
+    "must name at least one address in add or remove",
+  );
+
 export const LastLoginQuerySchema = z.strictObject({ email: EmailSchema });
 
 // Notification routes (stub for now, see handler.ts). The text and the link

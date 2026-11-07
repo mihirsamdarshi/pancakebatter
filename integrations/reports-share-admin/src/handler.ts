@@ -9,7 +9,10 @@ import {
 } from "./cloudflare.ts";
 import type { Config } from "./config.ts";
 import {
+  EmailSchema,
   GuestsBodySchema,
+  GuestsPatchSchema,
+  MAX_GUESTS,
   InviteBodySchema,
   LastLoginQuerySchema,
   MAX_BODY_BYTES,
@@ -196,28 +199,92 @@ export function createHandler(
   ): Promise<{ policy: Policy; emails: string[] } | Response> {
     const policy = await cloudflare.getPolicy();
     const problem = policyProblem(policy, config);
-    if (problem !== undefined) {
-      log({ event: "alert", what, reason: "policy-unexpected", problem });
-      return refuse(
-        409,
-        "policy_unexpected",
-        "The policy is not the plain allow-list of single emails. Refusing to touch it.",
-      );
-    }
+    if (problem !== undefined) return policyUnexpected(what, problem);
     return { policy, emails: emailsOf(policy.include) as string[] };
   }
 
-  async function getGuests(): Promise<Response> {
-    if (guestsCache !== undefined && now() - guestsCache.at < GUESTS_CACHE_MS)
+  function policyUnexpected(what: string, problem: string): Response {
+    log({ event: "alert", what, reason: "policy-unexpected", problem });
+    return refuse(
+      409,
+      "policy_unexpected",
+      "The policy is not the plain allow-list of single emails. Refusing to touch it.",
+    );
+  }
+
+  // Whether any address would be refused by EmailSchema, the check every
+  // address passes on its way in. One that is not could not be sent back.
+  function invalidAddress(emails: string[]): boolean {
+    return emails.some((email) => !EmailSchema.safeParse(email).success);
+  }
+
+  async function getGuests(request: Request): Promise<Response> {
+    // A caller that has just written (or must see the truth) can ask for a
+    // fresh read; the answer then refreshes the cache for everyone.
+    const fresh = request.headers.get("cache-control")?.toLowerCase().includes("no-cache");
+    if (!fresh && guestsCache !== undefined && now() - guestsCache.at < GUESTS_CACHE_MS)
       return reply(200, { emails: guestsCache.emails });
     try {
       const loaded = await loadGuests("guests.get");
       if (loaded instanceof Response) return loaded;
+      if (invalidAddress(loaded.emails))
+        return policyUnexpected("guests.get", "address-refused-by-schema");
       guestsCache = { at: now(), emails: loaded.emails };
       return reply(200, { emails: loaded.emails });
     } catch (error) {
       return failure(error, "guests.get");
     }
+  }
+
+  // The shared end of PUT and PATCH, under the write lock: `loaded` is the
+  // live policy and `next` the list to store. Checks the application, takes a
+  // write slot, writes, re-reads what was stored, clears the cache and audits.
+  async function writeList(
+    what: "guests.put" | "guests.patch",
+    loaded: { policy: Policy; emails: string[] },
+    next: string[],
+  ): Promise<Response> {
+    const added = next.filter((email) => !loaded.emails.includes(email));
+    const removed = loaded.emails.filter((email) => !next.includes(email));
+    if (added.length === 0 && removed.length === 0)
+      return reply(200, { emails: loaded.emails, changed: false });
+    // The application must still use this policy, so the ID in the settings
+    // is the guest policy of this application and not another one.
+    if (!(await cloudflare.appPolicyIds()).includes(config.policyId)) {
+      log({ event: "alert", what, reason: "app-does-not-use-policy" });
+      return refuse(409, "policy_unexpected", "The application does not use this policy.");
+    }
+    const wait = takeWriteSlot();
+    if (wait > 0) {
+      log({ event: "refused", what, reason: "rate-limit" });
+      return refuse(429, "rate_limited", "Too many writes this hour.", {
+        "retry-after": String(wait),
+      });
+    }
+    const audit = { event: "audit", action: what, added, removed, count: next.length };
+    let stored: Policy;
+    try {
+      stored = await cloudflare.putPolicy(
+        loaded.policy,
+        next.map((email) => ({ email: { email } })),
+      );
+    } catch (error) {
+      log({ ...audit, ok: outcome(error) });
+      throw error;
+    }
+    guestsCache = undefined;
+    // What Cloudflare stored must be what was asked for.
+    const storedEmails = stored.decision === "allow" ? emailsOf(stored.include) : undefined;
+    const verified =
+      storedEmails !== undefined &&
+      storedEmails.length === next.length &&
+      next.every((email) => storedEmails.includes(email));
+    log({ ...audit, ok: true, verified });
+    if (!verified) {
+      log({ event: "alert", what, reason: "stored-policy-differs" });
+      return refuse(502, "stored_policy_unexpected", "Cloudflare stored something else.");
+    }
+    return reply(200, { emails: storedEmails, changed: true });
   }
 
   async function putGuests(request: Request): Promise<Response> {
@@ -232,55 +299,43 @@ export function createHandler(
     try {
       const loaded = await loadGuests("guests.put");
       if (loaded instanceof Response) return loaded;
-      const added = body.emails.filter((email) => !loaded.emails.includes(email));
-      const removed = loaded.emails.filter((email) => !body.emails.includes(email));
-      if (added.length === 0 && removed.length === 0)
-        return reply(200, { emails: loaded.emails, changed: false });
-      // The application must still use this policy, so the ID in the settings
-      // is the guest policy of this application and not another one.
-      if (!(await cloudflare.appPolicyIds()).includes(config.policyId)) {
-        log({ event: "alert", what: "guests.put", reason: "app-does-not-use-policy" });
-        return refuse(409, "policy_unexpected", "The application does not use this policy.");
-      }
-      const wait = takeWriteSlot();
-      if (wait > 0) {
-        log({ event: "refused", what: "guests.put", reason: "rate-limit" });
-        return refuse(429, "rate_limited", "Too many writes this hour.", {
-          "retry-after": String(wait),
-        });
-      }
-      const audit = {
-        event: "audit",
-        action: "guests.put",
-        added,
-        removed,
-        count: body.emails.length,
-      };
-      let stored: Policy;
-      try {
-        stored = await cloudflare.putPolicy(
-          loaded.policy,
-          body.emails.map((email) => ({ email: { email } })),
-        );
-      } catch (error) {
-        log({ ...audit, ok: outcome(error) });
-        throw error;
-      }
-      guestsCache = undefined;
-      // What Cloudflare stored must be what was asked for.
-      const storedEmails = stored.decision === "allow" ? emailsOf(stored.include) : undefined;
-      const verified =
-        storedEmails !== undefined &&
-        storedEmails.length === body.emails.length &&
-        body.emails.every((email) => storedEmails.includes(email));
-      log({ ...audit, ok: true, verified });
-      if (!verified) {
-        log({ event: "alert", what: "guests.put", reason: "stored-policy-differs" });
-        return refuse(502, "stored_policy_unexpected", "Cloudflare stored something else.");
-      }
-      return reply(200, { emails: storedEmails, changed: true });
+      return await writeList("guests.put", loaded, body.emails);
     } catch (error) {
       return failure(error, "guests.put");
+    } finally {
+      writing = false;
+    }
+  }
+
+  // A change to the list, not a whole new list: the policy is read live under
+  // the lock, so a guest added in the dashboard after the app last looked is
+  // kept. Removing someone who is not listed is not an error.
+  async function patchGuests(request: Request): Promise<Response> {
+    const body = await readJson(request, GuestsPatchSchema);
+    if (body instanceof Response) return body;
+    if (writing) return refuse(409, "write_in_progress", "Another write is running.");
+    writing = true;
+    try {
+      const loaded = await loadGuests("guests.patch");
+      if (loaded instanceof Response) return loaded;
+      // An address in the policy that this service would not accept: it
+      // cannot be written back, so refuse as GET does.
+      if (invalidAddress(loaded.emails))
+        return policyUnexpected("guests.patch", "address-refused-by-schema");
+      const remove = body.remove ?? [];
+      const next = [...loaded.emails.filter((email) => !remove.includes(email))];
+      for (const email of body.add ?? []) if (!next.includes(email)) next.push(email);
+      if (next.length === 0) {
+        log({ event: "refused", what: "guests.patch", reason: "last-guest" });
+        return refuse(409, "last_guest", "Refusing to write an empty guest list.");
+      }
+      if (next.length > MAX_GUESTS) {
+        log({ event: "refused", what: "guests.patch", reason: "too-many-guests" });
+        return refuse(409, "too_many_guests", `At most ${MAX_GUESTS} guests.`);
+      }
+      return await writeList("guests.patch", loaded, next);
+    } catch (error) {
+      return failure(error, "guests.patch");
     } finally {
       writing = false;
     }
@@ -348,7 +403,7 @@ export function createHandler(
 
   // Only these routes exist. Anything else is a 404, whatever the method.
   const ROUTES: Record<string, string[]> = {
-    "/guests": ["GET", "PUT"],
+    "/guests": ["GET", "PUT", "PATCH"],
     "/revoke": ["POST"],
     "/last-login": ["GET"],
     "/notify/invite": ["POST"],
@@ -372,9 +427,11 @@ export function createHandler(
       });
     switch (`${request.method} ${url.pathname}`) {
       case "GET /guests":
-        return getGuests();
+        return getGuests(request);
       case "PUT /guests":
         return putGuests(request);
+      case "PATCH /guests":
+        return patchGuests(request);
       case "POST /revoke":
         return revoke();
       case "GET /last-login":
