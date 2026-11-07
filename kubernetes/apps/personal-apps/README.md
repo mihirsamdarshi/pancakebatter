@@ -662,6 +662,25 @@ terraform -chdir=terraform/dns output -raw reports_share_access_aud \
 kubectl -n reports-share rollout restart deploy/cloudflared
 ```
 
+#### IDs for share-admin
+
+The service that edits the guest list (`integrations/reports-share-admin`) needs
+the IDs of the Access application and of the guest policy, as two more
+`cluster-secrets` keys: `SECRET_SHARE_ACCESS_APP_ID` and
+`SECRET_SHARE_ACCESS_POLICY_ID`. They are IDs, not credentials. Read them from
+the main checkout (no `sops exec-env` needed; each prints nothing while the
+share is off):
+
+```sh
+terraform -chdir=terraform/dns output -raw reports_share_access_app_id
+terraform -chdir=terraform/dns output -raw reports_share_access_policy_id
+```
+
+Set them with the same `sops set` loop as step 11. The account ID is not an
+output; it is in the dashboard URL (`dash.cloudflare.com/<account_id>/...`). A
+new application or policy (see turning the share back on) has new IDs: set the
+keys again.
+
 ### Creating ghcr-apps-read
 
 The one registry credential: a classic GitHub token with only `read:packages`,
