@@ -361,6 +361,7 @@
         "defaults": {
           "unit": "short",
           "min": 0,
+          "decimals": 0,
           "custom": {
             "drawStyle": "bars",
             "fillOpacity": 60
@@ -386,8 +387,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (component_id, reason) (increase(loki_process_dropped_lines_total[1h]))",
-          "legendFormat": "{{component_id}} {{reason}}",
+          "expr": "sum by (pod, component_id, reason) (increase(loki_process_dropped_lines_total[1h]))",
+          "legendFormat": "{{pod}} {{component_id}} {{reason}}",
           "interval": "1h"
         }
       ]
