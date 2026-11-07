@@ -134,7 +134,7 @@ resource "cloudflare_dns_record" "flux_webhook" {
 }
 
 variable "reports_share_tunnel_id" {
-  description = "ID of the Cloudflare Tunnel reports-share (from `cloudflared tunnel create`). Null creates no record. Set it in the git-ignored terraform/dns/tunnel.auto.tfvars."
+  description = "ID of the Cloudflare Tunnel reports-share (from `cloudflared tunnel create`). Null creates no record and no Access login (access.tf). Set it in the git-ignored terraform/dns/tunnel.auto.tfvars."
   type        = string
   default     = null
   validation {
@@ -148,12 +148,16 @@ variable "reports_share_tunnel_id" {
 # guards it. Same rules as flux_webhook: directly under the zone, and created
 # with this root, never with `cloudflared tunnel route dns`.
 resource "cloudflare_dns_record" "reports_share" {
-  count   = var.reports_share_tunnel_id == null ? 0 : 1
+  count   = local.reports_share_access ? 1 : 0
   zone_id = data.cloudflare_zone.this.zone_id
-  name    = "share.${var.zone}"
+  name    = local.reports_share_host
   type    = "CNAME"
   content = "${var.reports_share_tunnel_id}.cfargotunnel.com"
   ttl     = 1
   proxied = true
   comment = "Read-only guest view of the reports app (Cloudflare Tunnel reports-share, behind Access); managed by terraform/dns"
+
+  # Created after the Access application and destroyed before it, so the name
+  # never routes to the tunnel without Access in front.
+  depends_on = [cloudflare_zero_trust_access_application.reports_share]
 }
