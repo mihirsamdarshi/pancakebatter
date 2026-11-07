@@ -1,0 +1,24 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: envoy-gateway-controller
+spec:
+  jobLabel: envoy-gateway-controller
+  namespaceSelector:
+    matchNames:
+      - network
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      # The controller exposes ~2,400 series (rest_client, xds_stream,
+      # watchable); keep only the reconcile and queue counters.
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: (controller_runtime_(reconcile_total|reconcile_errors_total|terminal_reconcile_errors_total|reconcile_time_seconds_(count|sum)|active_workers)|workqueue_(depth|adds_total))
+          action: keep
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: envoy-gateway
+      app.kubernetes.io/name: gateway-helm
+      control-plane: envoy-gateway
