@@ -1,9 +1,8 @@
 ---
 # Server plus the internal node (the only node), on talos-01 with one GPU slice.
-#  - Login: the secret tdarr-secret (SOPS) seeded the admin user at first start:
+#  - Login: the seeded key seeded the admin user at first start:
 #    user `admin`, password = the seeded key (seededApiKey, format tapi_...).
-#    Read the key with:
-#    sops -d --extract '["stringData"]["seededApiKey"]' kubernetes/apps/media/tdarr/app/secret.sops.yaml
+#    The key lives in 1Password: vault Homelab, item `tdarr`, field `seededApiKey`.
 #    The UI is at tdarr.${SECRET_DOMAIN_LOCAL} (internal gateway only).
 #  - The internal node authenticates with the same key: env apiKey comes from
 #    tdarr-secret-eso/seededApiKey (docs: a seeded key is valid as a node key; the
