@@ -1,8 +1,10 @@
 ---
 # One job = runner pod (req 50m/256Mi/256Mi, limit 1/1Gi/1Gi) + job pod
 # (req 500m/1Gi/1Gi, limit 2/2Gi/6Gi): requests 550m/1.25Gi/1.25Gi, limits
-# 3/3Gi/7Gi. Two jobs: requests 1.1/2.5Gi/2.5Gi, limits 6/6Gi/14Gi. The hook
-# does not retry on `exceeded quota`, so the quota leaves headroom.
+# 3/3Gi/7Gi. Two jobs: requests 1.1/2.5Gi/2.5Gi, limits 6/6Gi/14Gi. Three jobs
+# (maxRunners 3): requests 1.65/3.75Gi/3.75Gi, limits 9/9Gi/21Gi. The hook
+# does not retry on `exceeded quota`, so the requests and pods lines leave
+# headroom; the limits lines are sized to exactly three jobs.
 # Raising the job limit (hook-template.yaml) needs the LimitRange max and the
 # quota here raised in the same change.
 apiVersion: v1
@@ -35,6 +37,6 @@ spec:
     requests.cpu: "3"
     requests.memory: 5Gi
     requests.ephemeral-storage: 6Gi
-    limits.cpu: "8"
-    limits.memory: 8Gi
-    limits.ephemeral-storage: 20Gi
+    limits.cpu: "9"
+    limits.memory: 9Gi
+    limits.ephemeral-storage: 21Gi
