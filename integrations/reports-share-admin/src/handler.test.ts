@@ -945,3 +945,253 @@ describe("odd requests", () => {
     }
   });
 });
+
+describe("PATCH /guests", () => {
+  const patch = (body: unknown, headers: Record<string, string> = {}) =>
+    call("PATCH", "/guests", body, headers);
+
+  test("applies a delta to the live policy and writes it back", async () => {
+    const res = await patch({ add: ["three@example.test"], remove: ["one@example.test"] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      emails: ["two@example.test", "three@example.test"],
+      changed: true,
+    });
+    const body = writes()[0]?.body as Record<string, unknown>;
+    expect(emailsOf(body.include)).toEqual(["two@example.test", "three@example.test"]);
+    expect(body.some_future_field).toEqual({ nested: [1, 2, 3] });
+    expect(logs.filter((l) => l.event === "audit")).toEqual([
+      {
+        event: "audit",
+        action: "guests.patch",
+        added: ["three@example.test"],
+        removed: ["one@example.test"],
+        count: 2,
+        ok: true,
+        verified: true,
+      },
+    ]);
+  });
+
+  test("a guest added in the dashboard after the app last read is not lost", async () => {
+    // The app reads (and the service caches) the list ...
+    expect((await (await call("GET", "/guests")).json()).emails).toHaveLength(2);
+    // ... someone adds a guest in the dashboard ...
+    (policy.include as unknown[]).push({ email: { email: "dash@example.test" } });
+    // ... then the app adds another one with a delta.
+    const res = await patch({ add: ["new@example.test"] });
+    expect(await res.json()).toEqual({
+      emails: ["one@example.test", "two@example.test", "dash@example.test", "new@example.test"],
+      changed: true,
+    });
+    expect(emailsOf(policy.include)).toContain("dash@example.test");
+    // The cache was cleared by the write.
+    const got = await (await call("GET", "/guests")).json();
+    expect(got.emails).toContain("new@example.test");
+  });
+
+  test("a removal does not drop a guest added in the dashboard either", async () => {
+    await call("GET", "/guests");
+    (policy.include as unknown[]).push({ email: { email: "dash@example.test" } });
+    await patch({ remove: ["one@example.test"] });
+    expect(emailsOf(policy.include)).toEqual(["two@example.test", "dash@example.test"]);
+  });
+
+  test("adding a listed address and removing an unlisted one change nothing", async () => {
+    const res = await patch({ add: ["one@example.test"], remove: ["nobody@example.test"] });
+    expect(await res.json()).toEqual({
+      emails: ["one@example.test", "two@example.test"],
+      changed: false,
+    });
+    expect(writes()).toHaveLength(0);
+  });
+
+  test("an address in both add and remove ends up added", async () => {
+    const res = await patch({ add: ["new@example.test"], remove: ["new@example.test"] });
+    expect((await res.json()).emails).toContain("new@example.test");
+  });
+
+  describe("refuses", () => {
+    test("an empty result (the last guest)", async () => {
+      const res = await patch({ remove: ["one@example.test", "two@example.test"] });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toBe("last_guest");
+      expect(writes()).toHaveLength(0);
+    });
+    test("more than 25 guests after the delta", async () => {
+      policy.include = Array.from({ length: 25 }, (_, i) => ({
+        email: { email: `g${i}@example.test` },
+      }));
+      const res = await patch({ add: ["extra@example.test"] });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toBe("too_many_guests");
+      expect(writes()).toHaveLength(0);
+      // At exactly 25 it is fine: swap one.
+      expect(
+        (await patch({ add: ["extra@example.test"], remove: ["g0@example.test"] })).status,
+      ).toBe(200);
+    });
+    test("bad bodies, without any call to Cloudflare", async () => {
+      for (const body of [
+        {},
+        { add: [] },
+        { add: [], remove: [] },
+        { add: ["BAD@example.test"] },
+        { add: ["*@example.test"] },
+        { add: ["jo\u200bhn@example.test"] },
+        { remove: ["no-at"] },
+        { add: "one@example.test" },
+        { add: ["a@example.test"], extra: 1 },
+        { add: Array.from({ length: 26 }, (_, i) => `g${i}@example.test`) },
+      ])
+        expect((await patch(body)).status).toBe(400);
+      expect(seen).toHaveLength(0);
+    });
+    test("a policy that fails the existing checks", async () => {
+      for (const change of [
+        () => (policy.decision = "deny"),
+        () => (policy.name = "other"),
+        () => (policy.app_count = 2),
+        () => (policy.include = [{ everyone: {} }]),
+        () => (policy.exclude = [{ everyone: {} }]),
+        () => (appPolicies = [{ id: "c".repeat(32) }]),
+      ]) {
+        policy = freshPolicy();
+        appPolicies = [{ id: POLICY }];
+        logs = [];
+        change();
+        const res = await patch({ add: ["new@example.test"] });
+        expect(res.status).toBe(409);
+        expect(logs.find((l) => l.event === "alert")).toBeDefined();
+        expect(writes()).toHaveLength(0);
+      }
+    });
+    test("a policy that holds an address the schema refuses", async () => {
+      policy.include = [
+        { email: { email: "one@example.test" } },
+        { email: { email: "jo\u200bhn@example.test" } },
+      ];
+      const res = await patch({ add: ["new@example.test"] });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toBe("policy_unexpected");
+      expect(writes()).toHaveLength(0);
+    });
+    test("a second write while one runs, and over 20 writes an hour", async () => {
+      let release!: () => void;
+      putGate = new Promise((resolve) => (release = resolve));
+      const first = patch({ add: ["a@example.test"] });
+      while (!seen.some((s) => s.method === "PUT")) await Bun.sleep(5);
+      expect((await patch({ add: ["b@example.test"] })).status).toBe(409);
+      release();
+      expect((await first).status).toBe(200);
+      for (let i = 0; i < MAX_WRITES_PER_HOUR - 1; i++) {
+        clock += 1000;
+        expect(
+          (await patch({ add: [`n${i}@example.test`], remove: ["a@example.test"] })).status,
+        ).toBe(i % 2 === 0 ? 200 : 200);
+      }
+      const over = await patch({ add: ["over@example.test"] });
+      expect(over.status).toBe(429);
+      expect(Number(over.headers.get("retry-after"))).toBeGreaterThan(0);
+    });
+    test("a non-JSON content type and a browser request", async () => {
+      expect((await call("PATCH", "/guests")).status).toBe(415);
+      expect(
+        (await patch({ add: ["a@example.test"] }, { origin: "https://evil.test" })).status,
+      ).toBe(403);
+    });
+  });
+
+  test("an audit line with ok unknown when Cloudflare times out after the send", async () => {
+    putGate = new Promise(() => {});
+    handler = createHandler(upstream, config, {
+      log: (e) => logs.push(e),
+      now: () => clock,
+      upstreamTimeoutMs: 150,
+    });
+    const res = await patch({ add: ["late@example.test"] });
+    expect(res.status).toBe(502);
+    expect(logs.find((l) => l.event === "audit")).toMatchObject({
+      action: "guests.patch",
+      ok: "unknown",
+    });
+  });
+
+  test("a stored policy that differs is an alert and a 502", async () => {
+    const original = fake.fetch;
+    const odd = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      async fetch(request) {
+        const response = await original.call(fake, request);
+        if (request.method !== "PUT") return response;
+        const json = (await response.json()) as { result: Record<string, unknown> };
+        return Response.json({
+          success: true,
+          result: { ...json.result, include: [{ everyone: {} }] },
+        });
+      },
+    });
+    try {
+      handler = createHandler(`http://127.0.0.1:${odd.port}`, config, {
+        log: (e) => logs.push(e),
+        now: () => clock,
+      });
+      expect((await patch({ add: ["late@example.test"] })).status).toBe(502);
+      expect(logs.find((l) => l.reason === "stored-policy-differs")).toBeDefined();
+    } finally {
+      await odd.stop(true);
+    }
+  });
+
+  test("never logs the token, even when Cloudflare echoes it", async () => {
+    failNext = 500;
+    failOn = "PUT";
+    await patch({ add: ["a@example.test"] });
+    currentToken = TOKEN_B;
+    await patch({ add: ["b@example.test"] });
+    expect(JSON.stringify(logs)).not.toContain(TOKEN_A);
+    expect(JSON.stringify(logs)).not.toContain(TOKEN_B);
+  });
+
+  test("PUT keeps working as before, and 405 now lists PATCH", async () => {
+    expect((await put(["one@example.test", "z@example.test"])).status).toBe(200);
+    const res = await call("DELETE", "/guests");
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("GET, PUT, PATCH");
+  });
+});
+
+describe("GET /guests freshness and address checks", () => {
+  test("cache-control: no-cache bypasses the cache and refreshes it", async () => {
+    await call("GET", "/guests");
+    (policy.include as unknown[]).push({ email: { email: "dash@example.test" } });
+    // Plain GET still sees the cached list.
+    expect((await (await call("GET", "/guests")).json()).emails).toHaveLength(2);
+    expect(seen).toHaveLength(1);
+    const fresh = await (
+      await call("GET", "/guests", undefined, { "cache-control": "no-cache" })
+    ).json();
+    expect(fresh.emails).toContain("dash@example.test");
+    expect(seen).toHaveLength(2);
+    // The fresh answer is now the cached one.
+    expect((await (await call("GET", "/guests")).json()).emails).toContain("dash@example.test");
+    expect(seen).toHaveLength(2);
+  });
+  test("a policy with an address the schema refuses is a 409 and an alert, not cached", async () => {
+    for (const bad of ["jo\u200bhn@example.test", "*@example.test", "john@example", "a@b@c.test"]) {
+      policy.include = [{ email: { email: "one@example.test" } }, { email: { email: bad } }];
+      logs = [];
+      const res = await call("GET", "/guests", undefined, { "cache-control": "no-cache" });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toBe("policy_unexpected");
+      expect(logs.find((l) => l.event === "alert")).toBeDefined();
+    }
+    policy.include = [{ email: { email: "one@example.test" } }];
+    expect((await call("GET", "/guests")).status).toBe(200);
+  });
+  test("a mixed-case address is still fine (it is lower cased first)", async () => {
+    policy.include = [{ email: { email: "Guest@Example.test" } }];
+    expect((await call("GET", "/guests")).status).toBe(200);
+  });
+});

@@ -21,14 +21,27 @@ guests", created by `terraform/dns/access.tf`, which ignores later changes to
 The reports app is the only caller (the network policy will enforce that).
 Answers are JSON with `cache-control: no-store`.
 
-| Route                    | Result                                                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `GET /guests`            | `{emails}`: the emails in the policy's include list                                                          |
-| `PUT /guests`            | Body `{emails: [...]}`. Replaces the include list with one single-email rule each. `{emails, changed}`       |
-| `POST /revoke`           | Asks Cloudflare to end every session of the application (all guests). `{revoked: true}`                      |
-| `GET /last-login?email=` | `{email, lastLogin}`: time of the newest allowed Access request of this application by that email, or `null` |
-| `POST /notify/invite`    | Body `{email}`. Checked, then 501: notification email is not switched on yet                                 |
-| `POST /notify/published` | Body `{collection, titles}` (1 to 10 titles, 120 characters each). Checked, then 501                         |
+| Route                    | Result                                                                                                                                                                  |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /guests`            | `{emails}`: the emails in the policy's include list                                                                                                                     |
+| `PUT /guests`            | Body `{emails: [...]}`. Replaces the include list with one single-email rule each. `{emails, changed}`                                                                  |
+| `PATCH /guests`          | Body `{add?: [email], remove?: [email]}` (at least one address). Reads the live policy under the write lock, applies the change and writes it back. `{emails, changed}` |
+| `POST /revoke`           | Asks Cloudflare to end every session of the application (all guests). `{revoked: true}`                                                                                 |
+| `GET /last-login?email=` | `{email, lastLogin}`: time of the newest allowed Access request of this application by that email, or `null`                                                            |
+| `POST /notify/invite`    | Body `{email}`. Checked, then 501: notification email is not switched on yet                                                                                            |
+| `POST /notify/published` | Body `{collection, titles}` (1 to 10 titles, 120 characters each). Checked, then 501                                                                                    |
+
+`PATCH /guests` is the route for adding or removing one person. It goes
+through the same lock, write limit, policy checks, application check and
+stored-policy check as `PUT`, but starts from the policy as it is in Cloudflare
+at that moment (never from the cache). A guest added in the dashboard after the
+app last read the list is therefore kept; `PUT` replaces the whole list from the
+app's copy and would drop them. Removing an address that is not listed is not an
+error, and an address in both `add` and `remove` ends up added. The result must
+have 1 to 25 guests (409 `last_guest` or `too_many_guests`), and every address
+already in the policy must pass the address check (409 `policy_unexpected` and an
+alert otherwise, as for `GET`). The audit line has `action` `guests.patch` and
+the `added` and `removed` addresses that changed.
 
 `GET /healthz` is on its own port, `HEALTH_PORT` (8081), which serves nothing
 else: 200 when the token file is readable and not empty, else 503, on any Host,
@@ -72,7 +85,10 @@ Before each write, the service also reads the application and requires that its
 policies include `ACCESS_POLICY_ID` (409 and an alert otherwise).
 
 Addresses read from the policy are lower cased and listed once, so what
-`GET /guests` returns can always be sent back to `PUT /guests`.
+`GET /guests` returns can always be sent back to `PUT /guests`. `GET /guests`
+also refuses (409 `policy_unexpected`, alert) a policy that holds an address
+which the address check below would refuse, such as one with an invisible
+character, because that address could not be written back.
 
 `PUT /guests` also refuses:
 
@@ -101,7 +117,7 @@ hold exactly the requested emails, or the service logs an alert and answers 502.
 to the policy. If it does, the write-back changed a field; stop and look.
 
 Reads are answered from memory: `GET /guests` for 30 seconds (a write clears
-it) and `GET /last-login` for 5 minutes per address (100 addresses at most), so
+it; a request with `cache-control: no-cache` skips it and refreshes it) and `GET /last-login` for 5 minutes per address (100 addresses at most), so
 a caller that polls cannot use up the Cloudflare API quota.
 
 The write count and the lock are in memory: the Deployment will run one replica,
