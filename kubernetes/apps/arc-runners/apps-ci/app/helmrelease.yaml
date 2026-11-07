@@ -18,8 +18,8 @@ spec:
     githubConfigSecret: github-app
     runnerScaleSetName: apps-ci
     minRunners: 0
-    # Canary value; 2 after the canary (separate PR).
-    maxRunners: 1
+    # Three jobs at once: quota and node math in limits.yaml.
+    maxRunners: 3
     # Required: the controller watches only arc-runners, so the chart cannot
     # look the controller up.
     controllerServiceAccount:
