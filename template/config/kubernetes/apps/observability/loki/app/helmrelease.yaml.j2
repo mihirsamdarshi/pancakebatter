@@ -69,6 +69,9 @@ spec:
         enabled: false
       analytics:
         reporting_enabled: false
+      server:
+        # warn: under heavy queries Loki's own info lines broke its per-stream cap (Nov 7).
+        log_level: warn
     singleBinary:
       replicas: 1
       persistence:
