@@ -1,0 +1,25 @@
+---
+# A second policy beside the namespace policy ${APP} (the netpol component).
+# Cilium adds up the policies that select a pod, so this opens 3001/TCP to the
+# cloudflared pods and nothing else: no egress section, no other port. The
+# namespace policy's ingress rules name only 3000, so the gateways cannot reach
+# 3001, and nothing else reaches it. It selects the app pod only (the job's
+# pods carry another name label). The cloudflared side is in
+# kubernetes/apps/personal-apps/<app>-share/app/networkpolicy.yaml.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ${APP}-share
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: ${APP}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ${APP}-share
+            app.kubernetes.io/name: cloudflared
+      toPorts:
+        - ports:
+            - port: "3001"
+              protocol: TCP

@@ -1,0 +1,53 @@
+---
+# `share`: a read-only guest view of the app for one outside person, through a
+# Cloudflare Tunnel with Cloudflare Access (the reports app). The app listens
+# on a second port, 3001, with a read-only handler for the collections in
+# vars.GUEST_COLLECTIONS, and answers only for the host
+# <SHARE_HOST>.<zone>. The main port, 3000, stays full access and is
+# never named here.
+#
+# Adds three things:
+# - GUEST_PORT, GUEST_COLLECTIONS and GUEST_HOSTS on the app container, and
+#   the container port `guest`. GUEST_HOSTS comes from here, not from the
+#   entry's `env`, because it needs the zone (a `$` is refused in `env`).
+# - The Service ${APP}-share: only port 3001. No route points at it.
+# - The CiliumNetworkPolicy ${APP}-share, a second policy beside the namespace
+#   policy (the way job-egress adds one): ingress to the app pod on 3001/TCP
+#   from the cloudflared pods in the namespace ${APP}-share, and nothing else.
+#   The namespace policy still admits 3000 only from the two gateways, so
+#   cloudflared cannot reach 3000, and the gateways cannot reach 3001.
+#
+# cloudflared itself is not a platform app: it holds the tunnel credentials, so
+# it runs in its own Namespace ${APP}-share (kubernetes/apps/personal-apps/
+# <app>-share/). See "Guest sharing (the share part)" in
+# kubernetes/apps/personal-apps/README.md.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - ./service.yaml
+  - ./ciliumnetworkpolicy.yaml
+patches:
+  - target:
+      kind: Deployment
+      name: "[$][{]APP[}]"
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/ports/-
+        value:
+          name: guest
+          containerPort: 3001
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: GUEST_PORT
+          value: "3001"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: GUEST_COLLECTIONS
+          value: ${GUEST_COLLECTIONS}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: GUEST_HOSTS
+          value: ${SHARE_HOST}.${SECRET_DOMAIN}

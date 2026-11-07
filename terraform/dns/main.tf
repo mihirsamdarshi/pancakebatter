@@ -127,3 +127,28 @@ resource "cloudflare_dns_record" "flux_webhook" {
   proxied = true
   comment = "GitHub webhook to Flux (Cloudflare Tunnel flux-webhook); managed by terraform/dns"
 }
+
+variable "reports_share_tunnel_id" {
+  description = "ID of the Cloudflare Tunnel reports-share (from `cloudflared tunnel create`). Null creates no record. Set it in the git-ignored terraform/dns/tunnel.auto.tfvars."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.reports_share_tunnel_id == null || can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.reports_share_tunnel_id))
+    error_message = "reports_share_tunnel_id must be a tunnel UUID."
+  }
+}
+
+# The read-only guest view of the reports app (the `share` part, kubernetes/apps/
+# personal-apps/reports-share) is reached at this proxied name. Cloudflare Access
+# guards it. Same rules as flux_webhook: directly under the zone, and created
+# with this root, never with `cloudflared tunnel route dns`.
+resource "cloudflare_dns_record" "reports_share" {
+  count   = var.reports_share_tunnel_id == null ? 0 : 1
+  zone_id = data.cloudflare_zone.this.zone_id
+  name    = "share.${var.zone}"
+  type    = "CNAME"
+  content = "${var.reports_share_tunnel_id}.cfargotunnel.com"
+  ttl     = 1
+  proxied = true
+  comment = "Read-only guest view of the reports app (Cloudflare Tunnel reports-share, behind Access); managed by terraform/dns"
+}

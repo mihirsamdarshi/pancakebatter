@@ -1,0 +1,13 @@
+---
+# Only the guest port. cloudflared's origin is this Service on 3001.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${APP}-share
+spec:
+  selector:
+    app.kubernetes.io/name: ${APP}
+  ports:
+    - name: guest
+      port: 3001
+      targetPort: guest

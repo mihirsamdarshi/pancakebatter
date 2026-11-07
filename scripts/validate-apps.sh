@@ -39,7 +39,9 @@
 #   5. the network policy, compared field by field with the design, and with
 #      job-egress the job's own policy (its allow rule and its deny rules for
 #      the own namespace and claude-proxy); only the job's CronJob carries the
-#      job pod label that policy selects;
+#      job pod label that policy selects; with share, the second policy
+#      <name>-share (cloudflared to 3001/TCP only), the Service <name>-share
+#      (only 3001) and the three GUEST_ variables;
 #   6. no credentials: no Secret reference in any pod spec, no service-account
 #      token, and gitleaks over the entries and every custom folder. The one
 #      exception is the mapkit part: the app's Deployment, container app, may
@@ -47,7 +49,8 @@
 #   6a. custom `path` folders on their own: plain workload kinds only;
 #   7. the pull Secret that `apps-pull` renders;
 #   8. the Namespace folder under kubernetes/apps/personal-apps, and renames;
-#      with the mapkit part, its SOPS Secret mapkit.sops.yaml there;
+#      with the mapkit part, its SOPS Secret mapkit.sops.yaml there; with the
+#      share part, the folder <name>-share/ for its cloudflared;
 #   9. the flux-operator CLI version equals the operator chart tag; the
 #      PrometheusRule app-platform exists, names every entry's namespace and
 #      passes promtool check and its unit tests.
@@ -69,6 +72,7 @@ base_path="./kubernetes/components/app-platform/base"
 # Not real: only so that the rendered hostnames can be checked.
 fake_local="local.example.test"
 fake_family="family.example.test"
+fake_domain="example.test"
 fake_digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 # Same Kubernetes schemas as validate-kubernetes.sh, and no
@@ -338,9 +342,9 @@ def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|
 | (if ($d.name | isstr) then $d.name else "" end) as $name
 | (if ($d.namespace | isstr) then $d.namespace else $name end) as $ns
 | (if ($d.parts | type) == "array" then $d.parts else ["pullsecret", "internal-route", "backup"] end) as $parts
-| ["pullsecret", "internal-route", "family-route", "family-route-legacy", "backup", "backup-sqlite", "job", "job-egress", "mapkit"] as $known
+| ["pullsecret", "internal-route", "family-route", "family-route-legacy", "backup", "backup-sqlite", "job", "job-egress", "mapkit", "share"] as $known
 | ["name", "namespace", "parts", "netpol", "netpolReason", "egress", "pin", "env", "path", "vars"] as $topkeys
-| ["CLAIM", "STORAGE", "STORAGE_CLASS", "HEALTH_PATH", "APP_UID", "APP_GID", "DATA_PATH", "CPU", "MEMORY", "MEMORY_LIMIT", "IMAGE", "PULL_SECRET", "HOST", "FAMILY_HOST", "TITLE", "DESCRIPTION", "ICON", "SQLITE_DBS", "VOLSYNC_SCHEDULE", "SQLITE_SCHEDULE", "JOB_SCHEDULE", "JOB_COMMAND", "JOB_READ_PATH", "JOB_WORK_PATH", "JOB_DEADLINE", "JOB_MEMORY_LIMIT", "JOB_EGRESS_CIDR"] as $varkeys
+| ["CLAIM", "STORAGE", "STORAGE_CLASS", "HEALTH_PATH", "APP_UID", "APP_GID", "DATA_PATH", "CPU", "MEMORY", "MEMORY_LIMIT", "IMAGE", "PULL_SECRET", "HOST", "FAMILY_HOST", "TITLE", "DESCRIPTION", "ICON", "SQLITE_DBS", "VOLSYNC_SCHEDULE", "SQLITE_SCHEDULE", "JOB_SCHEDULE", "JOB_COMMAND", "JOB_READ_PATH", "JOB_WORK_PATH", "JOB_DEADLINE", "JOB_MEMORY_LIMIT", "JOB_EGRESS_CIDR", "SHARE_HOST", "GUEST_COLLECTIONS"] as $varkeys
 | ["APP", "IMAGE_DIGEST", "APP_NAMESPACE", "VOLSYNC_NAMESPACE", "VOLSYNC_CLAIM"] as $reserved
 | [
     (if $e.apiVersion != "fluxcd.controlplane.io/v1" or $e.kind != "ResourceSetInputProvider" then "must be a fluxcd.controlplane.io/v1 ResourceSetInputProvider" else empty end),
@@ -377,6 +381,16 @@ def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|
     (if ($parts | length) != ($parts | unique | length) then "duplicate parts" else empty end),
     (if ($parts | index("family-route-legacy")) != null and (($parts | index("family-route")) == null or ($parts | index("family-route")) > ($parts | index("family-route-legacy"))) then "family-route-legacy patches the route of family-route, so family-route must come before it in parts" else empty end),
     (if ($parts | index("family-route")) != null and (($v.FAMILY_HOST | lbl) | not) then "family-route needs vars.FAMILY_HOST (a DNS label)" else empty end),
+    # share: the guest port, its Service and policy, and the host and collections they serve
+    (if ($parts | index("share")) != null then
+       (if (($v.SHARE_HOST | lbl) | not) then "share needs vars.SHARE_HOST (a DNS label: the guest host is <SHARE_HOST>.<zone>)" else empty end),
+       (if (($v.GUEST_COLLECTIONS | isstr) | not) or (($v.GUEST_COLLECTIONS | test("^[a-z0-9]([-a-z0-9]*[a-z0-9])?(,[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$")) | not) then "share needs vars.GUEST_COLLECTIONS, collection names separated by commas (lowercase letters, digits and -)" else empty end),
+       (if $d.netpol == false then "share has no meaning with netpol: false (its policy admits cloudflared to port 3001)" else empty end)
+     else
+       (if ($v | has("SHARE_HOST")) then "vars.SHARE_HOST needs the share part" else empty end),
+       (if ($v | has("GUEST_COLLECTIONS")) then "vars.GUEST_COLLECTIONS needs the share part" else empty end)
+     end),
+    (if ($v | has("SHARE_HOST")) and ($v.SHARE_HOST | lbl | not) then "vars.SHARE_HOST must be a lowercase DNS label" else empty end),
     # netpol and egress
     (if ($d | has("netpol")) and ($d.netpol | type) != "boolean" then "netpol must be true or false" else empty end),
     (if $d.netpol == false and (($d.netpolReason | isstr | not) or ($d.netpolReason | gsub("\\s"; "") == "")) then "netpol: false needs a non-empty netpolReason" else empty end),
@@ -555,6 +569,12 @@ def expected_job_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name
   egress: [{toCIDR: [$jobcidr], toPorts: [{ports: [{port: "443", protocol: "TCP"}]}]}],
   egressDeny: [{toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": $ns}}]},
                {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "claude-proxy"}}]}]};
+# share: a second policy that admits the cloudflared pods of the namespace
+# <name>-share to the app pod on 3001/TCP, and nothing else (no egress, no
+# other port).
+def expected_share_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name": $name}},
+  ingress: [{fromEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "\($name)-share", "app.kubernetes.io/name": "cloudflared"}}],
+             toPorts: [{ports: [{port: "3001", protocol: "TCP"}]}]}]};
 # The labels of every pod template, by workload (the kinds pods_jq checks).
 def podlabels:
   .[] | select(type == "object" and .kind != null)
@@ -565,16 +585,21 @@ def podlabels:
 . as $all
 | [.[] | select(type == "object" and (.kind | IN("CiliumNetworkPolicy", "CiliumClusterwideNetworkPolicy", "NetworkPolicy")))] as $pols
 | (if $jobegress then [$pols[] | select(.metadata.name == "\($name)-job")] else [] end) as $jobpols
+| [$pols[] | select(.metadata.name == "\($name)-share")] as $sharepols
+| [.[] | select(type == "object" and .kind == "Service")] as $svcs
+| [.[] | select(type == "object" and .kind == "Deployment" and .metadata.name == $name) | .spec.template.spec.containers[] | select(.name == "app")][0] as $appc
+| (1 + (if $jobegress then 1 else 0 end) + (if $share then 1 else 0 end)) as $npols
 | [.[] | select(type == "object" and .kind == "HTTPRoute")] as $routes
 | [.[] | select(type == "object" and .kind == "BackendTrafficPolicy")] as $btps
 | [
     # Network policy: the namespace policy, plus the job's own with job-egress.
     (if $netpol | not then
        (if ($pols | length) > 0 then "netpol: false must render no network policy" else empty end)
-     elif ($jobegress | not) and ($pols | length) != 1 then "expected exactly one CiliumNetworkPolicy, found \($pols | length)"
-     elif $jobegress and (($pols | length) != 2 or ($jobpols | length) != 1) then "with job-egress, expected exactly two CiliumNetworkPolicies, \($name) and \($name)-job, found \($pols | length): \([$pols[] | .metadata.name] | join(", "))"
+     elif ($jobegress | not) and ($share | not) and ($pols | length) != 1 then "expected exactly one CiliumNetworkPolicy, found \($pols | length)"
+     elif ($jobegress or $share) and (($pols | length) != $npols or ($jobpols | length) != (if $jobegress then 1 else 0 end) or ($sharepols | length) != (if $share then 1 else 0 end)) then "with job-egress or share, expected exactly \($npols) CiliumNetworkPolicies, \($name)\(if $jobegress then " and \($name)-job" else "" end)\(if $share then " and \($name)-share" else "" end), found \($pols | length): \([$pols[] | .metadata.name] | join(", "))"
+     elif ($jobegress | not) and ($sharepols | length) != (if $share then 1 else 0 end) then "a policy \($name)-share without the share part"
      else
-       ($pols - $jobpols)[0] as $p
+       ($pols - $jobpols - $sharepols)[0] as $p
        | (if $p.kind != "CiliumNetworkPolicy" or $p.metadata.name != $name or $p.metadata.namespace != $ns then "the policy must be a CiliumNetworkPolicy named \($name) in \($ns)" else empty end),
          (if $p.spec.endpointSelector != {} then "endpointSelector must be exactly {} (namespace-wide)" else empty end),
          (if ($p.spec | keys) != ["egress", "endpointSelector", "ingress"] then "the policy spec has keys other than endpointSelector, ingress and egress" else empty end),
@@ -595,6 +620,11 @@ def podlabels:
             | (if $j.kind != "CiliumNetworkPolicy" or $j.metadata.namespace != $ns then "the job policy must be a CiliumNetworkPolicy named \($name)-job in \($ns)" else empty end),
               (if $j.spec != expected_job_spec then "the job policy \($name)-job must be exactly: endpointSelector app.kubernetes.io/name=\($name)-job, egress to \($jobcidr) on 443/TCP only, egressDeny to the namespace \($ns) and to the namespace claude-proxy, and no ingress" else empty end)
           else empty end),
+         (if $share then
+            $sharepols[0] as $s
+            | (if $s.kind != "CiliumNetworkPolicy" or $s.metadata.namespace != $ns then "the share policy must be a CiliumNetworkPolicy named \($name)-share in \($ns)" else empty end),
+              (if $s.spec != expected_share_spec then "the share policy \($name)-share must be exactly: endpointSelector app.kubernetes.io/name=\($name), ingress from the pods app.kubernetes.io/name=cloudflared in the namespace \($name)-share on 3001/TCP only, and no egress" else empty end)
+          else empty end),
          ($pols[] | select(tojson | test("\"world\"|kube-apiserver|toEntities|toFQDNs")) | "the policy \(.metadata.name) has a world, kube-apiserver, toEntities or toFQDNs rule")
      end),
     # The job pod label is what the job-egress policy selects: only the job's
@@ -607,6 +637,21 @@ def podlabels:
           elif .[0].labels["app.kubernetes.io/name"] != "\($name)-job" then "CronJob \($name)-job: the pod label app.kubernetes.io/name must be \($name)-job"
           else empty end)
      else empty end),
+    # share: the Service exposes only the guest port, the container port and the
+    # three GUEST_ variables are exactly the part's, and without the part none of
+    # them exists. The main port is named by no Service other than the app's own.
+    (if $share then
+       ($svcs | map(select(.metadata.name == "\($name)-share"))
+        | if length != 1 then "share renders no Service \($name)-share"
+          else .[0] as $s
+            | (if $s.spec.ports != [{name: "guest", port: 3001, targetPort: "guest"}] or $s.spec.selector != {"app.kubernetes.io/name": $name} or ($s.spec.type // "ClusterIP") != "ClusterIP" then "the Service \($name)-share must be a ClusterIP Service that exposes only port 3001 (targetPort guest) of the app pod" else empty end)
+          end),
+       (if ([$appc.ports[]? | select(.name == "guest")]) != [{name: "guest", containerPort: 3001}] then "share must give container app of Deployment \($name) exactly the port guest (3001)" else empty end),
+       (if ([$appc.env[]? | select(.name | startswith("GUEST_"))] | sort_by(.name)) != [{name: "GUEST_COLLECTIONS", value: $guestcols}, {name: "GUEST_HOSTS", value: "\($sharehost).\($domain)"}, {name: "GUEST_PORT", value: "3001"}] then "share must give container app of Deployment \($name) exactly GUEST_COLLECTIONS=\($guestcols), GUEST_HOSTS=\($sharehost).<zone> and GUEST_PORT=3001" else empty end)
+     else
+       (if ($svcs | any(.metadata.name == "\($name)-share")) then "a Service \($name)-share without the share part" else empty end),
+       (if ([$appc.env[]? | select(.name | startswith("GUEST_"))] | length) > 0 or ([$appc.ports[]? | select(.containerPort == 3001)] | length) > 0 then "GUEST_ variables or port 3001 on the app container without the share part" else empty end)
+     end),
     # Routes: the internal route is default, the family route only on request.
     ($routes[] | .metadata.name as $rn
       | (if .metadata.namespace != $ns then "HTTPRoute \($rn) is not in \($ns)" else empty end),
@@ -703,7 +748,7 @@ check_mapkit_secret() {
 
 validate_entry() {
     local file="$1" stem fx=false errs name ns path parts_json pull_json host famhost netpol egress
-    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot mapkit listed other
+    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot mapkit listed other share sharehost guestcols
     stem="$(basename "$file" .yaml)"
     entry_label="$stem"
     case "$file" in "$fixtures_dir"/*) fx=true ;; esac
@@ -731,6 +776,9 @@ validate_entry() {
     egress="$(yq '.spec.defaultValues.egress // "none"' "$file")"
     jobegress="$(echo "$parts_json" | jq 'index("job-egress") != null')"
     jobcidr="$(yq '.spec.defaultValues.vars.JOB_EGRESS_CIDR // ""' "$file")"
+    share="$(echo "$parts_json" | jq 'index("share") != null')"
+    sharehost="$(yq '.spec.defaultValues.vars.SHARE_HOST // ""' "$file")"
+    guestcols="$(yq '.spec.defaultValues.vars.GUEST_COLLECTIONS // ""' "$file")"
     pull_json="$(yq -o=json -I=0 '["apps-ghcr", (.spec.defaultValues.vars.PULL_SECRET // "apps-ghcr")]' "$file")"
 
     if [[ "$netpol" == "false" ]]; then
@@ -750,6 +798,15 @@ validate_entry() {
         || fail "$nsdir/kustomization.yaml must use ../../../components/personal-namespace"
     yq -e ".resources[] | select(. == \"./$ns\")" "$nsroot/kustomization.yaml" >/dev/null 2>&1 \
         || fail "$nsroot/kustomization.yaml does not list ./$ns"
+    # 8b. The share part's cloudflared lives outside the platform, in the
+    # Namespace $name-share (the part's policy admits cloudflared from there):
+    # its folder must exist, listed, with the Flux Kustomization that applies it.
+    if [[ "$share" == true ]]; then
+        [[ -f "$nsroot/$name-share/kustomization.yaml" ]] \
+            || fail "the share part needs the folder $nsroot/$name-share/ (cloudflared in the Namespace $name-share); add it in the same PR"
+        yq -e ".resources[] | select(. == \"./$name-share\")" "$nsroot/kustomization.yaml" >/dev/null 2>&1 \
+            || fail "$nsroot/kustomization.yaml does not list ./$name-share (the share part's cloudflared)"
+    fi
     # 8a. The MapKit Secret, with the mapkit part only.
     mapkit="$(echo "$parts_json" | jq 'index("mapkit") != null')"
     listed="$(yq '[.resources // [] | .[] | select(. == "./mapkit.sops.yaml" or . == "mapkit.sops.yaml")] | length' "$nsdir/kustomization.yaml")"
@@ -825,7 +882,7 @@ validate_entry() {
     fi
 
     # 4. Build the Kustomization as Flux would, with stand-in zones.
-    yq ".spec.postBuild.substitute.SECRET_DOMAIN_LOCAL = \"$fake_local\" | .spec.postBuild.substitute.SECRET_FAMILY_DOMAIN = \"$fake_family\"" "$tmp/ks.yaml" >"$tmp/ks-build.yaml"
+    yq ".spec.postBuild.substitute.SECRET_DOMAIN_LOCAL = \"$fake_local\" | .spec.postBuild.substitute.SECRET_FAMILY_DOMAIN = \"$fake_family\" | .spec.postBuild.substitute.SECRET_DOMAIN = \"$fake_domain\"" "$tmp/ks.yaml" >"$tmp/ks-build.yaml"
     flux build ks "app-$name" --namespace flux-system --dry-run --path "${path:-$base_path}" \
         --kustomization-file "$tmp/ks-build.yaml" >"$tmp/build.yaml" 2>"$tmp/build.err" \
         || fail "flux build ks failed: $(cat "$tmp/build.err")"
@@ -844,7 +901,7 @@ validate_entry() {
     [[ -z "$errs" ]] || fail "pods: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
     if [[ "$mapkit" == true ]]; then
         # The part's two env entries, on the app container of the app's Deployment.
-        errs="$(jq -r --arg app "$name" --arg want "https://$host.$fake_local,https://$famhost.$fake_family" '
+        errs="$(jq -r --arg app "$name" --arg want "https://$host.$fake_local,https://$famhost.$fake_family,https://$sharehost.$fake_domain" '
             [.[] | select(.kind == "Deployment" and .metadata.name == $app) | .spec.template.spec.containers[] | select(.name == "app") | .env // [] | .[]] as $env
             | ([$env[] | select(.valueFrom.secretKeyRef.name == "\($app)-mapkit") | .name] | sort) as $refs
             | (if $refs != ["MAPKIT_TOKEN"] then "the mapkit part must give container app of Deployment \($app) exactly MAPKIT_TOKEN from \($app)-mapkit (got \($refs | join(", ")))" else empty end),
@@ -854,6 +911,7 @@ validate_entry() {
     errs="$(jq -r --arg ns "$ns" --arg name "$name" --argjson netpol "$netpol" --arg egress "$egress" \
         --argjson parts "$parts_json" --arg host "$host" --arg famhost "$famhost" \
         --argjson jobegress "$jobegress" --arg jobcidr "$jobcidr" \
+        --argjson share "$share" --arg sharehost "$sharehost" --arg guestcols "$guestcols" --arg domain "$fake_domain" \
         --arg local "$fake_local" --arg family "$fake_family" "$netpol_jq" "$tmp/build.json")"
     [[ -z "$errs" ]] || fail "network policy or routes: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
 
@@ -1007,6 +1065,13 @@ run_self_test() {
         mkdir -p "$nsroot/$name"
         printf -- '---\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nnamespace: %s\ncomponents:\n  - ../../../components/personal-namespace\n' "$name" >"$nsroot/$name/kustomization.yaml"
         yq -i ".resources += [\"./$name\"]" "$nsroot/kustomization.yaml"
+        # A sample with the share part gets the cloudflared folder too, unless it
+        # says `# no-share-folder`.
+        if yq -e '.spec.defaultValues.parts[] | select(. == "share")' "$f" >/dev/null 2>&1 && ! grep -q '^# no-share-folder' "$f"; then
+            mkdir -p "$nsroot/$name-share"
+            printf -- '---\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n' >"$nsroot/$name-share/kustomization.yaml"
+            yq -i ".resources += [\"./$name-share\"]" "$nsroot/kustomization.yaml"
+        fi
         # `# mapkit-secret: <case>` gives the sample's folder a mapkit.sops.yaml
         # stand-in: its shape only, with placeholder ENC[...] values that hold
         # no secret and are never decrypted.
