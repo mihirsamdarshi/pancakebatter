@@ -41,7 +41,9 @@
 #      the own namespace and claude-proxy); only the job's CronJob carries the
 #      job pod label that policy selects; with share, the second policy
 #      <name>-share (cloudflared to 3001/TCP only), the Service <name>-share
-#      (only 3001) and the three GUEST_ variables;
+#      (only 3001) and the three GUEST_ variables; with share-admin, the second
+#      policy <name>-share-admin (egress from the app pod to the share-admin
+#      pods on 8080/TCP only) and the fixed SHARE_ADMIN_URL;
 #   6. no credentials: no Secret reference in any pod spec, no service-account
 #      token, and gitleaks over the entries and every custom folder. The one
 #      exception is the mapkit part: the app's Deployment, container app, may
@@ -342,7 +344,7 @@ def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|
 | (if ($d.name | isstr) then $d.name else "" end) as $name
 | (if ($d.namespace | isstr) then $d.namespace else $name end) as $ns
 | (if ($d.parts | type) == "array" then $d.parts else ["pullsecret", "internal-route", "backup"] end) as $parts
-| ["pullsecret", "internal-route", "family-route", "family-route-legacy", "backup", "backup-sqlite", "job", "job-egress", "mapkit", "share"] as $known
+| ["pullsecret", "internal-route", "family-route", "family-route-legacy", "backup", "backup-sqlite", "job", "job-egress", "mapkit", "share", "share-admin"] as $known
 | ["name", "namespace", "parts", "netpol", "netpolReason", "egress", "pin", "env", "path", "vars"] as $topkeys
 | ["CLAIM", "STORAGE", "STORAGE_CLASS", "HEALTH_PATH", "APP_UID", "APP_GID", "DATA_PATH", "CPU", "MEMORY", "MEMORY_LIMIT", "IMAGE", "PULL_SECRET", "HOST", "FAMILY_HOST", "TITLE", "DESCRIPTION", "ICON", "SQLITE_DBS", "VOLSYNC_SCHEDULE", "SQLITE_SCHEDULE", "JOB_SCHEDULE", "JOB_COMMAND", "JOB_READ_PATH", "JOB_WORK_PATH", "JOB_DEADLINE", "JOB_MEMORY_LIMIT", "JOB_EGRESS_CIDR", "SHARE_HOST", "GUEST_COLLECTIONS"] as $varkeys
 | ["APP", "IMAGE_DIGEST", "APP_NAMESPACE", "VOLSYNC_NAMESPACE", "VOLSYNC_CLAIM"] as $reserved
@@ -395,6 +397,11 @@ def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|
        (if ($v | has("GUEST_COLLECTIONS")) then "vars.GUEST_COLLECTIONS needs the share part" else empty end)
      end),
     (if ($v | has("SHARE_HOST")) and ($v.SHARE_HOST | lbl | not) then "vars.SHARE_HOST must be a lowercase DNS label" else empty end),
+    # share-admin: the app pod may ask the share-admin service (outside the platform) to edit the guest list
+    (if ($parts | index("share-admin")) != null then
+       (if $name != "reports" and ($fx | not) then "the share-admin part is allowed only for the reports entry for now (the service's policy admits only that app)" else empty end),
+       (if $d.netpol == false then "share-admin has no meaning with netpol: false (its policy opens egress to the share-admin pods)" else empty end)
+     else empty end),
     # netpol and egress
     (if ($d | has("netpol")) and ($d.netpol | type) != "boolean" then "netpol must be true or false" else empty end),
     (if $d.netpol == false and (($d.netpolReason | isstr | not) or ($d.netpolReason | gsub("\\s"; "") == "")) then "netpol: false needs a non-empty netpolReason" else empty end),
@@ -408,7 +415,7 @@ def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|
       | (if (.key | test("^[A-Z][A-Z0-9_]*$") | not) then "env key \(.key) must be uppercase letters, digits and _" else empty end),
         (if (.key | IN("N", "Y", "ON", "OFF")) then "env key \(.key) is a YAML boolean" else empty end),
         (if (.key | secretish) then "env key \(.key) looks like a credential name (apps hold no credentials)" else empty end),
-        (if (.key == "PORT" or (.key | startswith("GUEST_"))) then "env key \(.key) is reserved: the platform sets PORT, and the share part sets the GUEST_ variables" else empty end),
+        (if (.key == "PORT" or .key == "SHARE_ADMIN_URL" or (.key | startswith("GUEST_"))) then "env key \(.key) is reserved: the platform sets PORT, the share part sets the GUEST_ variables and the share-admin part sets SHARE_ADMIN_URL" else empty end),
         (if (.value | isstr | not) then "env \(.key): values are plain strings (no valueFrom, no maps, no numbers)"
          elif (.value | gsub("\\$\\$"; "") | contains("$")) then "env \(.key): a literal $ must be written $$"
          else empty end)),
@@ -580,6 +587,11 @@ def expected_job_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name
 def expected_share_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name": $name}},
   ingress: [{fromEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "\($name)-share", "app.kubernetes.io/name": "cloudflared"}}],
              toPorts: [{ports: [{port: "3001", protocol: "TCP"}]}]}]};
+# share-admin: a second policy for the app pod only, egress to the share-admin
+# pods on 8080/TCP and nothing else (no ingress, no other port).
+def expected_share_admin_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name": $name}},
+  egress: [{toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "share-admin", "app.kubernetes.io/name": "share-admin"}}],
+            toPorts: [{ports: [{port: "8080", protocol: "TCP"}]}]}]};
 # The labels of every pod template, by workload (the kinds pods_jq checks).
 def podlabels:
   .[] | select(type == "object" and .kind != null)
@@ -591,20 +603,22 @@ def podlabels:
 | [.[] | select(type == "object" and (.kind | IN("CiliumNetworkPolicy", "CiliumClusterwideNetworkPolicy", "NetworkPolicy")))] as $pols
 | (if $jobegress then [$pols[] | select(.metadata.name == "\($name)-job")] else [] end) as $jobpols
 | [$pols[] | select(.metadata.name == "\($name)-share")] as $sharepols
+| [$pols[] | select(.metadata.name == "\($name)-share-admin")] as $sapols
 | [.[] | select(type == "object" and .kind == "Service")] as $svcs
 | [.[] | select(type == "object" and .kind == "Deployment" and .metadata.name == $name) | .spec.template.spec.containers[] | select(.name == "app")][0] as $appc
-| (1 + (if $jobegress then 1 else 0 end) + (if $share then 1 else 0 end)) as $npols
+| (1 + (if $jobegress then 1 else 0 end) + (if $share then 1 else 0 end) + (if $shareadmin then 1 else 0 end)) as $npols
 | [.[] | select(type == "object" and .kind == "HTTPRoute")] as $routes
 | [.[] | select(type == "object" and .kind == "BackendTrafficPolicy")] as $btps
 | [
     # Network policy: the namespace policy, plus the job's own with job-egress.
     (if $netpol | not then
        (if ($pols | length) > 0 then "netpol: false must render no network policy" else empty end)
-     elif ($jobegress | not) and ($share | not) and ($pols | length) != 1 then "expected exactly one CiliumNetworkPolicy, found \($pols | length)"
-     elif ($jobegress or $share) and (($pols | length) != $npols or ($jobpols | length) != (if $jobegress then 1 else 0 end) or ($sharepols | length) != (if $share then 1 else 0 end)) then "with job-egress or share, expected exactly \($npols) CiliumNetworkPolicies, \($name)\(if $jobegress then " and \($name)-job" else "" end)\(if $share then " and \($name)-share" else "" end), found \($pols | length): \([$pols[] | .metadata.name] | join(", "))"
+     elif ($jobegress | not) and ($share | not) and ($shareadmin | not) and ($pols | length) != 1 then "expected exactly one CiliumNetworkPolicy, found \($pols | length)"
+     elif ($jobegress or $share or $shareadmin) and (($pols | length) != $npols or ($jobpols | length) != (if $jobegress then 1 else 0 end) or ($sharepols | length) != (if $share then 1 else 0 end) or ($sapols | length) != (if $shareadmin then 1 else 0 end)) then "with job-egress, share or share-admin, expected exactly \($npols) CiliumNetworkPolicies, \($name)\(if $jobegress then " and \($name)-job" else "" end)\(if $share then " and \($name)-share" else "" end)\(if $shareadmin then " and \($name)-share-admin" else "" end), found \($pols | length): \([$pols[] | .metadata.name] | join(", "))"
      elif ($jobegress | not) and ($sharepols | length) != (if $share then 1 else 0 end) then "a policy \($name)-share without the share part"
+     elif ($shareadmin | not) and ($sapols | length) != 0 then "a policy \($name)-share-admin without the share-admin part"
      else
-       ($pols - $jobpols - $sharepols)[0] as $p
+       ($pols - $jobpols - $sharepols - $sapols)[0] as $p
        | (if $p.kind != "CiliumNetworkPolicy" or $p.metadata.name != $name or $p.metadata.namespace != $ns then "the policy must be a CiliumNetworkPolicy named \($name) in \($ns)" else empty end),
          (if $p.spec.endpointSelector != {} then "endpointSelector must be exactly {} (namespace-wide)" else empty end),
          (if ($p.spec | keys) != ["egress", "endpointSelector", "ingress"] then "the policy spec has keys other than endpointSelector, ingress and egress" else empty end),
@@ -629,6 +643,11 @@ def podlabels:
             $sharepols[0] as $s
             | (if $s.kind != "CiliumNetworkPolicy" or $s.metadata.namespace != $ns then "the share policy must be a CiliumNetworkPolicy named \($name)-share in \($ns)" else empty end),
               (if $s.spec != expected_share_spec then "the share policy \($name)-share must be exactly: endpointSelector app.kubernetes.io/name=\($name), ingress from the pods app.kubernetes.io/name=cloudflared in the namespace \($name)-share on 3001/TCP only, and no egress" else empty end)
+          else empty end),
+         (if $shareadmin then
+            $sapols[0] as $a
+            | (if $a.kind != "CiliumNetworkPolicy" or $a.metadata.namespace != $ns then "the share-admin policy must be a CiliumNetworkPolicy named \($name)-share-admin in \($ns)" else empty end),
+              (if $a.spec != expected_share_admin_spec then "the share-admin policy \($name)-share-admin must be exactly: endpointSelector app.kubernetes.io/name=\($name), egress to the pods app.kubernetes.io/name=share-admin in the namespace share-admin on 8080/TCP only, and no ingress" else empty end)
           else empty end),
          ($pols[] | select(tojson | test("\"world\"|kube-apiserver|toEntities|toFQDNs")) | "the policy \(.metadata.name) has a world, kube-apiserver, toEntities or toFQDNs rule")
      end),
@@ -656,6 +675,12 @@ def podlabels:
      else
        (if ($svcs | any(.metadata.name == "\($name)-share")) then "a Service \($name)-share without the share part" else empty end),
        (if ([$appc.env[]? | select(.name | startswith("GUEST_"))] | length) > 0 or ([$appc.ports[]? | select(.containerPort == 3001)] | length) > 0 then "GUEST_ variables or port 3001 on the app container without the share part" else empty end)
+     end),
+    # share-admin: SHARE_ADMIN_URL on the app container is exactly the part's fixed address, and without the part there is none.
+    (if $shareadmin then
+       (if ([$appc.env[]? | select(.name == "SHARE_ADMIN_URL")]) != [{name: "SHARE_ADMIN_URL", value: "http://share-admin.share-admin.svc.cluster.local:8080"}] then "share-admin must give container app of Deployment \($name) exactly SHARE_ADMIN_URL=http://share-admin.share-admin.svc.cluster.local:8080" else empty end)
+     else
+       (if ([$appc.env[]? | select(.name == "SHARE_ADMIN_URL")] | length) > 0 then "SHARE_ADMIN_URL on the app container without the share-admin part" else empty end)
      end),
     # Routes: the internal route is default, the family route only on request.
     ($routes[] | .metadata.name as $rn
@@ -793,7 +818,7 @@ check_share_files() {
 
 validate_entry() {
     local file="$1" stem fx=false errs name ns path parts_json pull_json host famhost netpol egress
-    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot mapkit listed other share sharehost guestcols
+    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot mapkit listed other share sharehost guestcols shareadmin
     stem="$(basename "$file" .yaml)"
     entry_label="$stem"
     case "$file" in "$fixtures_dir"/*) fx=true ;; esac
@@ -822,6 +847,7 @@ validate_entry() {
     jobegress="$(echo "$parts_json" | jq 'index("job-egress") != null')"
     jobcidr="$(yq '.spec.defaultValues.vars.JOB_EGRESS_CIDR // ""' "$file")"
     share="$(echo "$parts_json" | jq 'index("share") != null')"
+    shareadmin="$(echo "$parts_json" | jq 'index("share-admin") != null')"
     sharehost="$(yq '.spec.defaultValues.vars.SHARE_HOST // ""' "$file")"
     guestcols="$(yq '.spec.defaultValues.vars.GUEST_COLLECTIONS // ""' "$file")"
     pull_json="$(yq -o=json -I=0 '["apps-ghcr", (.spec.defaultValues.vars.PULL_SECRET // "apps-ghcr")]' "$file")"
@@ -965,7 +991,7 @@ validate_entry() {
     errs="$(jq -r --arg ns "$ns" --arg name "$name" --argjson netpol "$netpol" --arg egress "$egress" \
         --argjson parts "$parts_json" --arg host "$host" --arg famhost "$famhost" \
         --argjson jobegress "$jobegress" --arg jobcidr "$jobcidr" \
-        --argjson share "$share" --arg sharehost "$sharehost" --arg guestcols "$guestcols" --arg domain "$fake_domain" \
+        --argjson share "$share" --argjson shareadmin "$shareadmin" --arg sharehost "$sharehost" --arg guestcols "$guestcols" --arg domain "$fake_domain" \
         --arg local "$fake_local" --arg family "$fake_family" "$netpol_jq" "$tmp/build.json")"
     [[ -z "$errs" ]] || fail "network policy or routes: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
 

@@ -1,0 +1,24 @@
+---
+# expect: the share-admin policy
+# mutate: map(if .kind=="CiliumNetworkPolicy" and .metadata.name=="share-admin-policy-selector-share-admin" then .spec.endpointSelector = {} else . end)
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-admin-policy-selector
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-admin-policy-selector
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-admin-policy-selector
+    parts: [pullsecret, internal-route, share-admin]

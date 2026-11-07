@@ -22,6 +22,9 @@ resources:
   # The Claude API proxy keeps its Flux Kustomization in flux-system and its own
   # Namespace claude-proxy. Platform apps reach it with `egress: claude-proxy`.
   - ./claude-proxy
+  # The share-admin service keeps its Flux Kustomization in flux-system and its own
+  # Namespace share-admin. The reports app reaches it with the `share-admin` part.
+  - ./share-admin
   - ./homepage
   # The Homepage Flux Kustomizations keep their identity in the `home` Flux
   # namespace (explicit metadata.namespace); they deploy into `homepage`.

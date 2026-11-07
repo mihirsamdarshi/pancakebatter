@@ -35,6 +35,12 @@ app. There are two ways to run one:
   SOPS-encrypted), so it runs outside the platform in its own Namespace
   `claude-proxy`. Its Flux Kustomization `claude-proxy` stays in `flux-system`
   and is listed in `personal-apps/kustomization.yaml`.
+- **share-admin** (`share-admin/`): edits the guest list of the reports share
+  and holds the Cloudflare API token for it. Its code is
+  `integrations/reports-share-admin/` in this repo. It runs outside the platform
+  in its own Namespace `share-admin`; its Flux Kustomization `share-admin` stays
+  in `flux-system`. The reports app reaches it through the `share-admin` part.
+  See "share-admin" below.
 
 ## Platform apps
 
@@ -53,7 +59,7 @@ app. There are two ways to run one:
   Secret `flux-system/ghcr-apps-read` into each app's namespace as `apps-ghcr`.
   It is a separate ResourceSet so that its failures never block `apps`.
   Its `spec.inputs` also lists the namespaces `claude-proxy`,
-  `deal-watch-integrations` and `deal-watch-ebay`, which are not platform apps,
+  `deal-watch-integrations`, `deal-watch-ebay` and `share-admin`, which are not platform apps,
   so they get an `apps-ghcr` copy too. Those namespaces must exist (their own
   Kustomizations create them), or no copy is applied.
 - `kubernetes/apps/personal-apps/<namespace>/`: the app's Namespace, Git-defined,
@@ -205,7 +211,10 @@ needs `job`) and `mapkit` (a MapKit JS token from the Secret `<name>-mapkit`,
 for an app that draws Apple maps; see "Apple Maps (the mapkit part)") and
 `share` (a read-only guest port reached through a Cloudflare Tunnel behind
 Cloudflare Access; needs `vars.SHARE_HOST` and `vars.GUEST_COLLECTIONS` and the
-folder `personal-apps/<name>-share/`; see "Guest sharing (the share part)").
+folder `personal-apps/<name>-share/`; see "Guest sharing (the share part)") and
+`share-admin` (the `SHARE_ADMIN_URL` variable and a second policy that lets the
+app pod, and no other pod, reach the share-admin service on 8080/TCP; the
+reports entry only; see "share-admin").
 The `netpol` and `egress` keys add the `netpol` component and then
 `netpol-egress-internet` or `netpol-egress-claude-proxy` after the parts, so an
 explicit `parts: []` still gets the policy.
@@ -494,6 +503,7 @@ What is where:
 | --- | --- |
 | `components/app-platform/share/` | The part: `GUEST_PORT`, `GUEST_COLLECTIONS`, `GUEST_HOSTS` and the `guest` container port, the Service `<name>-share`, the policy `<name>-share`. `mapkit` adds the guest host to `MAPKIT_ORIGINS` |
 | `personal-apps/reports-share/` | cloudflared: Namespace (restricted), Flux Kustomization, Deployment (non-root, read-only root, no capabilities, `/ready` probes), its policy, the routing in `app/resources/cloudflared.yaml` and the credentials Secret |
+| `components/app-platform/share-admin/` | The `share-admin` part: `SHARE_ADMIN_URL` and the policy `<name>-share-admin` (see "share-admin") |
 | `terraform/dns/main.tf`, `terraform/dns/access.tf` | The proxied CNAME `share.<zone>` to `<tunnel id>.cfargotunnel.com` (variable `reports_share_tunnel_id`), and the Access login: the one-time PIN login method, the policy for the guest emails (seeded from `reports_share_guest_emails`, then kept in the dashboard) and the Access application |
 
 The tunnel is locally managed: the routing is in Git, the credentials are a file
@@ -692,6 +702,159 @@ terraform -chdir=terraform/dns output -raw reports_share_access_app_id \
 
 A new application or policy (see turning the share back on) has new IDs: set
 the keys again.
+
+### share-admin
+
+A small service that edits the guest list of the reports share
+(`share.<zone>`). It holds the Cloudflare API token, so the reports app does
+not. The Share panel in the app (a later change) asks it to list guests, replace
+the list, end all guest sessions and look up a guest's last sign-in. Its code,
+routes and rules are in `integrations/reports-share-admin/README.md`.
+
+It runs outside the platform, like `claude-proxy`, in its own Namespace
+`share-admin` (folder `personal-apps/share-admin/`, Flux Kustomization
+`share-admin` in `flux-system`):
+
+- one Deployment (one replica, `Recreate`, uid 1000, read-only root, all
+  capabilities dropped, no service-account token), image pinned by digest
+  (`app/deployment.yaml`; to update, pin the digest of a newer `sha-<commit>`
+  tag from the "Reports share-admin" workflow);
+- the Service `share-admin` on 8080. The health port (8081) is not in the
+  Service; the kubelet probes the pod. `ALLOWED_HOSTS` is the Service's exact
+  name and port, `share-admin.share-admin.svc.cluster.local:8080`;
+- the token in the Secret `share-admin-credentials` (key `cloudflare-token`),
+  mounted as the file `/run/credentials/cloudflare-token`, read again on every
+  request;
+- the three IDs as environment from `cluster-secrets`
+  (`SECRET_SHARE_ACCESS_ACCOUNT_ID`, `SECRET_SHARE_ACCESS_POLICY_ID`,
+  `SECRET_SHARE_ACCESS_APP_ID`);
+- the image pull Secret `apps-ghcr` (this namespace is one of the `inputs` of
+  `apps-pull`);
+- a CiliumNetworkPolicy. Ingress: 8080/TCP only from the reports app pod (label
+  `app.kubernetes.io/name: reports` in the namespace `reports`, not the weekly
+  job pod, the backup pods or anything else), and 8081/TCP only from the node
+  (kubelet probes). Egress: cluster DNS, and 443/TCP to Cloudflare's published
+  IPv4 ranges (the list the cloudflared policy uses), nothing else.
+
+On the reports side the `share-admin` part adds `SHARE_ADMIN_URL`
+(`http://share-admin.share-admin.svc.cluster.local:8080`) to the app container
+and a second policy `reports-share-admin` that lets the app pod, and no other
+pod, send to the share-admin pods on 8080/TCP. The validator checks both
+(`scripts/validate-apps.sh`). `RESEND_KEY_FILE` is unset: the notification
+routes answer 501 until the email change.
+
+#### Set it up (the owner)
+
+Nobody but the owner handles the token; do not paste it into chat. Do steps 1
+to 4 on the branch of the PR that adds this folder, before it merges. Until the
+token file is replaced, the Secret holds a dummy string that Cloudflare
+rejects, and until the three keys exist the service stops at start and the
+Flux Kustomization stays not ready.
+
+1. Create the token in the Cloudflare dashboard as an **account** API token:
+   the account, Manage Account, Account API Tokens, Create Token, Create Custom
+   Token (not a user token under My Profile). An account token belongs to the
+   account, cannot reach another account, and survives changes to users. Give
+   it exactly two permissions: **Access: Apps and Policies: Edit** and
+   **Access: Audit Logs: Read**. Account Resources: include this account only.
+   TTL: one year from today. No client IP filter. The value is shown once.
+2. Save it in 1Password: item "Cloudflare Reports Share Admin" in the Private
+   vault, field `credential`. Set a calendar reminder 90 days before the
+   expiry (see "Rotation").
+3. Set the three `cluster-secrets` keys. Follow "IDs for share-admin" above:
+   run `just dns apply` once, then, in zsh from the repo root, one key at a time
+   (nothing is printed; change the output name and the key together):
+
+   ```sh
+   cs=kubernetes/components/sops/cluster-secrets.sops.yaml
+   terraform -chdir=terraform/dns output -raw reports_share_access_account_id \
+     | jq -Rs . | sops set --value-stdin "$cs" '["stringData"]["SECRET_SHARE_ACCESS_ACCOUNT_ID"]'
+   terraform -chdir=terraform/dns output -raw reports_share_access_policy_id \
+     | jq -Rs . | sops set --value-stdin "$cs" '["stringData"]["SECRET_SHARE_ACCESS_POLICY_ID"]'
+   terraform -chdir=terraform/dns output -raw reports_share_access_app_id \
+     | jq -Rs . | sops set --value-stdin "$cs" '["stringData"]["SECRET_SHARE_ACCESS_APP_ID"]'
+   ```
+
+4. Write the Secret from 1Password. It replaces the dummy file in the PR. The
+   token is never written to a file: `sops encrypt` reads it from the pipe and
+   writes to `<file>.tmp`, and `mv` puts it in place only when every stage
+   succeeded and the output holds `ENC[`. Run it from the repo root in bash or
+   zsh:
+
+   ```sh
+   ( set -o pipefail
+     f=kubernetes/apps/personal-apps/share-admin/app/credentials.sops.yaml
+     op read 'op://Private/Cloudflare Reports Share Admin/credential' \
+       | kubectl create secret generic share-admin-credentials --namespace share-admin --from-file=cloudflare-token=/dev/stdin --dry-run=client -o yaml \
+       | yq '.type = "Opaque" | .stringData = (.data | map_values(@base64d)) | del(.data) | del(.metadata.creationTimestamp)' \
+       | sops encrypt --filename-override "$f" --input-type yaml --output-type yaml /dev/stdin > "$f.tmp" \
+       && grep -q 'ENC\[' "$f.tmp" && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
+   ```
+
+   Check the shape only, never the value:
+
+   ```sh
+   sops decrypt kubernetes/apps/personal-apps/share-admin/app/credentials.sops.yaml | yq '.stringData | keys'
+   # - cloudflare-token
+   ```
+
+5. Commit `credentials.sops.yaml` and `cluster-secrets.sops.yaml` and merge. Then
+   check:
+
+   ```sh
+   flux get ks share-admin -n flux-system
+   kubectl -n share-admin get deploy,pod,svc
+   kubectl -n share-admin logs deploy/share-admin   # a "listening" line; never a token
+   ```
+
+6. End-to-end check (rollout step 12), with two test addresses you control, A
+   and B, that are not real guests. Only the reports app pod may call the
+   service, so run the calls inside it (the Host is then the exact Service name):
+
+   ```sh
+   sa() { kubectl -n reports exec deploy/reports -- bun -e "const r=await fetch('http://share-admin.share-admin.svc.cluster.local:8080$2',{method:'$1',headers:{'content-type':'application/json'},body:${3:-undefined}});console.log(r.status,await r.text())"; }
+   sa GET /guests
+   ```
+
+   a. A `PUT` replaces the whole list, so keep every real guest in it. Add A and
+      B: `sa PUT /guests 'JSON.stringify({emails:["<real guest>","a@example.test","b@example.test"]})'`.
+      Use your own addresses for A and B, in lower case.
+   b. In two separate private browser windows, open `https://share.<zone>/` and
+      sign in as A and as B with the one-time PIN. Both reach the page.
+   c. Remove A, then end the sessions:
+      `sa PUT /guests 'JSON.stringify({emails:["<real guest>","b@example.test"]})'`,
+      then `sa POST /revoke`.
+   d. Reload A's window. A must be refused, and a new PIN is not sent to A.
+   e. Reload B's window. B's session must have ended too (B is asked to sign in
+      again; that is the documented cost of the narrow token). If B is still in,
+      the revoke did not end sessions of PIN logins: stop, tell the maintainers,
+      and do not rely on removal alone (a removed guest stays in for up to 24
+      hours).
+   f. Sign B in again; it works.
+   g. Remove B the same way (`PUT` without B, `POST /revoke`). `sa GET
+      '/last-login?email=b@example.test'` shows the time B last got in.
+   h. From the main checkout, `just dns plan` must show no change to the policy.
+      If it shows one, the write-back changed a field: stop and look.
+   i. Optional: the service refuses other callers. From a pod outside the
+      reports app, the same call times out (the service's policy drops it):
+      `kubectl -n claude-proxy exec deploy/claude-proxy -- bun -e 'fetch("http://share-admin.share-admin.svc.cluster.local:8080/guests",{signal:AbortSignal.timeout(5000)}).then(r=>console.log(r.status),e=>console.log("blocked:",e.name))'`.
+
+#### Rotation and expiry
+
+The token expires one year after creation. Set a reminder for 90 days before
+that date. To rotate: create a new account token with the same two permissions
+(step 1), save it in the same 1Password item, repeat step 4 (it overwrites the
+file), merge, and wait about a minute for the mounted file to update (no
+restart). Then delete the old token in Cloudflare. After expiry, writes fail with
+an `alert` log line (`token_rejected`) and the guest list stays as it is.
+
+If Cloudflare changes its published ranges (`https://www.cloudflare.com/ips-v4`),
+update `share-admin/app/networkpolicy.yaml` and the cloudflared policy together.
+
+To retire: remove `share-admin` from the parts of the reports entry, remove
+`./share-admin` from `personal-apps/kustomization.yaml` and the folder, remove
+`share-admin` from the `inputs` of `apps-pull`, delete the token in Cloudflare
+and delete the `share-admin` Namespace by hand (prune-disabled).
 
 ### Creating ghcr-apps-read
 

@@ -1,0 +1,17 @@
+---
+# Port 8080 is exposed here itself: the reports app calls this Service, and a
+# port that only the pod has would be unreachable. The health port (8081) is
+# deliberately not here: the kubelet probes the pod directly.
+apiVersion: v1
+kind: Service
+metadata:
+  name: share-admin
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: share-admin
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
