@@ -4,11 +4,12 @@
 # kubernetes/apps/personal-apps/reports-share.
 #
 # Needs these token permissions, both at the account level, on top of the
-# DNS ones (see cloudflare.env.tpl):
+# DNS ones (newer dashboards show "Edit" as "Write"):
 #   Access: Apps and Policies Edit
-#   Access: Organizations, Identity Providers, and Groups Edit
+#   Access: Identity Providers Edit
 # The Zero Trust organization (the team name and the Free plan) must already
-# exist: this root reads it and does not create it.
+# exist: this root neither creates nor reads it. The team name is the part of
+# the team domain before .cloudflareaccess.com (Zero Trust, Settings, General).
 #
 # Everything here exists only when reports_share_tunnel_id is set AND
 # reports_share_guest_emails is not empty. With either unset the plan is empty.
@@ -75,19 +76,10 @@ resource "cloudflare_zero_trust_access_application" "reports_share" {
   policies                  = [{ id = cloudflare_zero_trust_access_policy.reports_share_guests[0].id }]
 }
 
-data "cloudflare_zero_trust_organization" "this" {
-  count      = local.reports_share_access ? 1 : 0
-  account_id = data.cloudflare_zone.this.account.id
-}
-
-# For cluster-secrets: SECRET_SHARE_ACCESS_AUD and SECRET_SHARE_ACCESS_TEAM.
-# Neither is a credential, and the state is local to this machine.
+# For cluster-secrets: SECRET_SHARE_ACCESS_AUD. It is not a credential, and the
+# state is local to this machine. SECRET_SHARE_ACCESS_TEAM is not an output: see
+# the team name note at the top.
 output "reports_share_access_aud" {
   description = "AUD tag of the Access application (SECRET_SHARE_ACCESS_AUD). Null while the share is off."
   value       = one(cloudflare_zero_trust_access_application.reports_share[*].aud)
-}
-
-output "reports_share_access_team" {
-  description = "Zero Trust team name, the auth domain without .cloudflareaccess.com (SECRET_SHARE_ACCESS_TEAM). Null while the share is off."
-  value       = try(trimsuffix(data.cloudflare_zero_trust_organization.this[0].auth_domain, ".cloudflareaccess.com"), null)
 }

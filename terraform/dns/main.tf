@@ -7,7 +7,7 @@
 # Each one except init decrypts cloudflare.sops.env into the environment of a
 # single `sops exec-env` process. It sets CLOUDFLARE_API_TOKEN and TF_VAR_zone.
 # The token is a Terraform-only user token (Zone Read, DNS Edit, Zone WAF Edit,
-# Bot Management Edit, on the one zone, plus the account-level Access
+# Bot Management Edit, on the one zone, plus the two account-level Access
 # permissions that access.tf names) from 1Password `Cloudflare User API
 # Token`. terraform/dns and terraform/cloudflare-security share it. The
 # cluster's cert-manager uses a separate account token, which is never used
