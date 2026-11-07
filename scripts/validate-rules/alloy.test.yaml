@@ -21,9 +21,9 @@ tests:
               severity: 'warning'
               component_id: 'loki.process.syslog'
             exp_annotations:
-              description: 'A source went over its line-rate cap or sent lines over the size limit (lines from an address that is not an allowed sender are not counted here). Expect this once after a TrueNAS reboot (boot burst); otherwise find the noisy source.'
+              description: 'A source went over its line-rate cap. Lines dropped for being over the size limit or for coming from a sender that is not allowed are not counted; see loki_process_dropped_lines_total by reason. Expect this once after a TrueNAS reboot (boot burst) and when a new app runs its first backup; otherwise find the noisy source.'
               summary: 'Alloy dropped log lines in loki.process.syslog'
-  - name: 'size-limit drops also alert'
+  - name: 'size-limit drops do not alert'
     interval: 1m
     input_series:
       - series: 'loki_process_dropped_lines_total{component_id="loki.process.syslog",reason="drop_stage"}'
@@ -31,13 +31,10 @@ tests:
     alert_rule_test:
       - eval_time: 20m
         alertname: AlloyLinesRateLimited
-        exp_alerts:
-          - exp_labels:
-              severity: 'warning'
-              component_id: 'loki.process.syslog'
-            exp_annotations:
-              description: 'A source went over its line-rate cap or sent lines over the size limit (lines from an address that is not an allowed sender are not counted here). Expect this once after a TrueNAS reboot (boot burst); otherwise find the noisy source.'
-              summary: 'Alloy dropped log lines in loki.process.syslog'
+        exp_alerts: []
+      - eval_time: 55m
+        alertname: AlloyLinesRateLimited
+        exp_alerts: []
   - name: 'only source-filter drops: nothing fires'
     interval: 1m
     input_series:
