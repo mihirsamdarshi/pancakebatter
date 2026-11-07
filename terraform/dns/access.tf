@@ -1,5 +1,8 @@
 # Cloudflare Access login for the reports share (share.<zone>): one-time PIN
-# by email, for the guests listed in reports_share_guest_emails and nobody else.
+# by email, for the guests in the policy "reports-share guests" and nobody else.
+# reports_share_guest_emails is the first guest list, used when the policy is
+# created. After that the owner keeps the list in the dashboard (Zero Trust,
+# Access, Policies, "reports-share guests") and Terraform ignores it.
 # The routing is in kubernetes/apps/personal-apps/reports-share.
 #
 # Gates. The Access application, its policy and the proxied CNAME in main.tf
@@ -46,7 +49,7 @@ variable "reports_share_otp_idp_id" {
 }
 
 variable "reports_share_guest_emails" {
-  description = "Email addresses allowed through the Access login of share.<zone>. Empty creates no Access application, policy or record. Set it in the git-ignored terraform/dns/tunnel.auto.tfvars; the addresses must never enter Git. A validation error prints the tfvars line, so do not paste it anywhere."
+  description = "The first email addresses allowed through the Access login of share.<zone>, used only when the policy is created; after that the list is kept in the dashboard. It is also the switch: empty creates no Access application, policy or record (and removes them). Set it in the git-ignored terraform/dns/tunnel.auto.tfvars; the addresses must never enter Git. A validation error prints the tfvars line, so do not paste it anywhere."
   type        = list(string)
   default     = []
   sensitive   = true
@@ -78,13 +81,21 @@ resource "cloudflare_zero_trust_access_identity_provider" "reports_share_otp" {
 }
 
 # Allow only the listed emails: one email include each, nothing else (no
-# domain, no everyone, no group). Anyone else is denied.
+# domain, no everyone, no group). Anyone else is denied. Terraform sets the
+# list when it creates the policy and then ignores it, so the owner can add and
+# remove guests in the dashboard without an apply undoing it. Only add single
+# emails there: never a domain, "Everyone" or another rule, which Terraform
+# would not notice.
 resource "cloudflare_zero_trust_access_policy" "reports_share_guests" {
   count      = local.reports_share_access ? 1 : 0
   account_id = data.cloudflare_zone.this.account.id
   name       = "reports-share guests"
   decision   = "allow"
   include    = [for e in var.reports_share_guest_emails : { email = { email = e } }]
+
+  lifecycle {
+    ignore_changes = [include]
+  }
 }
 
 # The whole host (no path), self-hosted. The CNAME in main.tf depends on it. cloudflared checks this application's
