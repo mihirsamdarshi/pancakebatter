@@ -155,7 +155,7 @@ resource "cloudflare_dns_record" "reports_share" {
   content = "${var.reports_share_tunnel_id}.cfargotunnel.com"
   ttl     = 1
   proxied = true
-  comment = "Read-only guest view of the reports app (Cloudflare Tunnel reports-share, behind Access); managed by terraform/dns"
+  comment = "Reports guest view (Cloudflare Tunnel reports-share, behind Access); managed by terraform/dns" # Cloudflare allows 100 characters
 
   # Created after the Access application and destroyed before it, so the name
   # never routes to the tunnel without Access in front.
