@@ -38,7 +38,9 @@ output="$(docker run --platform linux/amd64 --rm --network none --read-only --us
     await import("./src/index.ts");
     const service="http://127.0.0.1:8080";
     const host={host:"share-admin.share-admin.svc.cluster.local:8080"};
-    await check("healthz",await fetch(`${service}/healthz`),200);
+    await check("healthz on the probe port",await fetch("http://127.0.0.1:8081/healthz"),200);
+    await check("probe port has no other route",await fetch("http://127.0.0.1:8081/guests"),404);
+    await check("healthz is not on the service port",await fetch(`${service}/healthz`,{headers:host}),404);
     await check("wrong Host",await fetch(`${service}/guests`,{headers:{host:"other.test"}}),404);
     await check("unknown path",await fetch(`${service}/policy`,{headers:host}),404);
     await check("bad body",await fetch(`${service}/guests`,{method:"PUT",headers:{...host,"content-type":"application/json"},body:JSON.stringify({emails:["Bad"]})}),400);

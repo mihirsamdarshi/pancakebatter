@@ -12,6 +12,6 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
 COPY src ./src
 USER 1000:1000
-EXPOSE 8080
+EXPOSE 8080 8081
 ENTRYPOINT ["bun"]
 CMD ["src/index.ts"]

@@ -24,9 +24,16 @@ const HOUR_MS = 60 * 60 * 1000;
 
 export type Logger = (entry: Record<string, unknown>) => void;
 
+// Reads are answered from memory for a while, so a caller that polls cannot
+// use up the Cloudflare API quota.
+export const GUESTS_CACHE_MS = 30 * 1000;
+export const LAST_LOGIN_CACHE_MS = 5 * 60 * 1000;
+const LAST_LOGIN_CACHE_MAX = 100;
+
 export interface HandlerOptions {
   log?: Logger;
   now?: () => number;
+  upstreamTimeoutMs?: number; // for tests
 }
 
 export interface Handler {
@@ -44,17 +51,63 @@ function refuse(status: number, error: string, message: string, headers?: Header
   return reply(status, { error, message }, headers);
 }
 
-// Which guests the policy lists, or undefined when the policy is not the
-// plain allow-list of single emails this service is willing to edit.
-function guestsOf(policy: Policy): string[] | undefined {
-  if (policy.decision !== "allow") return undefined;
-  const emails: string[] = [];
-  for (const rule of policy.include) {
+// The emails of an include list that holds only single-email rules, lower
+// cased and without repeats (a dashboard entry may be mixed case or twice), or
+// undefined when any rule is something else.
+function emailsOf(include: unknown[]): string[] | undefined {
+  const emails = new Set<string>();
+  for (const rule of include) {
     const email = ruleEmail(rule);
     if (email === undefined) return undefined;
-    emails.push(email);
+    emails.add(email.toLowerCase());
   }
-  return emails;
+  return [...emails];
+}
+
+// Why this policy is not the plain guest list the service may edit, or
+// undefined when it is. The policy must be the one Terraform made: reusable,
+// used by one application, with the expected name, decision allow, no exclude
+// or require rules, and only single-email include rules.
+function policyProblem(policy: Policy, config: Config): string | undefined {
+  if (policy.decision !== "allow") return "decision-not-allow";
+  if (policy.reusable !== true) return "not-reusable";
+  if (policy.app_count !== 1) return "not-used-by-one-app";
+  if (policy.name !== config.policyName) return "name-differs";
+  for (const rules of [policy.exclude, policy.require])
+    if (rules !== undefined && !(Array.isArray(rules) && rules.length === 0))
+      return "exclude-or-require-rules";
+  if (emailsOf(policy.include) === undefined) return "include-not-plain-emails";
+  return undefined;
+}
+
+// What a failed call to Cloudflare looks like in the audit line: a failure
+// before any answer (timeout, dropped connection) may still have been applied.
+function outcome(error: unknown): false | "unknown" {
+  return error instanceof UpstreamError && (error.status === undefined || error.status === 200)
+    ? "unknown"
+    : false;
+}
+
+// A last resort for anything unexpected: no stack trace leaves the service.
+export function internalError(log: Logger = stdoutLogger): Response {
+  log({ event: "error", reason: "internal" });
+  return refuse(500, "internal", "Internal error.");
+}
+
+// The probe port. /healthz and nothing else, so the probe's reachability
+// grants no access to the write routes.
+export function createHealthHandler(config: Config): Handler {
+  return {
+    async fetch(request) {
+      if (new URL(request.url).pathname !== "/healthz")
+        return refuse(404, "not_found", "Not found.");
+      if (request.method !== "GET") return refuse(405, "method_not_allowed", "Use GET.");
+      // No call to Cloudflare: the probe must not spend the API quota.
+      return tokenReadable(config.tokenFile)
+        ? reply(200, { ok: true })
+        : refuse(503, "token_unavailable", "The Cloudflare token is not available.");
+    },
+  };
 }
 
 export function createHandler(
@@ -64,10 +117,12 @@ export function createHandler(
 ): Handler {
   const log = options.log ?? stdoutLogger;
   const now = options.now ?? Date.now;
-  const cloudflare = new CloudflareClient(upstream, config);
+  const cloudflare = new CloudflareClient(upstream, config, options.upstreamTimeoutMs);
 
   let writing = false;
   let writeTimes: number[] = [];
+  let guestsCache: { at: number; emails: string[] } | undefined;
+  const lastLoginCache = new Map<string, { at: number; lastLogin: string | null }>();
 
   // Seconds to wait when the hourly limit is used up, else 0. A taken slot is
   // counted at once, so a Cloudflare error still uses one.
@@ -109,6 +164,18 @@ export function createHandler(
       return refuse(503, "token_unavailable", "The Cloudflare token is not available.");
     }
     if (error instanceof UpstreamError) {
+      // 401 and 403 mean the token is expired, revoked or short of a
+      // permission: the owner has to act, so it is an alert.
+      if (error.status === 401 || error.status === 403) {
+        log({
+          event: "alert",
+          what,
+          reason: "token-rejected",
+          upstreamStatus: error.status,
+          codes: error.codes,
+        });
+        return refuse(502, "token_rejected", "Cloudflare rejected the token.");
+      }
       log({
         event: "error",
         what,
@@ -121,33 +188,32 @@ export function createHandler(
     throw error;
   }
 
-  // The policy must be the plain allow-list this service edits. Anything else
-  // is refused with an alert: someone changed the policy by hand.
+  // The policy must be the plain guest list this service edits. Anything else
+  // is refused with an alert: someone changed the policy by hand, or the ID
+  // points at another policy.
   async function loadGuests(
     what: string,
   ): Promise<{ policy: Policy; emails: string[] } | Response> {
     const policy = await cloudflare.getPolicy();
-    const emails = guestsOf(policy);
-    if (emails === undefined) {
-      log({
-        event: "alert",
-        what,
-        reason: "policy-not-a-plain-email-allow-list",
-        decision: policy.decision,
-      });
+    const problem = policyProblem(policy, config);
+    if (problem !== undefined) {
+      log({ event: "alert", what, reason: "policy-unexpected", problem });
       return refuse(
         409,
         "policy_unexpected",
-        "The policy is not an allow-list of single emails. Refusing to touch it.",
+        "The policy is not the plain allow-list of single emails. Refusing to touch it.",
       );
     }
-    return { policy, emails };
+    return { policy, emails: emailsOf(policy.include) as string[] };
   }
 
   async function getGuests(): Promise<Response> {
+    if (guestsCache !== undefined && now() - guestsCache.at < GUESTS_CACHE_MS)
+      return reply(200, { emails: guestsCache.emails });
     try {
       const loaded = await loadGuests("guests.get");
       if (loaded instanceof Response) return loaded;
+      guestsCache = { at: now(), emails: loaded.emails };
       return reply(200, { emails: loaded.emails });
     } catch (error) {
       return failure(error, "guests.get");
@@ -170,6 +236,12 @@ export function createHandler(
       const removed = loaded.emails.filter((email) => !body.emails.includes(email));
       if (added.length === 0 && removed.length === 0)
         return reply(200, { emails: loaded.emails, changed: false });
+      // The application must still use this policy, so the ID in the settings
+      // is the guest policy of this application and not another one.
+      if (!(await cloudflare.appPolicyIds()).includes(config.policyId)) {
+        log({ event: "alert", what: "guests.put", reason: "app-does-not-use-policy" });
+        return refuse(409, "policy_unexpected", "The application does not use this policy.");
+      }
       const wait = takeWriteSlot();
       if (wait > 0) {
         log({ event: "refused", what: "guests.put", reason: "rate-limit" });
@@ -184,17 +256,29 @@ export function createHandler(
         removed,
         count: body.emails.length,
       };
+      let stored: Policy;
       try {
-        const stored = await cloudflare.putPolicy(
+        stored = await cloudflare.putPolicy(
           loaded.policy,
           body.emails.map((email) => ({ email: { email } })),
         );
-        log({ ...audit, ok: true });
-        return reply(200, { emails: guestsOf(stored) ?? body.emails, changed: true });
       } catch (error) {
-        log({ ...audit, ok: false });
+        log({ ...audit, ok: outcome(error) });
         throw error;
       }
+      guestsCache = undefined;
+      // What Cloudflare stored must be what was asked for.
+      const storedEmails = stored.decision === "allow" ? emailsOf(stored.include) : undefined;
+      const verified =
+        storedEmails !== undefined &&
+        storedEmails.length === body.emails.length &&
+        body.emails.every((email) => storedEmails.includes(email));
+      log({ ...audit, ok: true, verified });
+      if (!verified) {
+        log({ event: "alert", what: "guests.put", reason: "stored-policy-differs" });
+        return refuse(502, "stored_policy_unexpected", "Cloudflare stored something else.");
+      }
+      return reply(200, { emails: storedEmails, changed: true });
     } catch (error) {
       return failure(error, "guests.put");
     } finally {
@@ -202,8 +286,8 @@ export function createHandler(
     }
   }
 
-  // Ends every session of the application, all guests included. Cloudflare has
-  // no way to end one user's session for one application.
+  // Asks Cloudflare to end every session of the application, guests included.
+  // Cloudflare has no way to end one user's session for one application.
   async function revoke(): Promise<Response> {
     if (writing) return refuse(409, "write_in_progress", "Another write is running.");
     writing = true;
@@ -220,7 +304,7 @@ export function createHandler(
         log({ event: "audit", action: "revoke", ok: true });
         return reply(200, { revoked: true });
       } catch (error) {
-        log({ event: "audit", action: "revoke", ok: false });
+        log({ event: "audit", action: "revoke", ok: outcome(error) });
         throw error;
       }
     } catch (error) {
@@ -238,11 +322,15 @@ export function createHandler(
         "bad_request",
         query.error.issues.map((i) => `${i.path.join(".") || "query"}: ${i.message}`).join("; "),
       );
+    const { email } = query.data;
+    const cached = lastLoginCache.get(email);
+    if (cached !== undefined && now() - cached.at < LAST_LOGIN_CACHE_MS)
+      return reply(200, { email, lastLogin: cached.lastLogin });
     try {
-      return reply(200, {
-        email: query.data.email,
-        lastLogin: await cloudflare.lastLogin(query.data.email),
-      });
+      const found = await cloudflare.lastLogin(email);
+      if (lastLoginCache.size >= LAST_LOGIN_CACHE_MAX) lastLoginCache.clear();
+      lastLoginCache.set(email, { at: now(), lastLogin: found });
+      return reply(200, { email, lastLogin: found });
     } catch (error) {
       return failure(error, "last-login");
     }
@@ -267,42 +355,44 @@ export function createHandler(
     "/notify/published": ["POST"],
   };
 
+  async function route(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    // Host discipline, before anything else. Only the Service name works.
+    const host = (request.headers.get("host") ?? url.host).toLowerCase();
+    if (!config.allowedHosts.includes(host)) return refuse(404, "not_found", "Not found.");
+    const methods = ROUTES[url.pathname];
+    if (methods === undefined) return refuse(404, "not_found", "Not found.");
+    // The only caller is the reports app's server. A browser request (these
+    // headers are set by browsers and cannot be removed by a page) is not it.
+    if (request.headers.has("origin") || request.headers.has("sec-fetch-site"))
+      return refuse(403, "forbidden", "Browser requests are not accepted.");
+    if (!methods.includes(request.method))
+      return refuse(405, "method_not_allowed", "Method not allowed.", {
+        allow: methods.join(", "),
+      });
+    switch (`${request.method} ${url.pathname}`) {
+      case "GET /guests":
+        return getGuests();
+      case "PUT /guests":
+        return putGuests(request);
+      case "POST /revoke":
+        return revoke();
+      case "GET /last-login":
+        return lastLogin(url);
+      case "POST /notify/invite":
+        return notify(request, "invite");
+      default:
+        return notify(request, "published");
+    }
+  }
+
   return {
     async fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname === "/healthz") {
-        if (request.method !== "GET") return refuse(405, "method_not_allowed", "Use GET.");
-        // No call to Cloudflare: the probe must not spend the API quota.
-        return tokenReadable(config.tokenFile)
-          ? reply(200, { ok: true })
-          : refuse(503, "token_unavailable", "The Cloudflare token is not available.");
-      }
-      // Host discipline, before anything else. Only the Service name works.
-      const host = (request.headers.get("host") ?? url.host).toLowerCase();
-      if (!config.allowedHosts.includes(host)) return refuse(404, "not_found", "Not found.");
-      const methods = ROUTES[url.pathname];
-      if (methods === undefined) return refuse(404, "not_found", "Not found.");
-      // The only caller is the reports app's server. A browser request (these
-      // headers are set by browsers and cannot be removed by a page) is not it.
-      if (request.headers.has("origin") || request.headers.has("sec-fetch-site"))
-        return refuse(403, "forbidden", "Browser requests are not accepted.");
-      if (!methods.includes(request.method))
-        return refuse(405, "method_not_allowed", "Method not allowed.", {
-          allow: methods.join(", "),
-        });
-      switch (`${request.method} ${url.pathname}`) {
-        case "GET /guests":
-          return getGuests();
-        case "PUT /guests":
-          return putGuests(request);
-        case "POST /revoke":
-          return revoke();
-        case "GET /last-login":
-          return lastLogin(url);
-        case "POST /notify/invite":
-          return notify(request, "invite");
-        default:
-          return notify(request, "published");
+      try {
+        return await route(request);
+      } catch {
+        // Not the error itself: it could carry request data.
+        return internalError(log);
       }
     },
   };

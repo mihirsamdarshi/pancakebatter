@@ -1,9 +1,19 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { connect } from "node:net";
 import { join } from "node:path";
 import { configFromEnv, type Config } from "./config.ts";
-import { createHandler, MAX_WRITES_PER_HOUR, type Handler } from "./handler.ts";
+import {
+  createHandler,
+  createHealthHandler,
+  GUESTS_CACHE_MS,
+  internalError,
+  LAST_LOGIN_CACHE_MS,
+  MAX_WRITES_PER_HOUR,
+  type Handler,
+} from "./handler.ts";
+import { MAX_BODY_BYTES } from "./schemas.ts";
 
 // Dummy values only. None of them is a real ID or token.
 const ACCOUNT = "a".repeat(32);
@@ -31,8 +41,8 @@ function freshPolicy() {
     name: "reports-share guests",
     decision: "allow",
     include: [{ email: { email: "one@example.test" } }, { email: { email: "two@example.test" } }],
-    exclude: [{ ip: { ip: "192.0.2.1/32" } }],
-    require: [{ country: { country_code: "US" } }],
+    exclude: [],
+    require: [],
     session_duration: "24h",
     approval_required: false,
     purpose_justification_required: false,
@@ -54,6 +64,7 @@ let accessLogs: unknown[] = [];
 let putGate: Promise<void> | undefined;
 let failNext: number | undefined;
 let failOn = "GET";
+let appPolicies: unknown[] = [{ id: POLICY }];
 
 const READ_ONLY = ["id", "created_at", "updated_at", "account_id", "app_count", "reusable"];
 
@@ -94,10 +105,12 @@ const fake = Bun.serve({
         await putGate;
         const body = JSON.parse(text) as Record<string, unknown>;
         // The real PUT resets every field that is not sent.
-        policy = { id: POLICY, account_id: ACCOUNT, ...body };
+        policy = { id: POLICY, account_id: ACCOUNT, app_count: 1, reusable: true, ...body };
         return Response.json({ success: true, result: policy });
       }
     }
+    if (url.pathname === `${base}/apps/${APP}` && request.method === "GET")
+      return Response.json({ success: true, result: { id: APP, policies: appPolicies } });
     if (url.pathname === `${base}/apps/${APP}/revoke_tokens` && request.method === "POST")
       return Response.json({ success: true, result: {} });
     if (url.pathname === `${base}/logs/access_requests`)
@@ -121,6 +134,7 @@ beforeEach(() => {
   putGate = undefined;
   failNext = undefined;
   failOn = "GET";
+  appPolicies = [{ id: POLICY }];
   currentToken = TOKEN_A;
   writeFileSync(tokenFile, `${TOKEN_A}\n`);
   logs = [];
@@ -215,10 +229,13 @@ describe("PUT /guests", () => {
     expect(policy.some_future_field).toEqual(before.some_future_field);
   });
 
-  test("drops a null field (the same as unset) instead of sending it", async () => {
+  test("sends a null session_duration back as null and drops other nulls", async () => {
     policy.purpose_justification_prompt = null;
+    policy.session_duration = null;
     await put(["one@example.test"]);
-    expect("purpose_justification_prompt" in ((writes()[0] as Seen).body as object)).toBe(false);
+    const body = (writes()[0] as Seen).body as Record<string, unknown>;
+    expect("purpose_justification_prompt" in body).toBe(false);
+    expect(body.session_duration).toBeNull();
   });
 
   test("a list equal to the current one writes nothing", async () => {
@@ -242,6 +259,7 @@ describe("PUT /guests", () => {
         removed: ["two@example.test"],
         count: 2,
         ok: true,
+        verified: true,
       },
     ]);
   });
@@ -514,14 +532,13 @@ describe("Host and path discipline", () => {
     ).toBe(403);
     expect(seen).toHaveLength(0);
   });
-  test("/healthz answers on any Host and does not call Cloudflare", async () => {
-    const res = await handler.fetch(
+  test("/healthz is not on the write port", async () => {
+    expect((await call("GET", "/healthz")).status).toBe(404);
+    const other = await handler.fetch(
       new Request("http://10.0.0.7:8080/healthz", { headers: { host: "10.0.0.7:8080" } }),
     );
-    expect(res.status).toBe(200);
+    expect(other.status).toBe(404);
     expect(seen).toHaveLength(0);
-    rmSync(tokenFile);
-    expect((await handler.fetch(new Request("http://10.0.0.7:8080/healthz"))).status).toBe(503);
   });
   test("works over a real socket too", async () => {
     const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: handler.fetch });
@@ -542,6 +559,7 @@ describe("the token", () => {
     expect(seen.at(-1)?.auth).toBe(`Bearer ${TOKEN_A}`);
     currentToken = TOKEN_B;
     writeFileSync(tokenFile, `${TOKEN_B}\n`);
+    clock += GUESTS_CACHE_MS + 1; // the answer to the first call was cached
     const res = await call("GET", "/guests");
     expect(res.status).toBe(200);
     expect(seen.at(-1)?.auth).toBe(`Bearer ${TOKEN_B}`);
@@ -573,6 +591,7 @@ describe("the token", () => {
     failOn = "PUT";
     await keep(put(["one@example.test"]));
     currentToken = TOKEN_B;
+    clock += GUESTS_CACHE_MS + 1;
     await keep(call("GET", "/guests"));
     await keep(call("POST", "/revoke"));
     // Refusals and an alert.
@@ -589,5 +608,340 @@ describe("the token", () => {
     const dead = createHandler("http://127.0.0.1:1", config, { log: (e) => logs.push(e) });
     const res = await dead.fetch(new Request(`http://${HOST}/guests`, { headers: { host: HOST } }));
     expect(res.status).toBe(502);
+  });
+});
+
+describe("the probe port", () => {
+  const probe = (path: string, method = "GET", host?: string) =>
+    createHealthHandler(config).fetch(
+      new Request(`http://10.0.0.7:8081${path}`, { method, headers: host ? { host } : {} }),
+    );
+  test("answers /healthz on any Host and does not call Cloudflare", async () => {
+    expect((await probe("/healthz")).status).toBe(200);
+    expect((await probe("/healthz", "GET", "10.0.0.7:8081")).status).toBe(200);
+    expect(seen).toHaveLength(0);
+    rmSync(tokenFile);
+    expect((await probe("/healthz")).status).toBe(503);
+  });
+  test("has no other route", async () => {
+    for (const path of ["/guests", "/revoke", "/last-login?email=a@b.test", "/", "/healthz/x"])
+      expect((await probe(path)).status).toBe(404);
+    expect((await probe("/healthz", "POST")).status).toBe(405);
+    expect(seen).toHaveLength(0);
+  });
+  test("the two ports must differ", () => {
+    expect(() =>
+      configFromEnv({
+        CLOUDFLARE_ACCOUNT_ID: ACCOUNT,
+        ACCESS_POLICY_ID: POLICY,
+        ACCESS_APP_ID: APP,
+        PORT: "9000",
+        HEALTH_PORT: "9000",
+      }),
+    ).toThrow(/differ/);
+  });
+});
+
+describe("addresses that must never reach Cloudflare", () => {
+  const cases: Record<string, string> = {
+    zeroWidthSpace: "jo\u200bhn@example.test",
+    softHyphen: "jo\u00adhn@example.test",
+    nul: "jo\u0000hn@example.test",
+    cyrillicA: "\u0430dmin@example.test",
+    trailingDot: "john@example.test.",
+    quotedLocal: '"john"@example.test',
+    comment: "(c)john@example.test",
+    noTld: "john@example",
+    ipLiteral: "john@[192.0.2.1]",
+    idn: "john@ex\u00e4mple.test",
+    percentAt: "john%40evil.test@example.test@x.test",
+    leadingDot: ".john@example.test",
+    trailingDotInName: "john.@example.test",
+    doubleDot: "jo..hn@example.test",
+    doubleDotDomain: "john@example..test",
+    rtlOverride: "john\u202e@example.test",
+    emoji: "\u{1F600}@example.test",
+    nonNfc: "jose\u0301@example.test",
+    nfcAccent: "jos\u00e9@example.test",
+    fullwidthAt: "john\uff20example.test",
+    leadingDash: "john@-example.test",
+  };
+  for (const [name, email] of Object.entries(cases))
+    test(name, async () => {
+      const res = await put(["one@example.test", email]);
+      expect(res.status).toBe(400);
+      expect(seen).toHaveLength(0);
+    });
+  test("plain addresses with + and dots are accepted", async () => {
+    expect((await put(["first.last+tag@mail.example.test"])).status).toBe(200);
+  });
+});
+
+describe("policy identity", () => {
+  const refused = async (change: () => void) => {
+    change();
+    const res = await put(["one@example.test", "attacker@example.test"]);
+    expect(res.status).toBe(409);
+    expect(logs.find((l) => l.event === "alert")).toBeDefined();
+    expect(writes()).toHaveLength(0);
+  };
+  test("another name", () => refused(() => (policy.name = "owner-only admin apps")));
+  test("not reusable", () => refused(() => (policy.reusable = false)));
+  test("used by three applications", () => refused(() => (policy.app_count = 3)));
+  test("used by no application", () => refused(() => (policy.app_count = 0)));
+  test("an exclude rule", () => refused(() => (policy.exclude = [{ everyone: {} }])));
+  test("a require rule", () =>
+    refused(() => (policy.require = [{ email_domain: { domain: "example.test" } }])));
+  test("the application does not list the policy", async () => {
+    appPolicies = [{ id: "c".repeat(32) }];
+    const res = await put(["one@example.test", "attacker@example.test"]);
+    expect(res.status).toBe(409);
+    expect(logs.find((l) => l.event === "alert")).toBeDefined();
+    expect(writes()).toHaveLength(0);
+  });
+  test("the application is read before each write, and policies may be plain IDs", async () => {
+    appPolicies = [POLICY];
+    await put(["one@example.test", "a@example.test"]);
+    await put(["one@example.test", "b@example.test"]);
+    expect(seen.filter((s) => s.path.endsWith(`/apps/${APP}`))).toHaveLength(2);
+  });
+  test("the name can be configured", async () => {
+    config = { ...config, policyName: "other name" };
+    handler = createHandler(upstream, config, { log: (e) => logs.push(e), now: () => clock });
+    policy.name = "other name";
+    expect((await put(["one@example.test", "a@example.test"])).status).toBe(200);
+  });
+});
+
+describe("read normalising", () => {
+  test("a mixed-case or repeated address is returned lower case, once", async () => {
+    policy.include = [
+      { email: { email: "Guest@Example.test" } },
+      { email: { email: "guest@example.test" } },
+      { email: { email: "other@example.test" } },
+    ];
+    const got = await (await call("GET", "/guests")).json();
+    expect(got.emails).toEqual(["guest@example.test", "other@example.test"]);
+    // What GET returns can be sent back to PUT.
+    expect((await put([...got.emails, "new@example.test"])).status).toBe(200);
+  });
+});
+
+describe("what Cloudflare answers to a write", () => {
+  test("a stored policy that is not what was asked for is an alert and a 502", async () => {
+    const original = fake.fetch;
+    // Wrap: the PUT answer says everyone is allowed.
+    let first = true;
+    const odd = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      async fetch(request) {
+        const response = await original.call(fake, request);
+        if (request.method !== "PUT") return response;
+        const json = (await response.json()) as { result: Record<string, unknown> };
+        first = false;
+        return Response.json({
+          success: true,
+          result: { ...json.result, include: [{ everyone: {} }] },
+        });
+      },
+    });
+    try {
+      handler = createHandler(`http://127.0.0.1:${odd.port}`, config, {
+        log: (e) => logs.push(e),
+        now: () => clock,
+      });
+      const res = await put(["one@example.test", "late@example.test"]);
+      expect(res.status).toBe(502);
+      expect(first).toBe(false);
+      expect(
+        logs.find((l) => l.event === "alert" && l.reason === "stored-policy-differs"),
+      ).toBeDefined();
+      expect(logs.find((l) => l.event === "audit")).toMatchObject({ ok: true, verified: false });
+    } finally {
+      await odd.stop(true);
+    }
+  });
+  test("a timeout after the request was sent is logged as ok unknown", async () => {
+    putGate = new Promise(() => {});
+    handler = createHandler(upstream, config, {
+      log: (e) => logs.push(e),
+      now: () => clock,
+      upstreamTimeoutMs: 150,
+    });
+    // The GETs answer at once; the PUT hangs until the timeout.
+    const res = await put(["one@example.test", "late@example.test"]);
+    expect(res.status).toBe(502);
+    expect(logs.find((l) => l.event === "audit")).toMatchObject({ ok: "unknown" });
+  });
+  test("a 401 or 403 is token_rejected with an alert", async () => {
+    for (const status of [401, 403]) {
+      logs = [];
+      failNext = status;
+      failOn = "POST";
+      const res = await call("POST", "/revoke");
+      expect(res.status).toBe(502);
+      expect((await res.json()).error).toBe("token_rejected");
+      expect(logs.find((l) => l.event === "alert")).toMatchObject({ reason: "token-rejected" });
+    }
+  });
+  test("a redirect is not followed", async () => {
+    let hits = 0;
+    const other = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch() {
+        hits++;
+        return Response.json({ success: true, result: policy });
+      },
+    });
+    const redirecting = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: `http://127.0.0.1:${other.port}/x` },
+        }),
+    });
+    try {
+      const h = createHandler(`http://127.0.0.1:${redirecting.port}`, config, { log: () => {} });
+      const res = await h.fetch(new Request(`http://${HOST}/guests`, { headers: { host: HOST } }));
+      expect(res.status).toBe(502);
+      expect(hits).toBe(0);
+    } finally {
+      await other.stop(true);
+      await redirecting.stop(true);
+    }
+  });
+  test("an HTML error page is a 502", async () => {
+    const html = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => new Response("<html>bad gateway</html>", { status: 502 }),
+    });
+    try {
+      const h = createHandler(`http://127.0.0.1:${html.port}`, config, { log: () => {} });
+      const res = await h.fetch(new Request(`http://${HOST}/guests`, { headers: { host: HOST } }));
+      expect(res.status).toBe(502);
+    } finally {
+      await html.stop(true);
+    }
+  });
+});
+
+describe("reads are cached", () => {
+  test("GET /guests asks Cloudflare once in 30 seconds, and again after", async () => {
+    for (let i = 0; i < 200; i++) await call("GET", "/guests");
+    expect(seen).toHaveLength(1);
+    clock += GUESTS_CACHE_MS + 1;
+    await call("GET", "/guests");
+    expect(seen).toHaveLength(2);
+  });
+  test("a write clears the cached list", async () => {
+    await call("GET", "/guests");
+    await put(["one@example.test", "new@example.test"]);
+    const got = await (await call("GET", "/guests")).json();
+    expect(got.emails).toEqual(["one@example.test", "new@example.test"]);
+  });
+  test("a refused read is not cached", async () => {
+    policy.decision = "deny";
+    expect((await call("GET", "/guests")).status).toBe(409);
+    policy.decision = "allow";
+    expect((await call("GET", "/guests")).status).toBe(200);
+  });
+  test("last-login asks once in 5 minutes per address", async () => {
+    for (let i = 0; i < 50; i++) await call("GET", "/last-login?email=one@example.test");
+    expect(seen).toHaveLength(1);
+    await call("GET", "/last-login?email=two@example.test");
+    expect(seen).toHaveLength(2);
+    clock += LAST_LOGIN_CACHE_MS + 1;
+    await call("GET", "/last-login?email=one@example.test");
+    expect(seen).toHaveLength(3);
+  });
+  test("last-login asks for an exact email match", async () => {
+    await call("GET", "/last-login?email=one@example.test");
+    const q = new URLSearchParams(seen[0]?.search);
+    expect(q.get("email_exact")).toBe("true");
+  });
+});
+
+describe("parallel writes", () => {
+  test("ten parallel PUTs make one write", async () => {
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) => put(["one@example.test", `p${i}@example.test`])),
+    );
+    const statuses = results.map((r) => r.status).sort();
+    expect(statuses.filter((s) => s === 200)).toHaveLength(1);
+    expect(statuses.filter((s) => s === 409)).toHaveLength(9);
+    expect(writes()).toHaveLength(1);
+  });
+});
+
+describe("odd requests", () => {
+  test("HEAD and OPTIONS are 405", async () => {
+    expect((await call("HEAD", "/guests")).status).toBe(405);
+    expect((await call("OPTIONS", "/guests")).status).toBe(405);
+  });
+  test("a 400 names unknown keys but never echoes values", async () => {
+    const res = await call("PUT", "/guests", {
+      emails: ["one@example.test"],
+      CANARYKEY: "CANARYVALUE",
+    });
+    expect(await res.text()).not.toContain("CANARYVALUE");
+  });
+  test("last-login with a repeated parameter uses the last one, after the same check", async () => {
+    expect((await call("GET", "/last-login?email=zzz&email=one@example.test")).status).toBe(200);
+    expect((await call("GET", "/last-login?email=one@example.test&email=zzz")).status).toBe(400);
+  });
+  test("an unexpected error gives a plain 500 with no stack", async () => {
+    const res = internalError(() => {});
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(await res.json())).not.toContain("at ");
+  });
+  test("over a real socket: odd Host lines never give a 5xx or a Cloudflare call", async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      idleTimeout: 60,
+      maxRequestBodySize: MAX_BODY_BYTES,
+      fetch: handler.fetch,
+      error: () => internalError(() => {}),
+    });
+    const raw = (req: string) =>
+      new Promise<string>((resolve) => {
+        const socket = connect(server.port as number, "127.0.0.1");
+        let out = "";
+        socket.on("data", (d) => (out += d.toString()));
+        socket.on("end", () => resolve(out));
+        socket.on("error", (e) => resolve(`ERR ${e.message}`));
+        socket.write(req);
+        setTimeout(() => socket.end(), 300);
+      });
+    try {
+      const requests: Record<string, string> = {
+        noHost10: "GET /guests HTTP/1.0\r\n\r\n",
+        noHost11: "GET /guests HTTP/1.1\r\nConnection: close\r\n\r\n",
+        weirdHost: "GET /guests HTTP/1.1\r\nHost: a b\r\nConnection: close\r\n\r\n",
+        slashHost: "GET /guests HTTP/1.1\r\nHost: x/y@z\r\nConnection: close\r\n\r\n",
+        absoluteForm: `GET http://evil.test/guests HTTP/1.1\r\nHost: evil.test\r\nConnection: close\r\n\r\n`,
+        dotSegments: `GET /x/../guests HTTP/1.1\r\nHost: evil.test\r\nConnection: close\r\n\r\n`,
+        chunkedBig: `PUT /guests HTTP/1.1\r\nHost: ${HOST}\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n${(20000).toString(16)}\r\n${"x".repeat(20000)}\r\n0\r\n\r\n`,
+      };
+      for (const [name, req] of Object.entries(requests)) {
+        seen = [];
+        const out = await raw(req);
+        const status = Number(/^HTTP\/1\.[01] (\d{3})/.exec(out)?.[1] ?? 0);
+        // A refusal of some kind (or a closed socket), never a stack trace.
+        expect(status === 0 || (status >= 400 && status < 500) || status === 500).toBe(true);
+        expect(out).not.toContain("    at ");
+        expect(
+          seen.filter((s) => s.method === "PUT"),
+          name,
+        ).toHaveLength(0);
+      }
+    } finally {
+      await server.stop(true);
+    }
   });
 });

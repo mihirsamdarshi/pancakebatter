@@ -13,6 +13,11 @@ import type { Config } from "./config.ts";
 //        token group: Access: Apps and Policies Write
 //        Body: name, decision and include are required. The other fields are
 //        optional and a missing one is reset, so the rest is sent back.
+//   GET  /accounts/{account_id}/access/apps/{app_id}
+//        access-applications-get-an-access-application
+//        token groups: Access: Apps and Policies Read or Write
+//        Read before each write, to check that the application still uses
+//        the policy (its `policies` list holds objects with an `id`).
 //   POST /accounts/{account_id}/access/apps/{app_id}/revoke_tokens
 //        access-applications-revoke-service-tokens
 //        token groups: Access: Apps and Policies Revoke or Write
@@ -20,7 +25,7 @@ import type { Config } from "./config.ts";
 //   GET  /accounts/{account_id}/access/logs/access_requests
 //        access-authentication-logs-get-access-authentication-logs
 //        token group: Access: Audit Logs Read
-//        Query used: email, emailOp, direction, limit. The schema lists
+//        Query used: email, email_exact, emailOp, direction, limit. The schema lists
 //        app_uidOp but no app_uid parameter, so the application is filtered
 //        here, on each entry's app_uid.
 //
@@ -32,10 +37,17 @@ export const UPSTREAM_TIMEOUT_MS = 15_000;
 // Fields of the GET answer that the PUT does not take. Everything else is sent
 // back unchanged, including fields this code has never heard of.
 const READ_ONLY_FIELDS = ["id", "created_at", "updated_at", "account_id", "app_count", "reusable"];
+// Fields the schema marks nullable in the PUT body. A null here is sent back
+// as null (dropping it could reset the value and drift from Terraform's
+// state). A null in any other field is left out.
+const NULLABLE_FIELDS = ["session_duration"];
 
 const ResultEnvelope = z.object({ success: z.literal(true), result: z.unknown() });
 // looseObject keeps the fields that are not named here.
 const PolicySchema = z.looseObject({ decision: z.string(), include: z.array(z.unknown()) });
+const AppSchema = z.looseObject({
+  policies: z.array(z.union([z.string(), z.looseObject({ id: z.string() })])).default([]),
+});
 const AccessLogsSchema = z.array(
   z.looseObject({
     app_uid: z.string().optional(),
@@ -94,6 +106,7 @@ export class CloudflareClient {
     // Cloudflare and nowhere else.
     private readonly baseUrl: string,
     private readonly config: Config,
+    private readonly timeoutMs: number = UPSTREAM_TIMEOUT_MS,
   ) {}
 
   private async call(
@@ -117,7 +130,7 @@ export class CloudflareClient {
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
         // A redirect would carry the token to another host.
         redirect: "error",
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch {
       throw new UpstreamError(undefined, []);
@@ -155,10 +168,18 @@ export class CloudflareClient {
   async putPolicy(current: Policy, include: unknown[]): Promise<Policy> {
     const body: Record<string, unknown> = { ...current, include };
     for (const field of READ_ONLY_FIELDS) delete body[field];
-    for (const [key, value] of Object.entries(body)) if (value === null) delete body[key];
+    for (const [key, value] of Object.entries(body))
+      if (value === null && !NULLABLE_FIELDS.includes(key)) delete body[key];
     const stored = PolicySchema.safeParse(await this.call("PUT", this.policyPath(), { body }));
     if (!stored.success) throw new UpstreamError(200, []);
     return stored.data;
+  }
+
+  // The IDs of the policies the application uses.
+  async appPolicyIds(): Promise<string[]> {
+    const app = AppSchema.safeParse(await this.call("GET", `/access/apps/${this.config.appId}`));
+    if (!app.success) throw new UpstreamError(200, []);
+    return app.data.policies.map((p) => (typeof p === "string" ? p : p.id));
   }
 
   async revokeTokens(): Promise<void> {
@@ -169,7 +190,7 @@ export class CloudflareClient {
   // an ISO time, or null. Only the last 100 events of the email are searched.
   async lastLogin(email: string): Promise<string | null> {
     const result = await this.call("GET", "/access/logs/access_requests", {
-      query: { email, emailOp: "eq", direction: "desc", limit: "100" },
+      query: { email, email_exact: "true", emailOp: "eq", direction: "desc", limit: "100" },
     });
     const entries = AccessLogsSchema.safeParse(result);
     if (!entries.success) throw new UpstreamError(200, []);

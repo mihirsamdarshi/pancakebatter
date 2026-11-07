@@ -4,13 +4,23 @@ export const MAX_GUESTS = 25;
 export const MAX_EMAIL_LENGTH = 254;
 export const MAX_BODY_BYTES = 16 * 1024;
 
-// One address: lower case, at most 254 characters, exactly one @ with
-// something on both sides, no wildcard, no spaces.
+// One address: lower case, at most 254 characters, plain ASCII only (letters,
+// digits and . _ % + - before the @; letters, digits, dashes and dots after
+// it, with at least one dot). That leaves out wildcards, spaces, quotes,
+// comments, IP literals, look-alike letters and invisible characters. No dot
+// at the start or end of the part before the @, and no "..".
 export const EmailSchema = z
   .string()
   .max(MAX_EMAIL_LENGTH)
-  .regex(/^[^@\s*]+@[^@\s*]+$/, "must be one plain address with exactly one @ and no wildcard")
-  .refine((email) => email === email.toLowerCase(), "must be lower case");
+  .refine((email) => email === email.toLowerCase(), "must be lower case")
+  .regex(
+    /^[a-z0-9._%+-]+@([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
+    "must be a plain ASCII address with one @, a domain with a dot and no wildcard",
+  )
+  .refine(
+    (email) => !email.startsWith(".") && !email.includes("..") && !/\.@/.test(email),
+    "must not start or end the name with a dot or have two dots in a row",
+  );
 
 // PUT /guests. An empty list parses on purpose: the service refuses it with
 // its own answer ("last guest"), not as a malformed body.
