@@ -52,6 +52,10 @@ spec:
     # Access signing keys from the team's cloudflareaccess.com host, which Cloudflare
     # serves from these ranges, to check every token. Without it, every request
     # fails closed. The update check is off (--no-autoupdate).
+    # Trade-off, on purpose: the whole published range, not two addresses. A
+    # compromised cloudflared can already reach Cloudflare's edge on 7844 with its
+    # own credentials, so narrowing 443 adds little; and two documented IPs would
+    # break the share silently the day Cloudflare moves them.
     - toCIDRSet:
         - cidr: 173.245.48.0/20
         - cidr: 103.21.244.0/22

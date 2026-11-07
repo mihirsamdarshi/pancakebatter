@@ -384,7 +384,11 @@ def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|
     # share: the guest port, its Service and policy, and the host and collections they serve
     (if ($parts | index("share")) != null then
        (if (($v.SHARE_HOST | lbl) | not) then "share needs vars.SHARE_HOST (a DNS label: the guest host is <SHARE_HOST>.<zone>)" else empty end),
-       (if (($v.GUEST_COLLECTIONS | isstr) | not) or (($v.GUEST_COLLECTIONS | test("^[a-z0-9]([-a-z0-9]*[a-z0-9])?(,[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$")) | not) then "share needs vars.GUEST_COLLECTIONS, collection names separated by commas (lowercase letters, digits and -)" else empty end),
+       (if (($v.GUEST_COLLECTIONS | isstr) | not) or (($v.GUEST_COLLECTIONS | test("^[a-z0-9]([-a-z0-9]*[a-z0-9])?(,[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$")) | not) then "share needs vars.GUEST_COLLECTIONS, collection names separated by commas (lowercase letters, digits and -)"
+        elif ($v.GUEST_COLLECTIONS | split(",") | any(test("[a-z]") | not)) then "vars.GUEST_COLLECTIONS: every collection name needs at least one letter (a number would not stay a string after substitution)"
+        elif ($v.GUEST_COLLECTIONS | split(",") | any(yamlword)) then "vars.GUEST_COLLECTIONS: a collection name must not be a YAML boolean or null word (y, yes, n, no, on, off, true, false, null)"
+        else empty end),
+       (if $name != "reports" and ($fx | not) then "the share part is allowed only for the reports entry for now" else empty end),
        (if $d.netpol == false then "share has no meaning with netpol: false (its policy admits cloudflared to port 3001)" else empty end)
      else
        (if ($v | has("SHARE_HOST")) then "vars.SHARE_HOST needs the share part" else empty end),
@@ -404,6 +408,7 @@ def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|
       | (if (.key | test("^[A-Z][A-Z0-9_]*$") | not) then "env key \(.key) must be uppercase letters, digits and _" else empty end),
         (if (.key | IN("N", "Y", "ON", "OFF")) then "env key \(.key) is a YAML boolean" else empty end),
         (if (.key | secretish) then "env key \(.key) looks like a credential name (apps hold no credentials)" else empty end),
+        (if (.key == "PORT" or (.key | startswith("GUEST_"))) then "env key \(.key) is reserved: the platform sets PORT, and the share part sets the GUEST_ variables" else empty end),
         (if (.value | isstr | not) then "env \(.key): values are plain strings (no valueFrom, no maps, no numbers)"
          elif (.value | gsub("\\$\\$"; "") | contains("$")) then "env \(.key): a literal $ must be written $$"
          else empty end)),
@@ -746,6 +751,46 @@ check_mapkit_secret() {
     echo "    mapkit: $f is an encrypted Secret $name-mapkit with MAPKIT_TOKEN, for the repo's age recipient"
 }
 
+# The share part's cloudflared, compared with the design: the routing file has
+# exactly the guest host to the guest Service on 3001 with cloudflared's own
+# Access check required, then a 404; and its policy allows only cluster DNS,
+# the app pod on 3001, the tunnel (7844) and 443 to public ranges, and admits
+# only the kubelet probe. $1 is the folder <name>-share/app.
+check_share_files() {
+    local dir="$1" name="$2" host="$3" f
+    f="$dir/resources/cloudflared.yaml"
+    [[ -f "$f" ]] || fail "the share part needs $f"
+    yq -o=json -N '.' "$f" | jq -e --arg host "$host" --arg name "$name" '
+        (keys == ["credentials-file", "ingress", "tunnel"])
+        and .tunnel == "${SECRET_SHARE_TUNNEL_ID}"
+        and ."credentials-file" == "/etc/cloudflared/credentials/credentials.json"
+        and .ingress == [
+          {hostname: "\($host).${SECRET_DOMAIN}",
+           service: "http://\($name)-share.\($name).svc.cluster.local:3001",
+           originRequest: {access: {required: true, teamName: "${SECRET_SHARE_ACCESS_TEAM}", audTag: ["${SECRET_SHARE_ACCESS_AUD}"]}}},
+          {service: "http_status:404"}]' >/dev/null \
+        || fail "$f must have only the keys tunnel, credentials-file and ingress; ingress rule 0 must be hostname $host.\${SECRET_DOMAIN} to http://$name-share.$name.svc.cluster.local:3001 with originRequest.access {required: true, teamName: \${SECRET_SHARE_ACCESS_TEAM}, audTag: [\${SECRET_SHARE_ACCESS_AUD}]} and nothing else, and rule 1 must be http_status:404 (the vars.SHARE_HOST of the entry must match the hostname)"
+    f="$dir/networkpolicy.yaml"
+    [[ -f "$f" ]] || fail "the share part needs $f"
+    yq -o=json -N '.' "$f" | jq -e --arg name "$name" '
+        def private: test("^(0|10|127)\\.|^192\\.168\\.|^172\\.(1[6-9]|2[0-9]|3[01])\\.|^100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\.|^169\\.254\\.|^22[4-9]\\.|^2[3-5][0-9]\\.");
+        . as $p
+        | ($p.spec.egress | length) == 4
+        and $p.apiVersion == "cilium.io/v2" and $p.kind == "CiliumNetworkPolicy" and $p.metadata == {name: "cloudflared"}
+        and ($p.spec | keys) == ["egress", "endpointSelector", "ingress"]
+        and $p.spec.endpointSelector == {}
+        and $p.spec.ingress == [{fromEntities: ["host"], toPorts: [{ports: [{port: "2000", protocol: "TCP"}]}]}]
+        and $p.spec.egress[0] == {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "kube-system", "k8s-app": "kube-dns"}}], toPorts: [{ports: [{port: "53", protocol: "UDP"}, {port: "53", protocol: "TCP"}]}]}
+        and $p.spec.egress[1] == {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": $name, "app.kubernetes.io/name": $name}}], toPorts: [{ports: [{port: "3001", protocol: "TCP"}]}]}
+        and $p.spec.egress[2] == {toCIDRSet: [{cidr: "198.41.192.0/24"}, {cidr: "198.41.200.0/24"}], toPorts: [{ports: [{port: "7844", protocol: "TCP"}, {port: "7844", protocol: "UDP"}]}]}
+        and ($p.spec.egress[3] | keys) == ["toCIDRSet", "toPorts"]
+        and $p.spec.egress[3].toPorts == [{ports: [{port: "443", protocol: "TCP"}]}]
+        and ($p.spec.egress[3].toCIDRSet | length) > 0
+        and ($p.spec.egress[3].toCIDRSet | all(keys == ["cidr"] and (.cidr | test("^[0-9.]+/[0-9]+$")) and (.cidr | private | not) and ((.cidr | split("/")[1] | tonumber) >= 12)))' >/dev/null \
+        || fail "$f must be exactly: ingress only the kubelet probe on 2000/TCP; egress only cluster DNS, the pods app.kubernetes.io/name=$name in the namespace $name on 3001/TCP (never 3000), the tunnel edge 198.41.192.0/24 and 198.41.200.0/24 on 7844 TCP and UDP, and 443/TCP to public IPv4 ranges (/12 or smaller, none private)"
+    echo "    share: $dir routes only the guest host to $name-share:3001 with the Access check required, and its policy reaches nothing else"
+}
+
 validate_entry() {
     local file="$1" stem fx=false errs name ns path parts_json pull_json host famhost netpol egress
     local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot mapkit listed other share sharehost guestcols
@@ -806,6 +851,7 @@ validate_entry() {
             || fail "the share part needs the folder $nsroot/$name-share/ (cloudflared in the Namespace $name-share); add it in the same PR"
         yq -e ".resources[] | select(. == \"./$name-share\")" "$nsroot/kustomization.yaml" >/dev/null 2>&1 \
             || fail "$nsroot/kustomization.yaml does not list ./$name-share (the share part's cloudflared)"
+        check_share_files "$nsroot/$name-share/app" "$name" "$sharehost"
     fi
     # 8a. The MapKit Secret, with the mapkit part only.
     mapkit="$(echo "$parts_json" | jq 'index("mapkit") != null')"
@@ -892,6 +938,14 @@ validate_entry() {
 
     # 4-6. Restricted pods, no credentials, the network policy and the routes.
     yq -o=json -N '.' "$tmp/build.yaml" | jq -s '[.[] | select(type == "object")]' >"$tmp/build.json"
+    # Fixtures only: `# mutate: <jq filter>` changes the built objects, so the
+    # self-test can show that the checks below catch a broken part.
+    if [[ "$fx" == true ]]; then
+        errs="$(sed -n 's/^# mutate: //p' "$file")"
+        if [[ -n "$errs" ]]; then
+            jq "$errs" "$tmp/build.json" >"$tmp/build.mut" && mv "$tmp/build.mut" "$tmp/build.json"
+        fi
+    fi
     # A variable left in the build would be a typo. Only container env values
     # may hold a literal ${...}: that is what the documented $${...} escape in
     # `env` becomes after substitution.
@@ -1068,9 +1122,20 @@ run_self_test() {
         # A sample with the share part gets the cloudflared folder too, unless it
         # says `# no-share-folder`.
         if yq -e '.spec.defaultValues.parts[] | select(. == "share")' "$f" >/dev/null 2>&1 && ! grep -q '^# no-share-folder' "$f"; then
-            mkdir -p "$nsroot/$name-share"
+            mkdir -p "$nsroot/$name-share/app/resources"
             printf -- '---\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n' >"$nsroot/$name-share/kustomization.yaml"
             yq -i ".resources += [\"./$name-share\"]" "$nsroot/kustomization.yaml"
+            # cloudflared's routing and policy: the real files for this sample's
+            # names, or with `# share-files: <case>` a broken copy.
+            real="kubernetes/apps/personal-apps/reports-share/app"
+            sh_host="$(yq '.spec.defaultValues.vars.SHARE_HOST' "$f")"
+            sed "s#share\.\${SECRET_DOMAIN}#$sh_host.\${SECRET_DOMAIN}#; s#reports-share\.reports\.svc#$name-share.$name.svc#" "$real/resources/cloudflared.yaml" >"$nsroot/$name-share/app/resources/cloudflared.yaml"
+            yq "(.spec.egress[] | select(.toEndpoints[0].matchLabels[\"app.kubernetes.io/name\"] == \"reports\") | .toEndpoints[0].matchLabels) |= (.[\"io.kubernetes.pod.namespace\"] = \"$name\" | .[\"app.kubernetes.io/name\"] = \"$name\")" "$real/networkpolicy.yaml" >"$nsroot/$name-share/app/networkpolicy.yaml"
+            case "$(sed -n 's/^# share-files: //p' "$f")" in
+                required-false) sed -i.bak 's/required: true/required: false/' "$nsroot/$name-share/app/resources/cloudflared.yaml" ;;
+                extra-rule) yq -i '.ingress = [{"hostname": "x.example.test", "service": "http://x.x.svc.cluster.local:80"}] + .ingress' "$nsroot/$name-share/app/resources/cloudflared.yaml" ;;
+                policy-3000) yq -i '(.spec.egress[] | select(.toEndpoints[0].matchLabels["app.kubernetes.io/name"] != null) | .toPorts[0].ports) += [{"port": "3000", "protocol": "TCP"}]' "$nsroot/$name-share/app/networkpolicy.yaml" ;;
+            esac
         fi
         # `# mapkit-secret: <case>` gives the sample's folder a mapkit.sops.yaml
         # stand-in: its shape only, with placeholder ENC[...] values that hold

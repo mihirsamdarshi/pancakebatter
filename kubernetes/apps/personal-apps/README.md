@@ -518,40 +518,57 @@ Nobody but the owner handles the credentials; do not paste them into chat.
 4. In Cloudflare Zero Trust, create the Access application and policy (below)
    and note the team name (the part before `.cloudflareaccess.com`) and the
    application's aud tag.
-5. Set the three `cluster-secrets` keys (each command waits for you to type the
-   value; nothing is printed):
+5. From the repo root, in bash or zsh, set the three `cluster-secrets` keys (the
+   loop waits for you to type each value; nothing is printed, and it stops at an
+   empty value):
 
    ```sh
    cs=kubernetes/components/sops/cluster-secrets.sops.yaml
    for k in SECRET_SHARE_TUNNEL_ID SECRET_SHARE_ACCESS_TEAM SECRET_SHARE_ACCESS_AUD; do
-     read -r -s -p "$k: " v; echo
+     printf '%s: ' "$k" >&2; IFS= read -r -s v; echo >&2
+     [ -n "$v" ] || { echo "empty $k: stopped" >&2; break; }
      printf '%s' "$v" | jq -Rs . | sops set --value-stdin "$cs" "[\"stringData\"][\"$k\"]"
    done
    ```
 
-6. Write the credentials Secret from 1Password. It replaces the placeholder the
-   PR contains. Replace the `op://` reference with the real item:
+6. From the repo root, in bash or zsh, write the credentials Secret from
+   1Password. It replaces the placeholder the PR contains. Replace the `op://`
+   reference with the real item. The `jq` step refuses anything that is not a
+   tunnel credentials file:
 
    ```sh
    ( set -o pipefail
      f=kubernetes/apps/personal-apps/reports-share/app/tunnel-credentials.sops.yaml
      op read 'op://<vault>/<item>/credentials.json' \
-       | jq -Rs '{apiVersion: "v1", kind: "Secret", metadata: {name: "reports-share-tunnel", namespace: "reports-share"}, type: "Opaque", stringData: {"credentials.json": .}}' \
+       | jq -Rs 'if (try (fromjson | (.AccountTag and .TunnelSecret and .TunnelID)) catch false) then {apiVersion: "v1", kind: "Secret", metadata: {name: "reports-share-tunnel", namespace: "reports-share"}, type: "Opaque", stringData: {"credentials.json": .}} else error("not a tunnel credentials file") end' \
        | sops encrypt --filename-override "$f" --input-type json --output-type yaml /dev/stdin > "$f.tmp" \
        && [ "$(yq '[.stringData[] | test("^ENC\\[")] | all' "$f.tmp")" = true ] \
        && mv "$f.tmp" "$f" || { rm -f "$f.tmp"; echo "failed: $f was not written" >&2; false; } )
    ```
 
-7. Create the DNS record with Terraform, not with `cloudflared tunnel route dns`
-   (the CLI's certificate belongs to another zone). Put the tunnel id in the
-   git-ignored `terraform/dns/tunnel.auto.tfvars` as
-   `reports_share_tunnel_id = "<id>"`, then run `just dns plan` and `just dns apply`.
+7. Create the DNS record with Terraform, not with `cloudflared tunnel route dns`.
+   Add a line `reports_share_tunnel_id = "<id>"` to the git-ignored
+   `terraform/dns/tunnel.auto.tfvars` (keep the line for the other tunnel), then
+   run `just dns plan` and `just dns apply`.
 8. Re-sign the MapKit token so its `origin` claim also names `share.<zone>` (see
    "Apple Maps (the mapkit part)"). Without it the maps on the guest view show a
    note.
 9. Commit the two changed files (`cluster-secrets.sops.yaml`,
-   `tunnel-credentials.sops.yaml`), merge, and check the log of the cloudflared
-   pod (it says `Registered tunnel connection`).
+   `tunnel-credentials.sops.yaml`) and merge. Then test end to end:
+   - `kubectl -n reports-share logs deploy/cloudflared` says `Registered tunnel
+     connection` and has no `AccessJWTValidator` errors;
+   - `curl -sI https://share.<zone>/` answers 302 to `<team>.cloudflareaccess.com`;
+   - in a private browser window, `https://share.<zone>/` shows the one-time PIN
+     page;
+   - the listed email gets a code, gets in, and `fay-ave` loads;
+   - an email that is not listed is refused (no code is sent).
+
+After changing any `SECRET_SHARE_*` key later, run
+`kubectl -n reports-share rollout restart deploy/cloudflared`: the routing's
+hash does not change when only a key does.
+
+Never add a private-network route (a CIDR or hostname route) to this tunnel:
+WARP traffic bypasses the Access check.
 
 The Access application, in Zero Trust under Access, Applications:
 
@@ -559,8 +576,10 @@ The Access application, in Zero Trust under Access, Applications:
   hours.
 - One policy, action Allow, rule "Emails" listing only the guest's address. No
   other rule and no other policy.
-- Login methods: One-time PIN only. Turn off every other identity provider for
-  this application.
+- Login methods: One-time PIN only. Turn on One-time PIN under Settings,
+  Authentication first, then turn off every other identity provider for this
+  application.
+- Leave the path empty, so the application covers the whole host.
 - No other setting. Keep "Enable instant auth" and "Bypass" off.
 
 Add another guest: add the address to the policy. Remove one: delete the address
@@ -570,7 +589,9 @@ edge then refuses everyone), or in Terraform set the tunnel id to `null` and
 apply (the name stops resolving), or remove `share` from the parts of
 `app-platform/apps/reports.yaml` and delete the folder `reports-share/` (the
 port, Service and cloudflared go away), then run `cloudflared tunnel delete
-reports-share`.
+reports-share`. To finish, also delete the Access application, remove the three
+`SECRET_SHARE_*` keys from `cluster-secrets`, and delete the `reports-share`
+Namespace by hand: it is prune-disabled, so it stays behind.
 
 ### Creating ghcr-apps-read
 

@@ -44,6 +44,9 @@ spec:
       ICON: mdi-file-document-multiple
       # reports.family.<zone>, for family members through the family-apps share.
       FAMILY_HOST: reports
+      # The guest host also appears in reports-share/app/resources/cloudflared.yaml
+      # (hostname), terraform/dns/main.tf (the CNAME) and the MapKit token's origin
+      # claim (README signer). validate-apps.sh checks the first against this value.
       # share.<zone>, the guest view for one outside person (the share part), and
       # the collection it may read.
       SHARE_HOST: share

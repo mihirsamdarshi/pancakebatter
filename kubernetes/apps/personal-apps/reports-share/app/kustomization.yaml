@@ -11,7 +11,9 @@ resources:
   # until then it holds a placeholder that cloudflared rejects.
   - ./tunnel-credentials.sops.yaml  # reports-share-tunnel (key credentials.json)
 configMapGenerator:
-  # The hash suffix rolls cloudflared when its routing changes.
+  # The hash suffix is computed before Flux fills in the SECRET_SHARE_* values, so
+  # it rolls cloudflared only when this file's text changes, not when a key does:
+  # after changing a key, restart it (see the README).
   - name: cloudflared-config
     files:
       - config.yaml=./resources/cloudflared.yaml
