@@ -120,3 +120,22 @@ output "reports_share_access_aud" {
   description = "AUD tag of the Access application (SECRET_SHARE_ACCESS_AUD). Null while the share is off."
   value       = one(cloudflare_zero_trust_access_application.reports_share[*].aud)
 }
+
+# For cluster-secrets, for the share-admin service (the one that edits the
+# guest list for the reports app): SECRET_SHARE_ACCESS_APP_ID,
+# SECRET_SHARE_ACCESS_POLICY_ID and SECRET_SHARE_ACCESS_ACCOUNT_ID. They are
+# IDs, not credentials. The state is local to this machine.
+output "reports_share_access_app_id" {
+  description = "ID of the Access application (SECRET_SHARE_ACCESS_APP_ID). Null while the share is off."
+  value       = one(cloudflare_zero_trust_access_application.reports_share[*].id)
+}
+
+output "reports_share_access_policy_id" {
+  description = "ID of the guest policy 'reports-share guests' (SECRET_SHARE_ACCESS_POLICY_ID). Null while the share is off."
+  value       = one(cloudflare_zero_trust_access_policy.reports_share_guests[*].id)
+}
+
+output "reports_share_access_account_id" {
+  description = "ID of the Cloudflare account (SECRET_SHARE_ACCESS_ACCOUNT_ID)."
+  value       = data.cloudflare_zone.this.account.id
+}
