@@ -281,12 +281,12 @@ export class Worker {
           }
           this.failures.set(retailer, 0);
         } catch (error) {
-          // A plain exception on eBay is a detail that passed the adapter but failed the shared contract.
+          // An unexpected (non-upstream) exception is labelled internal so a code bug never passes as an eBay data problem.
           const failure =
               error instanceof UpstreamError
                 ? error
                 : retailer === "ebay"
-                  ? invalid("schema")
+                  ? invalid("internal")
                   : new UpstreamError("invalid-data"),
             count = Math.min((this.failures.get(retailer) ?? 0) + 1, 12);
           this.failures.set(retailer, count);

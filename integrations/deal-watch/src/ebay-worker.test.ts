@@ -188,7 +188,7 @@ test("eBay invalid-data is logged with a fixed reason and no listing value, and 
     [() => Response.json({ ...listing, conditionId: "3000" }), "condition"],
     [() => new Response("not json"), "json"],
     [() => new Response("x".repeat(1024 * 1024 + 1)), "size"],
-    [() => Response.json({ ...listing, seller: { feedbackScore: 1.5 } }), "schema"],
+    [() => Response.json({ ...listing, seller: { feedbackScore: 1.5 } }), "internal"],
   ];
   for (const [respond, reason] of cases) {
     const { line, completed } = await checkOnce(itemTask, respond);

@@ -27,7 +27,7 @@ function rejectWarnings(value: unknown): void {
     .map((w) => (object(w) ? w.errorId : undefined))
     .filter((n): n is number => typeof n === "number" && Number.isSafeInteger(n) && n >= 0)
     .slice(0, 5);
-  throw invalid(codes.length ? `warnings:${codes.join(",")}` : "warnings");
+  throw invalid(codes.length ? (`warnings:${codes.join(",")}` as InvalidReason) : "warnings");
 }
 const hasErrors = (value: Record<string, unknown>) =>
   value.errors !== undefined && (!Array.isArray(value.errors) || value.errors.length > 0);

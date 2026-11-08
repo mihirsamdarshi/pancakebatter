@@ -5,7 +5,12 @@ export type Fetcher = (request: Request) => Promise<Response>;
  */
 export type InvalidReason =
   | "warnings"
-  | `warnings:${string}`
+  | `warnings:${number}`
+  | `warnings:${number},${number}`
+  | `warnings:${number},${number},${number}`
+  | `warnings:${number},${number},${number},${number}`
+  | `warnings:${number},${number},${number},${number},${number}`
+  | "internal"
   | "errors"
   | "schema"
   | "size"

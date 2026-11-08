@@ -192,6 +192,9 @@ test("a warning response is rejected with only eBay's numeric codes", () => {
     "warnings:11510,11502",
   );
   expect(detail({ warnings: [{ message: "no code" }] })).toBe("warnings");
+  expect(detail({ warnings: [{ errorId: "Synthetic-secret", message: "x" }, { errorId: 1.5 }] })).toBe(
+    "warnings",
+  );
   expect(detail({ warnings: Array.from({ length: 8 }, (_, i) => ({ errorId: 100 + i })) })).toBe(
     "warnings:100,101,102,103,104",
   );
