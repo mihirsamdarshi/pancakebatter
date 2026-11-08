@@ -14,6 +14,7 @@ spec:
     metadata:
       annotations:
         checksum/runtime-config: 6f6fa77b7d8bb4e280a909aaab7a8be988d60554f65751c30b2ed0ff8141a8cd
+        checksum/ebay-credentials: c1caf5b1e1f27506cb1882503d0eb74f3aed94e476b71192bd1ecf753dd29011
       labels:
         app.kubernetes.io/name: deal-watch-integrations
     spec:
@@ -29,7 +30,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: worker
-          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-integrations@sha256:f44f7adf78fd92280db3b1be7ca52ff63d504ac05a42619848ee1ec1db771534
+          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-integrations@sha256:4f6a105df90ff76cfc75705d802360bb9fba2a75c18c294a6ab1379774379a1b
           env:
             - name: APP_BASE_URL
               value: https://deal-watch.${SECRET_DOMAIN_LOCAL}
@@ -40,6 +41,8 @@ spec:
             # Origin only; the worker appends /state. Absent or unreachable means BLOCKED.
             - name: EBAY_STATE_URL
               value: http://ebay-receiver-internal.deal-watch-ebay.svc.cluster.local:3001
+            - name: EBAY_CREDENTIALS_FILE
+              value: /run/ebay/credentials.json
             - name: BROWSER_URL
               value: http://deal-watch-browser.deal-watch-integrations.svc.cluster.local:3000
           ports:
@@ -74,6 +77,9 @@ spec:
             - name: credentials
               mountPath: /run/credentials
               readOnly: true
+            - name: ebay-credentials
+              mountPath: /run/ebay
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir:
@@ -81,4 +87,8 @@ spec:
         - name: credentials
           secret:
             secretName: deal-watch-integrations-credentials
+            defaultMode: 288 # 0440
+        - name: ebay-credentials
+          secret:
+            secretName: deal-watch-integrations-ebay
             defaultMode: 288 # 0440
