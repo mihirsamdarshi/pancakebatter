@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { Worker } from "./worker.ts";
 import { EbayClient } from "./ebay.ts";
 import { readPolicy } from "./policy.ts";
-import { budgets, policyIdentity } from "./vendor/domain.ts";
+import { budgets, policyIdentity, type Offer } from "./vendor/domain.ts";
 test("worker schedules search and each detail separately, including after restart", async () => {
   const watches = readPolicy(new URL("../fixtures/example-policy.json", import.meta.url).pathname),
     w = watches[0]!;
@@ -107,8 +107,11 @@ test("worker schedules search and each detail separately, including after restar
   expect(details.map((o) => (o as { id: string }).id)).toEqual(ids);
 });
 
-/** Runs one eBay check against a canned response; returns the check log line and the completion body. */
-async function checkOnce(task: unknown, respond: () => Response) {
+/**
+ * Runs one eBay check against a canned response; returns the check log line, the completion body and
+ * the worker. `setup` may seed worker state before the check.
+ */
+async function checkOnce(task: unknown, respond: () => Response, setup?: (worker: Worker) => void) {
   const watches = readPolicy(new URL("../fixtures/example-policy.json", import.meta.url).pathname),
     watch = watches[0]!;
   watch.bindings = [
@@ -150,7 +153,7 @@ async function checkOnce(task: unknown, respond: () => Response) {
   };
   const log = spyOn(console, "log").mockImplementation(() => {});
   try {
-    await new Worker({
+    const worker = new Worker({
       baseUrl: "https://app.test",
       ebayStateUrl: "http://receiver.test:3001",
       watches,
@@ -159,10 +162,12 @@ async function checkOnce(task: unknown, respond: () => Response) {
       startupDelay: false,
       fetcher,
       ebay: new EbayClient({ clientId: "synthetic", clientSecret: "synthetic" }, fetcher, () => 0),
-    }).runOnce();
+    });
+    setup?.(worker);
+    await worker.runOnce();
     const lines = log.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('"check"'));
     expect(lines).toHaveLength(1);
-    return { line: lines[0]!, completed };
+    return { line: lines[0]!, completed, worker };
   } finally {
     log.mockRestore();
   }
@@ -211,7 +216,6 @@ test("eBay invalid-data is logged with a fixed reason and no listing value, and 
       () => Response.json({ ...listing, warnings: [{ ...awayWarning, errorId: 11509 }, warning] }),
       "warnings:11509,11510",
     ],
-    [() => Response.json({ ...listing, gtin: undefined }), "gtin-missing"],
     [() => Response.json({ ...listing, conditionId: "3000" }), "condition"],
     [() => new Response("not json"), "json"],
     [() => new Response("x".repeat(1024 * 1024 + 1)), "size"],
@@ -267,6 +271,55 @@ test("a detail whose gtin is not the watch gtin completes with an empty offers l
     expect(completed.mode).toBe("upsert");
     expect("error" in completed).toBe(false);
     expect("retryAfterMs" in completed).toBe(false);
+  }
+});
+// Owner decision 20: a listing with no GTIN is skipped like a mismatch, and the log says what it was.
+test("a detail with no gtin completes with an empty offers list, logs not-product with fixed sub-codes and never backs off", async () => {
+  const { gtin: _omit, ...noGtin } = listing;
+  const cases: [Record<string, unknown>, string][] = [
+    [noGtin, "gtin-missing:no-product:new"],
+    [{ ...noGtin, conditionId: "2000" }, "gtin-missing:no-product:refurbished"],
+    [{ ...noGtin, product: { gtins: [] } }, "gtin-missing:no-gtins:new"],
+    [
+      { ...noGtin, conditionId: "1500", product: { title: "Synthetic Product Title" } },
+      "gtin-missing:no-gtins:open-box",
+    ],
+    [{ ...noGtin, conditionId: "Synthetic condition" }, "gtin-missing:no-product:other"],
+  ];
+  for (const [body, reason] of cases) {
+    let key = "";
+    const { line, completed, worker } = await checkOnce(
+      itemTask,
+      () => Response.json(body),
+      (seed) => {
+        // A failure streak, a cached copy and a sent marker from earlier rounds.
+        key = `${seed.watches[0]!.id}/ebay`;
+        seed.failures.set("ebay", 3);
+        seed.cache.set(key, new Map([[itemId, {} as Offer]]));
+        seed.sent.set(`${key}/${itemId}`, "Synthetic");
+      },
+    );
+    expect(JSON.parse(line)).toEqual({
+      event: "check",
+      retailer: "ebay",
+      outcome: "not-product",
+      reason,
+      ms: expect.any(Number),
+    });
+    for (const value of forbidden) expect(line).not.toContain(value);
+    expect(completed).toEqual({
+      watchId: worker.watches[0]!.id,
+      bindingId: "ebay",
+      leaseId: expect.any(String),
+      policyVersion: worker.policyVersion,
+      offers: [],
+      mode: "upsert",
+    });
+    // Counted as a success: the streak resets and the next check is one normal interval away.
+    expect(worker.failures.get("ebay")).toBe(0);
+    expect(worker.floor.get("ebay")).toBe(1_000_000 + budgets.ebay);
+    expect(worker.cache.get(key)?.has(itemId)).toBe(false);
+    expect(worker.sent.has(`${key}/${itemId}`)).toBe(false);
   }
 });
 

@@ -64,14 +64,32 @@ const sameGtin = (v: unknown, watch: string): boolean => {
   const a = gtin14(v);
   return a !== null && a === gtin14(watch);
 };
+/** eBay `conditionId` to the watch condition: the one map for `parseEbay` and the `gtin-missing` log code. */
+const CONDITIONS: Record<string, Exclude<Offer["condition"], "used">> = {
+  "1000": "new",
+  "1500": "open-box",
+  "2000": "refurbished",
+  "2010": "refurbished",
+  "2020": "refurbished",
+  "2030": "refurbished",
+  "2500": "refurbished",
+};
 /**
  * Identity: the item-level `gtin` decides when present (compared in 14-digit form, see `gtin14`). Only when it
  * is absent may `product.gtins` (Browse `Product.gtins`, string[]) contain the watch GTIN.
+ * Owner decision 20: a listing with no GTIN at all is logged with fixed words only (see `InvalidReason`).
  */
 function gtinReason(value: Record<string, unknown>, gtin: string): InvalidReason | null {
   if (value.gtin !== undefined) return sameGtin(value.gtin, gtin) ? null : "gtin-mismatch";
   const gtins = object(value.product) ? value.product.gtins : undefined;
-  if (!Array.isArray(gtins) || gtins.length === 0) return "gtin-missing";
+  if (!Array.isArray(gtins) || gtins.length === 0) {
+    const product = object(value.product) ? "no-gtins" : "no-product";
+    const id = value.conditionId;
+    // Own keys only: an id such as "constructor" must never put an inherited value into the log.
+    const condition =
+      (typeof id === "string" && Object.hasOwn(CONDITIONS, id) && CONDITIONS[id]) || "other";
+    return `gtin-missing:${product}:${condition}`;
+  }
   return gtins.some((g) => sameGtin(g, gtin)) ? null : "gtin-mismatch";
 }
 /**
@@ -99,17 +117,8 @@ export function parseEbay(
   )
     throw invalid("buying-option");
   if (hasErrors(value)) throw invalid("errors");
-  const conditions: Record<string, Offer["condition"]> = {
-    "1000": "new",
-    "1500": "open-box",
-    "2000": "refurbished",
-    "2010": "refurbished",
-    "2020": "refurbished",
-    "2030": "refurbished",
-    "2500": "refurbished",
-  };
   const condition =
-    typeof value.conditionId === "string" ? conditions[value.conditionId] : undefined;
+    typeof value.conditionId === "string" ? CONDITIONS[value.conditionId] : undefined;
   const price = money(value.price),
     title = text(value.title),
     seller = object(value.seller) ? value.seller : {};
