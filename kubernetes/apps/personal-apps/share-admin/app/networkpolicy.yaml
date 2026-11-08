@@ -6,9 +6,14 @@
 #   app.kubernetes.io/name=reports in the namespace reports, which the platform's
 #   base Deployment sets. Not the reports job pod (label reports-job), the
 #   VolSync mover or any other pod of that namespace.
-# - 8081/TCP (/healthz only) only from the node, for kubelet probes. Nothing
-#   else reaches that port. A host-network pod or process on the same node can
-#   also reach it; accepted, since it serves no write route.
+# - 8081/TCP (/healthz only) from the node, for kubelet probes. It serves no
+#   write route, so any host process reaching it is accepted.
+# - The node is denied on 8080 (ingressDeny below). Cilium in Kubernetes mode
+#   always allows traffic from the local host to the pods on it (allow-localhost),
+#   on every port, whatever the ingress rules say, so without the deny the
+#   kubelet, host-network pods (Alloy, node-exporter, the Cilium agent) and any
+#   host process on this node could reach the write routes. A deny rule wins over
+#   every allow, including that built-in one.
 #
 # Egress: cluster DNS, and 443/TCP to Cloudflare's published IPv4 ranges only
 # (the Cloudflare API is served from them). The same list as the cloudflared
@@ -35,6 +40,12 @@ spec:
       toPorts:
         - ports:
             - port: "8081"
+              protocol: TCP
+  ingressDeny:
+    - fromEntities: [host]
+      toPorts:
+        - ports:
+            - port: "8080"
               protocol: TCP
   egress:
     - toEndpoints:

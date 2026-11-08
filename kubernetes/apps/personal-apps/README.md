@@ -259,7 +259,11 @@ namespaces. DNS remains a tunnelling channel for a compromised app. Prometheus
 cannot scrape an app; that would be a reviewed addition. `job-egress` is the
 one rule for some pods only: a second policy that lets the job pods, and no
 other pod, reach one public CIDR on 443, and denies them the app's namespace
-and claude-proxy (see "Scheduled jobs").
+and claude-proxy (see "Scheduled jobs"). `share` and `share-admin` are per-pod
+rules of the same kind: a second policy that selects the app pod only. `share`
+opens 3001 to the cloudflared pods of `<name>-share`; `share-admin` lets the app
+pod send to the pods in the namespace `share-admin` on 8080/TCP, so the app does
+reach another namespace there, and nothing else in its namespace gets that.
 
 Hubble is off in this cluster. To see drops, run `cilium-dbg monitor --type drop`
 in the node's Cilium agent pod. Do not widen a policy to fix a drop without a
@@ -691,13 +695,23 @@ terraform -chdir=terraform/dns output -raw reports_share_access_account_id
 ```
 
 While the share is off (no application or policy exists) the first two fail
-with "not found"; that is expected. Set one key at a time, in zsh, from the
-repo root (nothing is printed; change the output name and the key together):
+with "not found"; that is expected. Run the loop below from the checkout that
+holds the Terraform state (the main checkout; a worktree has no state and the
+outputs come back empty), with the share on. In zsh or bash, from the repo
+root, it sets all three keys. Nothing is printed. It stops at the first output
+that is missing or does not look like an ID (letters, digits and dashes, 8 to
+64), so a null or empty output is never written into `cluster-secrets`:
 
 ```sh
-terraform -chdir=terraform/dns output -raw reports_share_access_app_id \
-  | jq -Rs . \
-  | sops set --value-stdin kubernetes/components/sops/cluster-secrets.sops.yaml '["stringData"]["SECRET_SHARE_ACCESS_APP_ID"]'
+cs=kubernetes/components/sops/cluster-secrets.sops.yaml
+for pair in reports_share_access_account_id:SECRET_SHARE_ACCESS_ACCOUNT_ID \
+            reports_share_access_policy_id:SECRET_SHARE_ACCESS_POLICY_ID \
+            reports_share_access_app_id:SECRET_SHARE_ACCESS_APP_ID; do
+  out=${pair%%:*}; key=${pair##*:}
+  id="$(terraform -chdir=terraform/dns output -raw "$out")" || { echo "no output $out: stopped" >&2; break; }
+  [[ "$id" =~ ^[A-Za-z0-9-]{8,64}$ ]] || { echo "$out is not an ID: stopped" >&2; break; }
+  jq -n --arg v "$id" '$v' | sops set --value-stdin "$cs" "[\"stringData\"][\"$key\"]" || { echo "sops failed for $key: stopped" >&2; break; }
+done
 ```
 
 A new application or policy (see turning the share back on) has new IDs: set
@@ -732,8 +746,10 @@ It runs outside the platform, like `claude-proxy`, in its own Namespace
   `apps-pull`);
 - a CiliumNetworkPolicy. Ingress: 8080/TCP only from the reports app pod (label
   `app.kubernetes.io/name: reports` in the namespace `reports`, not the weekly
-  job pod, the backup pods or anything else), and 8081/TCP only from the node
-  (kubelet probes). Egress: cluster DNS, and 443/TCP to Cloudflare's published
+  job pod, the backup pods or anything else), and 8081/TCP from the node
+  (kubelet probes). Cilium always lets the node and host-network processes
+  reach every port of a pod on it, so the policy also denies the node on 8080
+  (`ingressDeny`); a deny wins. Egress: cluster DNS, and 443/TCP to Cloudflare's published
   IPv4 ranges (the list the cloudflared policy uses), nothing else.
 
 On the reports side the `share-admin` part adds `SHARE_ADMIN_URL`
@@ -759,21 +775,15 @@ Flux Kustomization stays not ready.
    **Access: Audit Logs: Read**. Account Resources: include this account only.
    TTL: one year from today. No client IP filter. The value is shown once.
 2. Save it in 1Password: item "Cloudflare Reports Share Admin" in the Private
-   vault, field `credential`. Set a calendar reminder 90 days before the
+   vault, field `credential` (the owner's own item name, not a secret; use
+   yours in the `op://` reference in step 4). Set a calendar reminder 90 days before the
    expiry (see "Rotation").
-3. Set the three `cluster-secrets` keys. Follow "IDs for share-admin" above:
-   run `just dns apply` once, then, in zsh from the repo root, one key at a time
-   (nothing is printed; change the output name and the key together):
-
-   ```sh
-   cs=kubernetes/components/sops/cluster-secrets.sops.yaml
-   terraform -chdir=terraform/dns output -raw reports_share_access_account_id \
-     | jq -Rs . | sops set --value-stdin "$cs" '["stringData"]["SECRET_SHARE_ACCESS_ACCOUNT_ID"]'
-   terraform -chdir=terraform/dns output -raw reports_share_access_policy_id \
-     | jq -Rs . | sops set --value-stdin "$cs" '["stringData"]["SECRET_SHARE_ACCESS_POLICY_ID"]'
-   terraform -chdir=terraform/dns output -raw reports_share_access_app_id \
-     | jq -Rs . | sops set --value-stdin "$cs" '["stringData"]["SECRET_SHARE_ACCESS_APP_ID"]'
-   ```
+3. Set the three `cluster-secrets` keys. Run `just dns apply` once (with the
+   share on), then run the checked loop in "IDs for share-admin" above, from the
+   main checkout (the one that holds the Terraform state), in zsh or bash from
+   the repo root. It writes `SECRET_SHARE_ACCESS_ACCOUNT_ID`,
+   `SECRET_SHARE_ACCESS_POLICY_ID` and `SECRET_SHARE_ACCESS_APP_ID`, and stops
+   on any output that is missing or not an ID.
 
 4. Write the Secret from 1Password. It replaces the dummy file in the PR. The
    token is never written to a file: `sops encrypt` reads it from the pipe and
@@ -805,7 +815,12 @@ Flux Kustomization stays not ready.
    flux get ks share-admin -n flux-system
    kubectl -n share-admin get deploy,pod,svc
    kubectl -n share-admin logs deploy/share-admin   # a "listening" line; never a token
+   kubectl -n share-admin get secret apps-ghcr      # the pull Secret copy
    ```
+
+   If the Secret `apps-ghcr` is missing (`apps-pull` ran before the Namespace
+   existed), the pod stays in `ImagePullBackOff`. Run
+   `flux-operator reconcile resourceset apps-pull -n flux-system` and check again.
 
 6. End-to-end check (rollout step 12), with two test addresses you control, A
    and B, that are not real guests. Only the reports app pod may call the
@@ -835,9 +850,17 @@ Flux Kustomization stays not ready.
       '/last-login?email=b@example.test'` shows the time B last got in.
    h. From the main checkout, `just dns plan` must show no change to the policy.
       If it shows one, the write-back changed a field: stop and look.
-   i. Optional: the service refuses other callers. From a pod outside the
-      reports app, the same call times out (the service's policy drops it):
-      `kubectl -n claude-proxy exec deploy/claude-proxy -- bun -e 'fetch("http://share-admin.share-admin.svc.cluster.local:8080/guests",{signal:AbortSignal.timeout(5000)}).then(r=>console.log(r.status),e=>console.log("blocked:",e.name))'`.
+   i. Check that the policy drops everyone else. Get the pod IP with
+      `kubectl -n share-admin get pod -l app.kubernetes.io/name=share-admin -o jsonpath='{.items[0].status.podIP}'`
+      and its node with `-o jsonpath='{.items[0].spec.nodeName}'`.
+      - From a pod in the `default` namespace the call must time out:
+        `kubectl -n default run policy-check --rm -it --restart=Never --image=curlimages/curl --command -- curl -m 5 -s -o /dev/null -w '%{http_code}\n' http://<pod ip>:8080/guests`
+        (no answer, exit 28).
+      - From the node, with a debug pod on it (replace `<node>`):
+        `kubectl debug node/<node> -it --image=curlimages/curl -- curl -m 5 -s -o /dev/null -w '%{http_code}\n' http://<pod ip>:8080/guests`
+        must time out (the `ingressDeny`), and the same with
+        `http://<pod ip>:8081/healthz` must print `200`. Then delete the debug
+        pod: `kubectl get pods | grep node-debugger`, then `kubectl delete pod <name>`.
 
 #### Rotation and expiry
 
@@ -846,7 +869,10 @@ that date. To rotate: create a new account token with the same two permissions
 (step 1), save it in the same 1Password item, repeat step 4 (it overwrites the
 file), merge, and wait about a minute for the mounted file to update (no
 restart). Then delete the old token in Cloudflare. After expiry, writes fail with
-an `alert` log line (`token_rejected`) and the guest list stays as it is.
+an `alert` log line (`"reason":"token-rejected"`; the answer's error code is
+`token_rejected`) and the guest list stays as it is. Nothing pages on alert lines
+yet: look at the logs. After a rotation, wait 30 seconds, then `sa GET /guests`
+(step 6) must answer 200.
 
 If Cloudflare changes its published ranges (`https://www.cloudflare.com/ips-v4`),
 update `share-admin/app/networkpolicy.yaml` and the cloudflared policy together.
