@@ -7,6 +7,11 @@ metadata:
   name: arc-hook-template
 data:
   content: |
+    metadata:
+      labels:
+        # Selector for the spread below. The hook merges these labels into the
+        # job pod and into container step pods.
+        app.kubernetes.io/component: arc-job
     spec:
       priorityClassName: ci-low
       automountServiceAccountToken: false
@@ -16,6 +21,16 @@ data:
       # min). Jobs on apps-ci must set timeout-minutes of 45 or less (lint 10,
       # check 30 today); a job without it is killed at 50 minutes.
       activeDeadlineSeconds: 3000
+      # Soft: prefer one job pod per node. ScheduleAnyway only adds a score and
+      # never leaves a pod Pending. The job pod need not share a node with its
+      # runner pod (kubernetes-novolume uses emptyDir volumes and exec).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: arc-job
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
