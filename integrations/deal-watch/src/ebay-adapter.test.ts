@@ -278,3 +278,27 @@ test("GTIN identity: item gtin decides; product.gtins only when the item gtin is
     "warnings:1",
   );
 });
+test("GTIN identity compares the 14-digit form on both sides and never matches malformed values", () => {
+  const upc = { ...b, ebayGtin: "711719024538" };
+  const { gtin: _omit, ...noGtin } = item;
+  const check = (patch: Record<string, unknown>, binding = upc) => {
+    try {
+      parseEbay({ ...noGtin, ...patch }, w, binding, id, now);
+      return "accepted";
+    } catch (e) {
+      return (e as UpstreamError).reason;
+    }
+  };
+  for (const same of ["711719024538", "0711719024538", "00711719024538"]) {
+    expect(check({ gtin: same })).toBe("accepted");
+    expect(check({ product: { gtins: ["9876543210123", same] } })).toBe("accepted");
+    expect(check({ gtin: "711719024538" }, { ...upc, ebayGtin: same })).toBe("accepted");
+  }
+  expect(check({ gtin: "0711719024539" })).toBe("gtin-mismatch");
+  expect(check({ product: { gtins: ["0711719024539"] } })).toBe("gtin-mismatch");
+  for (const bad of ["71171902453x", "7117190245380", "71171902", " 711719024538", "", 711719024538])
+    expect(check({ gtin: bad })).toBe("gtin-mismatch");
+  // 8-digit GTINs pad too, so 8 digits never equal a different-length UPC.
+  expect(check({ gtin: "00000000711719024538" })).toBe("gtin-mismatch");
+  expect(check({ gtin: "711719024538" }, { ...upc, ebayGtin: "7117190245" })).toBe("gtin-mismatch");
+});

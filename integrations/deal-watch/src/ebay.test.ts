@@ -246,7 +246,7 @@ test("REST variation identity survives a fixed-origin detail request", async () 
         token_type: "Application Access Token",
       });
     expect(r.url).toBe(
-      "https://api.ebay.com/buy/browse/v1/item/v1%7C123456789012%7C123456789?quantity_for_shipping_estimate=1",
+      "https://api.ebay.com/buy/browse/v1/item/v1%7C123456789012%7C123456789?quantity_for_shipping_estimate=1&fieldgroups=PRODUCT",
     );
     return Response.json({});
   });
