@@ -261,7 +261,8 @@ one rule for some pods only: a second policy that lets the job pods, and no
 other pod, reach one public CIDR on 443, and denies them the app's namespace
 and claude-proxy (see "Scheduled jobs"). `share` and `share-admin` are per-pod
 rules of the same kind: a second policy that selects the app pod only. `share`
-opens 3001 to the cloudflared pods of `<name>-share`; `share-admin` lets the app
+opens 3001 to the cloudflared pods of `<name>-share` and denies 3001 to the node
+and to every other pod of the app's namespace (see "Guest sharing"); `share-admin` lets the app
 pod send to the pods in the namespace `share-admin` on 8080/TCP, so the app does
 reach another namespace there, and nothing else in its namespace gets that.
 
@@ -498,14 +499,30 @@ The two locks:
    for the Access signing keys, both to Cloudflare's published ranges); it can
    never reach port 3000 or another namespace. The `share` part's policy
    `<name>-share` lets only the cloudflared pods in `<name>-share` reach the app
-   on 3001, and the namespace policy still admits 3000 only from the gateways.
-   The validator compares both with the design.
+   on 3001, and the namespace policy still admits 3000 only from the gateways
+   (and the node, for probes). The validator compares both with the design.
+
+   The same policy also holds an `ingressDeny` for 3001, and it matters: the app
+   trusts the Access token as cloudflared passes it (claims mode, below), so
+   whoever can open a connection to 3001 can claim to be any guest. Two built-in
+   allow rules would let others in: the namespace policy's first rule admits
+   every pod of the namespace on every port, and Cilium's allow-localhost admits
+   the node's host processes on every port. A deny wins over every allow, so the
+   policy denies 3001 from the host entity (kubelet, Alloy, node-exporter, the
+   Cilium agent, any process on the node) and from every pod of the namespace
+   whose `app.kubernetes.io/name` is not the app's own. That is the weekly job
+   pod (`<name>-job`), the backup pods and, because `NotIn` also matches a pod
+   that has no such label, the VolSync mover and sqlite-export pods. Only the
+   app pod and cloudflared are left. The kubelet's probes go to 3000, which the
+   deny does not touch. `GUEST_TRUSTED_PEERS` (the app's own address check) is
+   left unset: it would need cloudflared's pod range, which moves with the
+   cluster, and the policy is the lock.
 
 What is where:
 
 | File | What |
 | --- | --- |
-| `components/app-platform/share/` | The part: `GUEST_PORT`, `GUEST_COLLECTIONS`, `GUEST_HOSTS` and the `guest` container port, the Service `<name>-share`, the policy `<name>-share`. `mapkit` adds the guest host to `MAPKIT_ORIGINS` |
+| `components/app-platform/share/` | The part: `GUEST_PORT`, `GUEST_COLLECTIONS`, `GUEST_HOSTS`, `GUEST_ACCESS_MODE=claims`, `GUEST_ACCESS_AUD`, `GUEST_ACCESS_TEAM`, `GUEST_SEED_EMAILS`, `GUEST_AGENT=on`, `SHARE_ADMIN_HOSTS` and the `guest` container port, the Service `<name>-share`, the policy `<name>-share` (allow from cloudflared, deny for the node and the other pods). `mapkit` adds the guest host to `MAPKIT_ORIGINS` |
 | `personal-apps/reports-share/` | cloudflared: Namespace (restricted), Flux Kustomization, Deployment (non-root, read-only root, no capabilities, `/ready` probes), its policy, the routing in `app/resources/cloudflared.yaml` and the credentials Secret |
 | `components/app-platform/share-admin/` | The `share-admin` part: `SHARE_ADMIN_URL` and the policy `<name>-share-admin` (see "share-admin") |
 | `terraform/dns/main.tf`, `terraform/dns/access.tf` | The proxied CNAME `share.<zone>` to `<tunnel id>.cfargotunnel.com` (variable `reports_share_tunnel_id`), and the Access login: the one-time PIN login method, the policy for the guest emails (seeded from `reports_share_guest_emails`, then kept in the dashboard) and the Access application |
@@ -657,7 +674,7 @@ Turn the whole share off, fastest first:
   the first route too: remove the tunnel and email lines from `tunnel.auto.tfvars`
   and run `just dns apply`, then `cloudflared tunnel delete reports-share`.
 
-To finish, also remove every `SECRET_SHARE_*` key (six in all) from `cluster-secrets`,
+To finish, also remove every `SECRET_SHARE_*` key (seven in all, with `SECRET_SHARE_GUEST_SEED_EMAILS`) from `cluster-secrets`,
 and delete the `reports-share` Namespace by hand: it is prune-disabled, so it
 stays behind. If you turned the share off in the dashboard (deleted the
 application or the policy) instead, set `reports_share_guest_emails = []` before
@@ -716,6 +733,115 @@ done
 
 A new application or policy (see turning the share back on) has new IDs: set
 the keys again.
+
+#### Claims mode, the assistant and the Share panel
+
+The `share` part sets these on the app container (the validator accepts exactly
+these `GUEST_` variables and `SHARE_ADMIN_HOSTS`, and refuses the same names in
+`env`):
+
+| Variable | Value | Why |
+| --- | --- | --- |
+| `GUEST_ACCESS_MODE` | `claims` | The app reads the guest's email from the Access token that cloudflared has already checked, and gives each guest their own collections. The pod has no way out to fetch Cloudflare's signing keys, so the default mode (`keys`) cannot work here |
+| `GUEST_ACCESS_AUD`, `GUEST_ACCESS_TEAM` | `${SECRET_SHARE_ACCESS_AUD}`, `${SECRET_SHARE_ACCESS_TEAM}` | The same `cluster-secrets` keys cloudflared's routing uses: the audience and the team the token must name |
+| `GUEST_SEED_EMAILS` | `${SECRET_SHARE_GUEST_SEED_EMAILS}` | The emails that get today's `GUEST_COLLECTIONS` at the first start in claims mode, when the app has no guest list yet. Emails stay out of this public repo, so it is a `cluster-secrets` key. After that first start the Share panel keeps the list and the key changes nothing |
+| `GUEST_AGENT` | `on` | The Ask assistant for guests |
+| `SHARE_ADMIN_HOSTS` | `<HOST>.<zone>` (the LAN host) | The Share panel, and every change to the guest list, answer on this host only |
+
+`GUEST_AGENT=on` is inert until the apps image has the guest assistant (the
+apps repo's open PR for it, #80, at the time of writing): an older image ignores
+the variable, so there is no Ask panel for guests to look for until it merges and
+the entry follows the new image. The Share panel's "Guest questions" list uses
+its own host setting in that PR (`GUEST_QUESTIONS_HOSTS`, which that PR will fold
+into `SHARE_ADMIN_HOSTS`); this change does not set it.
+
+`GUEST_TRUSTED_PEERS` is unset (the policy above is the lock) and
+`GUEST_RUN_TIMEOUT_MS` keeps the app's default. The memory limit of the reports
+entry is 3Gi (it was 2Gi) for two agent runs at once, one for the family and one
+for a guest.
+
+##### Set it up (the owner)
+
+Do this after the share-admin set-up above is done and `sa GET /guests` works.
+The app image must be one that has claims mode and the Share panel (the apps
+repo's `main`, which the entry follows). Do steps 1 and 2 on the branch of the PR
+that adds this change, before it merges. If the key is missing at the first
+start, the app writes an empty guest list and never seeds again, so every guest
+(the realtor too) would be turned away until you edit `guests.json` by hand.
+
+1. List the emails that are in the Access policy now: from the Cloudflare
+   dashboard (Zero Trust, Access, Policies, the guest policy), or with
+   `sa GET /guests` from step 6 of the share-admin set-up. Write them in lower
+   case, separated by commas, no spaces. Every one that is missing is locked out.
+2. Set the one key `SECRET_SHARE_GUEST_SEED_EMAILS`. Run this from the repo root
+   in bash or zsh and type the list at the prompt (it never goes in a file or
+   in the shell history). It checks the list before it writes, writes only that
+   key, and then checks that the stored value is encrypted:
+
+   ```sh
+   ( set -o pipefail
+     cs=kubernetes/components/sops/cluster-secrets.sops.yaml
+     key=SECRET_SHARE_GUEST_SEED_EMAILS
+     e='[a-z0-9]([a-z0-9._+-]*[a-z0-9_+-])?@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}'
+     printf 'Guest emails, lower case, comma-separated, no spaces: '; read -r emails
+     printf '%s' "$emails" | grep -Eq "^$e(,$e)*\$" \
+       && jq -n --arg v "$emails" '$v' | sops set --value-stdin "$cs" "[\"stringData\"][\"$key\"]" \
+       && yq ".stringData.$key" "$cs" | grep -q '^ENC\[' \
+       || { echo "failed: $key was not set" >&2; false; } )
+   ```
+
+   The app refuses a start with an address it cannot manage (it names the
+   address in the log), so a typo shows up at once rather than later.
+3. Commit `cluster-secrets.sops.yaml` and merge. Flux restarts the reports pod
+   (a short break for the LAN and family hosts).
+4. Check:
+
+   ```sh
+   kubectl -n reports rollout status deploy/reports
+   kubectl -n reports logs deploy/reports | grep -E 'guest view|first start in claims mode'
+   ```
+
+   The log shows a line `guest view ... claims` (the guest port started in
+   claims mode) and `share: first start in claims mode: wrote guests.json for N
+   guest(s)`, with N the number of emails you set. Then:
+
+   - Open `https://reports.<local zone>/`: the **Share** button is in the top
+     bar and the panel lists your guests. Open `https://reports.family.<zone>/`:
+     there is no Share button.
+   - The realtor can still sign in: ask them to open `https://share.<zone>/`
+     (or use a test address that you added in the panel), sign in with the
+     one-time PIN, and see the shared collection.
+   - The guest port is closed to everyone but cloudflared. Get the pod IP with
+     `kubectl -n reports get pod -l app.kubernetes.io/name=reports -o jsonpath='{.items[0].status.podIP}'`
+     and its node with `-o jsonpath='{.items[0].spec.nodeName}'`. Each of these
+     must time out (no answer, exit 28), because `/healthz` on the guest port
+     answers 200 to anyone who can reach it:
+     - from the `default` namespace (this timed out before this change too; it
+       shows the allow rule is narrow):
+       `kubectl -n default run policy-check --rm -it --restart=Never --image=curlimages/curl --command -- curl -m 5 -s -o /dev/null -w '%{http_code}\n' http://<pod ip>:3001/healthz`
+     - from the node (replace `<node>`; this answered 200 before this change,
+       because of allow-localhost, and must time out now):
+       `kubectl debug node/<node> -it --image=curlimages/curl -- curl -m 5 -s -o /dev/null -w '%{http_code}\n' http://<pod ip>:3001/healthz`;
+       delete the debug pod afterwards (`kubectl get pods | grep node-debugger`)
+     - from a pod in the `reports` namespace that has no name label (this is
+       the case the `NotIn` rule covers, and the one thing this change assumes
+       about Cilium instead of knowing: that `NotIn` matches a pod with no such
+       label. It answered 200 before this change. The namespace is restricted, so the pod
+       needs the pod security fields in `--overrides`):
+       `kubectl -n reports run policy-check --rm -it --restart=Never --image=curlimages/curl --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":100,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"policy-check","image":"curlimages/curl","command":["curl","-m","5","-s","-o","/dev/null","-w","%{http_code}\\n","http://<pod ip>:3001/healthz"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}'`
+       If it prints `200`, the deny does not cover label-less pods: stop, do not
+       share anything new, and tell the maintainers. If the cluster refuses the
+       pod, adjust the fields; a refusal is not a pass.
+   - The main port is untouched: the pod is `1/1 Running` with no probe
+     failures (`kubectl -n reports describe pod -l app.kubernetes.io/name=reports`,
+     Events), and `curl -s -o /dev/null -w '%{http_code}\n' https://reports.<local zone>/healthz`
+     prints `200`. The probes go to port 3000.
+   - `kubectl -n reports get deploy reports -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'`
+     prints `3Gi`.
+
+If a guest is turned away after the first start, the list in the app is wrong or
+empty. Add the guest in the Share panel, or see "The first start" in the reports
+README (`guests.json` in the data folder).
 
 ### share-admin
 

@@ -7,15 +7,33 @@
 # never named here.
 #
 # Adds three things:
-# - GUEST_PORT, GUEST_COLLECTIONS and GUEST_HOSTS on the app container, and
-#   the container port `guest`. GUEST_HOSTS comes from here, not from the
-#   entry's `env`, because it needs the zone (a `$` is refused in `env`).
+# - The guest settings on the app container, and the container port `guest`.
+#   They come from here, not from the entry's `env`, because they need the zone
+#   or a cluster-secrets key (a `$` is refused in `env`):
+#   GUEST_PORT, GUEST_COLLECTIONS, GUEST_HOSTS;
+#   GUEST_ACCESS_MODE=claims, with GUEST_ACCESS_AUD and GUEST_ACCESS_TEAM from
+#   the cluster-secrets keys cloudflared's routing also uses
+#   (SECRET_SHARE_ACCESS_AUD, SECRET_SHARE_ACCESS_TEAM). Claims mode makes the
+#   app read the per-guest collections from the token cloudflared has already
+#   checked; the pod has no way out to fetch the signing keys. It is safe only
+#   because the policy below lets nobody but cloudflared reach 3001;
+#   GUEST_SEED_EMAILS from the cluster-secrets key SECRET_SHARE_GUEST_SEED_EMAILS
+#   (emails stay out of this public repo). The app reads it once, at the first
+#   start, to write its guest list; set the key before this part first applies;
+#   GUEST_AGENT=on, the Ask assistant for guests;
+#   SHARE_ADMIN_HOSTS, the LAN host <HOST>.<zone>, the only Host that sees the
+#   Share panel and may change the guest list.
+#   GUEST_TRUSTED_PEERS and GUEST_RUN_TIMEOUT_MS are left unset on purpose: the
+#   policy is the lock for the first (see its comments) and the app's default
+#   is right for the second. The validator accepts exactly the variables above.
 # - The Service ${APP}-share: only port 3001. No route points at it.
 # - The CiliumNetworkPolicy ${APP}-share, a second policy beside the namespace
 #   policy (the way job-egress adds one): ingress to the app pod on 3001/TCP
-#   from the cloudflared pods in the namespace ${APP}-share, and nothing else.
-#   The namespace policy still admits 3000 only from the two gateways, so
-#   cloudflared cannot reach 3000, and the gateways cannot reach 3001.
+#   from the cloudflared pods in the namespace ${APP}-share, and nothing else,
+#   plus an ingressDeny on 3001 for the node and for every other pod of the
+#   namespace (the job, the backup pods). The namespace policy still admits
+#   3000 only from the two gateways and the node, so cloudflared cannot reach
+#   3000, and the gateways cannot reach 3001.
 #
 # cloudflared itself is not a platform app: it holds the tunnel credentials, so
 # it runs in its own Namespace ${APP}-share (kubernetes/apps/personal-apps/
@@ -51,3 +69,34 @@ patches:
         value:
           name: GUEST_HOSTS
           value: ${SHARE_HOST}.${SECRET_DOMAIN}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: GUEST_ACCESS_MODE
+          value: claims
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: GUEST_ACCESS_AUD
+          value: ${SECRET_SHARE_ACCESS_AUD}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: GUEST_ACCESS_TEAM
+          value: ${SECRET_SHARE_ACCESS_TEAM}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: GUEST_SEED_EMAILS
+          value: ${SECRET_SHARE_GUEST_SEED_EMAILS}
+      # Quoted: a bare on is a YAML boolean.
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: GUEST_AGENT
+          value: "on"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SHARE_ADMIN_HOSTS
+          value: ${HOST:=${APP}}.${SECRET_DOMAIN_LOCAL}

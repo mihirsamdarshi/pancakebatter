@@ -15,6 +15,9 @@
 # The share part opens a second, read-only port (3001) for one guest collection,
 # reached at share.<zone> through the Cloudflare Tunnel in personal-apps/reports-share/
 # behind Cloudflare Access; the main port stays on the LAN and family routes only.
+# The share part also turns on the guest settings: claims mode (the guest list and
+# the collections each guest sees are in the app), the guest assistant, and the Share
+# panel on the LAN host only. Its policy lets only cloudflared reach 3001.
 # The share-admin part gives the app pod SHARE_ADMIN_URL and egress to the share-admin
 # service (personal-apps/share-admin/), which holds the Cloudflare token for the guest
 # list; the app holds no credential.
@@ -54,12 +57,12 @@ spec:
       # the collection it may read.
       SHARE_HOST: share
       GUEST_COLLECTIONS: fay-ave
-      # One agent run at a time; the Agent SDK's hosting guide starts at 1 GiB and 1 CPU per agent.
+      # Two agent runs at once (a family run and a guest run); the Agent SDK's hosting guide starts at 1 GiB and 1 CPU per agent.
       # STORAGE stays at the 1Gi default: local-retain cannot expand a bound volume, and the
       # reports plus their git history are tens of MB.
       CPU: 100m
       MEMORY: 512Mi
-      MEMORY_LIMIT: 2Gi
+      MEMORY_LIMIT: 3Gi
       VOLSYNC_SCHEDULE: "0 13 * * *"
       # The weekly job refreshes a collection's County data: LA County's public
       # eGIS parcel layer and the Assessor portal. It reads the live reports read

@@ -1,0 +1,27 @@
+---
+# expect: the share policy share-deny-app-excluded-share must be exactly
+# mutate: map(if .kind=="CiliumNetworkPolicy" and .metadata.name=="share-deny-app-excluded-share" then .spec.ingressDeny[1].fromEndpoints[0].matchExpressions[0].values += ["share-deny-app-excluded-job"] else . end)
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-deny-app-excluded
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-deny-app-excluded
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-deny-app-excluded
+    parts: [pullsecret, internal-route, share]
+    vars:
+      SHARE_HOST: view
+      GUEST_COLLECTIONS: alpha

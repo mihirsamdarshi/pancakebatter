@@ -1,0 +1,27 @@
+---
+# expect: share must give container app of Deployment share-admin-hosts-missing exactly SHARE_ADMIN_HOSTS
+# mutate: map(if .kind=="Deployment" and .metadata.name=="share-admin-hosts-missing" then .spec.template.spec.containers[0].env |= map(select(.name != "SHARE_ADMIN_HOSTS")) else . end)
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-admin-hosts-missing
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-admin-hosts-missing
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-admin-hosts-missing
+    parts: [pullsecret, internal-route, share]
+    vars:
+      SHARE_HOST: view
+      GUEST_COLLECTIONS: alpha
