@@ -10,3 +10,4 @@ resources:
   - ./browser-networkpolicy.yaml
   - ./registry.sops.yaml
   - ./credentials.sops.yaml
+  - ./ebay-credentials.sops.yaml
