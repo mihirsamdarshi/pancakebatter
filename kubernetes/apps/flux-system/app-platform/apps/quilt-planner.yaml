@@ -33,6 +33,5 @@ spec:
       CLAIM: quilt-data
       STORAGE: 5Gi
       STORAGE_CLASS: quilt-local-retain
-      HEALTH_PATH: /api/health
       APP_UID: "1000"
       APP_GID: "1000"
