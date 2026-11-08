@@ -8,9 +8,9 @@ app. There are two ways to run one:
   the manifests from one shared template and a few settings. `hello` is the
   throwaway proof app. Everything below up to "Bundle apps" is about them.
 - **Bundle apps**: the older way, where an app's CI also publishes a private OCI
-  bundle with its manifests and a scoped service account applies it. Quilt
-  Planner still runs this way until it moves onto the platform; see "Bundle
-  apps" at the end.
+  bundle with its manifests and a scoped service account applies it. No app
+  runs this way now. Quilt Planner did until it moved onto the platform; see
+  "Bundle apps" at the end.
 - **Homepage** (`homepage/`, `homepage-family/`): the two Homepage dashboards,
   from a public chart rather than the owner's code, so neither of the above. They
   share the Namespace `homepage` (folder `homepage/`). Their Flux Kustomizations
@@ -790,12 +790,21 @@ the CLI only takes `Static` providers, so the validator rewrites the type and
 injects a fake `digest`. The CLI exits 1 with "no objects were generated" when
 an input renders nothing; the controller accepts that.
 
-## Bundle apps (Quilt Planner, until it moves)
+## Bundle apps
 
 An app's CI publishes an image and a private OCI bundle that holds its
 Kubernetes manifests. Flux pulls the bundle and applies it as a service account
-that can only change objects in that namespace. `quilt-planner/` is the working
-example. New apps use the platform above instead.
+that can only change objects in that namespace. New apps use the platform above
+instead.
+
+No app runs this way now. Quilt Planner did until it moved onto the platform.
+Its entry is the ResourceSetInputProvider `app-quilt-planner` in
+`app-platform/apps/quilt-planner.yaml`. The ResourceSet `apps` renders it into
+the Kustomization `flux-system/app-quilt-planner`, which deploys the image
+`ghcr.io/<owner>/apps/quilt-planner` at its `main` tag, pulled with the copied
+Secret `apps-ghcr`. `quilt-planner/` keeps the parts that are still Git-defined:
+the StorageClass, the LAN route and the backup. The sections below still use
+them as examples.
 
 ### How it fits together
 
@@ -933,7 +942,7 @@ as Quilt's `quilt-data` has. Quilt predates the shared class and has its own
 ### Reach it from the tailnet or from family
 
 Each is a separate Flux Kustomization that applies a small folder into the app's
-namespace. Copy the Quilt version and change the names. Whether and how to
+namespace. Copy Quilt's LAN folder and change the names. Whether and how to
 expose an app is the owner's decision, so confirm it first.
 
 A bundle cannot create routes: the reconciler's Role has no rule for
@@ -947,9 +956,12 @@ to `envoy-internal` or `envoy-family` without any other change. Restricting
   `quilts` Ingress on ProxyGroup `apps`) was retired in the move to the
   platform; the folder is in Git history. Apps are reached from the tailnet
   through the LAN subnet route and the internal address.
-- **Family:** copy `quilt-planner/family/` and the `quilt-planner-family` block
-  in `network/family-apps/ks.yaml`. It has to live there, because it reads
-  `cluster-secrets` in the `network` namespace. Two things must hold: the
+- **Family:** Quilt's family route now comes from the app platform (the entry's
+  `family-route` and `family-route-legacy` parts). Its old folder
+  `quilt-planner/family/` and its block in `network/family-apps/ks.yaml` are
+  gone; they are in Git history. A bundle app's family route needs its own
+  block in `network/family-apps/ks.yaml`, because it reads `cluster-secrets` in
+  the `network` namespace. Two things must hold: the
   route's only parent is `envoy-family` in `network`, with no `sectionName`, and
   its hostnames sit under `${SECRET_FAMILY_DOMAIN}`. Never attach it to
   `envoy-internal`. See

@@ -129,9 +129,8 @@ and `<uid>`/`<gid>` with the app's `APP_UID`/`APP_GID` (568 unless the app's
 
 1. Stop the app, and stop Flux and the nightly runs from undoing or racing it.
    Suspend the Flux Kustomization(s) that own the app and its ReplicationSource
-   (for Jellyfin that is one, `jellyfin`; Quilt has `quilt-planner` and
-   `quilt-planner-backup`). The export CronJob must not run either: it would
-   overwrite the good copies.
+   (for Jellyfin that is one, `jellyfin`; Quilt has two, see below). The export
+   CronJob must not run either: it would overwrite the good copies.
 
     ```sh
     flux suspend kustomization <ks> -n <ns>
@@ -141,6 +140,36 @@ and `<uid>`/`<gid>` with the app's `APP_UID`/`APP_GID` (568 unless the app's
     kubectl -n <ns> scale deploy/<app> --replicas=0
     kubectl -n <ns> get pods                          # wait until the app's pod is gone
     ```
+
+    **Quilt:** in place of the `flux suspend kustomization` line, suspend two
+    Kustomizations, in two namespaces. `app-quilt-planner` owns the Deployment
+    and `quilt-data`. `quilt-planner-backup` owns the ReplicationSource and the
+    export CronJob.
+
+    ```sh
+    flux suspend kustomization app-quilt-planner -n flux-system
+    flux suspend kustomization quilt-planner-backup -n quilt-planner
+    ```
+
+    Leave Quilt's other two Kustomizations running. `quilt-planner-bootstrap`
+    holds the StorageClass and an old registry Secret that is being removed.
+    `network/quilt-planner-internal` holds the LAN route. The restore touches
+    neither.
+
+    Use `flux suspend`, not `kubectl patch`. The ResourceSet `apps` renders
+    `app-quilt-planner` and applies it again from time to time. Each time,
+    flux-operator undoes fields that kubectl, Helm or kustomize-controller
+    wrote, but not fields that the flux CLI wrote (field manager `flux`). So a
+    `flux suspend` stays and a `kubectl patch` does not. This comes from the
+    flux-operator v0.61.0 source and the field manager names on the cluster
+    (checked Nov 8, 2026). Suspending and then letting the ResourceSet apply
+    again has not been tested on the cluster.
+
+    You do not need to suspend the ResourceSet `apps` or the entry (the
+    ResourceSetInputProvider `app-quilt-planner`). That would not stop
+    kustomize-controller from applying the Deployment, and the ResourceSet
+    serves every platform app. If a new image comes out during the restore, the
+    app starts on it when you resume.
 
 2. Restore into the existing PVC. `enableFileDeletion` makes the volume match the
    snapshot exactly, so files created after it are removed. Apply this by hand;
@@ -275,11 +304,19 @@ and `<uid>`/`<gid>` with the app's `APP_UID`/`APP_GID` (568 unless the app's
     step 2: run this Job on its own with the app stopped.
 
     **Quilt:** Quilt's restic repository directory is owned by 1000:1000 with
-    mode 0700, so `restic check` and any restore run as uid 1000. After the
-    restore, with the app still stopped, bump the quilt versions so devices
-    accept the restored quilts instead of making conflicted copies:
-    `UPDATE quilts SET version = max(version + 1, <now in ms>)`. The app's
-    `docs/deployment.md` restore section has the ready script.
+    mode 0700, so `restic check` and any restore run as uid 1000. After a
+    VolSync restore, a version bump is required before the app starts again.
+    With the app still stopped, raise the version of every quilt
+    (`UPDATE quilts SET version = max(version + 1, <now in ms>)`), so devices
+    accept the restored quilts instead of making conflicted copies. The exact
+    command for this after a VolSync restore is not written or rehearsed yet.
+    See the app repo's `quilt-planner/docs/deployment.md`, section "Backup and
+    restore". Do not use that file's pre-v4 restore script for this: it only
+    accepts a schema-3 copy, so it refuses a VolSync restore.
+
+    A restore drill on Nov 8, 2026 restored a snapshot into a throw-away PVC,
+    and all checks passed. That proved the restic restore itself. Only the
+    version bump after the restore is unproven.
 
 4. Start the app again:
 
@@ -294,6 +331,15 @@ and `<uid>`/`<gid>` with the app's `APP_UID`/`APP_GID` (568 unless the app's
     Set both by hand: a HelmRelease without drift detection (Jellyfin) does not
     put the replica count back, and a suspended export creates no Job, so nothing
     would alert while the exports go stale.
+
+    **Quilt:** in place of the `flux resume kustomization` line, resume both
+    Kustomizations from step 1. Resuming `app-quilt-planner` also sets the
+    replicas back to 1.
+
+    ```sh
+    flux resume kustomization quilt-planner-backup -n quilt-planner
+    flux resume kustomization app-quilt-planner -n flux-system
+    ```
 
 ### If the node is lost
 
