@@ -110,6 +110,60 @@ test("warnings are not silently treated as complete source evidence", () => {
   }
 });
 
+// Owner decision 18: a seller-away detail is shown (stock unknown) and can never alert.
+const away = (errorId: number) => ({
+  errorId,
+  message: "This seller is currently away until 2099-01-01.",
+  parameters: [{ name: "sellerReturnDate", value: "2099-01-01" }],
+});
+test("seller-away warnings 11508 and 11509 are accepted on a detail, with unknown stock that cannot qualify", () => {
+  const eligible = qualify(w, b, parseEbay({ ...item, itemLocation: { country: "US" } }, w, b, id, now), now);
+  expect(eligible.eligible).toBe(true);
+  for (const errorId of [11508, 11509]) {
+    const offer = parseEbay({ ...item, itemLocation: { country: "US" }, warnings: [away(errorId)] }, w, b, id, now);
+    expect(offer.availability).toBe("unknown");
+    // Everything else is what the parser builds without the warning.
+    expect(offer.shipping).toBe("confirmed");
+    expect(offer.feesCents).toBe(0);
+    const q = qualify(w, b, offer, now);
+    expect(q.eligible).toBe(false);
+    expect(q.verify).toBe(false);
+    expect(q.reasons).toEqual(["Stock unverified"]);
+  }
+  // Both notices together are still only seller-away.
+  expect(parseEbay({ ...item, warnings: [away(11508), away(11509)] }, w, b, id, now).availability).toBe("unknown");
+});
+test("an ended seller-away listing stays out-of-stock so the app still deletes it", () => {
+  const ended = new Date(now - 1).toISOString();
+  expect(
+    parseEbay({ ...item, itemEndDate: ended, warnings: [away(11509)] }, w, b, id, now).availability,
+  ).toBe("out-of-stock");
+});
+test("any other warning, or any malformed entry, still rejects with the numeric ids only", () => {
+  const reason = (warnings: unknown) => {
+    try {
+      parseEbay({ ...item, warnings }, w, b, id, now);
+    } catch (e) {
+      return (e as UpstreamError).reason;
+    }
+    return "accepted";
+  };
+  expect(reason([away(11509), away(11510)])).toBe("warnings:11509,11510");
+  expect(reason([away(11510)])).toBe("warnings:11510");
+  expect(reason([away(11502)])).toBe("warnings:11502");
+  expect(reason([away(11509), { errorId: 99999 }])).toBe("warnings:11509,99999");
+  for (const bad of [{ errorId: "11509" }, { errorId: 11509.5 }, { errorId: null }, {}, null, "11509"])
+    expect(reason([away(11509), bad])).not.toBe("accepted");
+  expect(reason([{ errorId: "11509" }])).toBe("warnings");
+  expect(reason([{ message: "no id" }])).toBe("warnings");
+});
+test("the search path stays strict about seller-away warnings", () => {
+  for (const errorId of [11508, 11509])
+    expect(() => discoveryIds({ itemSummaries: [{ itemId: id }], warnings: [away(errorId)] })).toThrow(
+      "invalid-data",
+    );
+});
+
 // Owner decision 14/15 (option B): extra fees are assumed 0 only for new, US, fixed-price, USD, ZIP-proven listings.
 const us = { ...item, itemLocation: { country: "US" } };
 const option = item.shippingOptions[0]!;
