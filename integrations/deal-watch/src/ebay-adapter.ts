@@ -57,15 +57,22 @@ export function discoveryIds(value: unknown): string[] {
     throw invalid("schema");
   return ids;
 }
+/** GTIN-8/12/13/14 are the same number with leading zeros; compare in 14-digit form. Anything else never matches. */
+const gtin14 = (v: unknown): string | null =>
+  typeof v === "string" && /^(\d{8}|\d{12,14})$/.test(v) ? v.padStart(14, "0") : null;
+const sameGtin = (v: unknown, watch: string): boolean => {
+  const a = gtin14(v);
+  return a !== null && a === gtin14(watch);
+};
 /**
- * Identity: the item-level `gtin` decides when present (exact string, no normalization). Only when it
- * is absent may `product.gtins` (Browse `Product.gtins`, string[]) contain exactly the watch GTIN.
+ * Identity: the item-level `gtin` decides when present (compared in 14-digit form, see `gtin14`). Only when it
+ * is absent may `product.gtins` (Browse `Product.gtins`, string[]) contain the watch GTIN.
  */
 function gtinReason(value: Record<string, unknown>, gtin: string): InvalidReason | null {
-  if (value.gtin !== undefined) return value.gtin === gtin ? null : "gtin-mismatch";
+  if (value.gtin !== undefined) return sameGtin(value.gtin, gtin) ? null : "gtin-mismatch";
   const gtins = object(value.product) ? value.product.gtins : undefined;
   if (!Array.isArray(gtins) || gtins.length === 0) return "gtin-missing";
-  return gtins.some((g) => g === gtin) ? null : "gtin-mismatch";
+  return gtins.some((g) => sameGtin(g, gtin)) ? null : "gtin-mismatch";
 }
 /**
  * Fees are unknown (null) unless the owner-approved assumption holds (see `feeAssumed`); the Discord
