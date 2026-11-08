@@ -1,7 +1,8 @@
 export type Fetcher = (request: Request) => Promise<Response>;
 /**
  * Closed set of log-safe reasons for an `invalid-data` outcome: one per rejection site, never listing
- * data. Only `warnings:` carries numbers, and only eBay's own numeric warning `errorId` values.
+ * data. A `not-product` outcome also carries one: `gtin-mismatch` or a `gtin-missing:` reason.
+ * Only `warnings:` carries numbers, and only eBay's own numeric warning `errorId` values.
  * `gtin-missing:` carries two fixed words only: whether eBay sent a `product` object, and the
  * listing's condition bucket (`other` for a missing or unknown `conditionId`).
  */

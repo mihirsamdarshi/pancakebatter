@@ -57,7 +57,9 @@ export interface Options {
 }
 /**
  * One outcome-only line per attempted retailer check: no ids, prices, URLs or error text. An
- * `invalid-data` outcome may add a fixed `reason` code (see `InvalidReason`); it is never sent to the app.
+ * `invalid-data` outcome may add a fixed `reason` code (see `InvalidReason`). A `not-product` outcome
+ * always has one: `gtin-mismatch` or `gtin-missing:<product>:<condition>`. The reason is never sent
+ * to the app.
  */
 export function checkLine(
   retailer: Retailer,

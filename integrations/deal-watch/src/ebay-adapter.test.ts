@@ -317,6 +317,12 @@ test("a listing with no GTIN reports whether eBay sent a product object and its 
   expect(check({ conditionId: "3000", buyingOptions: ["AUCTION"], price: null })).toBe(
     "gtin-missing:no-product:other",
   );
+  // Failures before the identity check still fail for a listing with no GTIN; they are never skipped.
+  expect(check({ warnings: [{ errorId: 11510 }] })).toBe("warnings:11510");
+  expect(check({ itemId: "v1|123456789013|0" })).toBe("item-id");
+  expect(reasonOf(() => parseEbay(noGtin, w, { ...b, ebayGtin: undefined }, id, now))).toBe(
+    "binding",
+  );
   // A listing with a GTIN still meets buying option and errors before condition, as before.
   expect(detail({ conditionId: "3000", buyingOptions: ["AUCTION"] })).toBe("buying-option");
   expect(detail({ conditionId: "3000", errors: [{ errorId: 1100 }] })).toBe("errors");
