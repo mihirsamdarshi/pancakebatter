@@ -91,9 +91,11 @@ No eBay credentials, enablement or deployment manifests are included here.
 
 An enabled eBay binding requires an owner-configured exact `ebayGtin` equal to
 `productId`. The worker independently checks the detail response identity, fixed
-price, condition, seller and ZIP shipping. Missing mandatory fees and warranty
-stay unknown. This adapter currently cannot produce qualifying eBay alerts until
-cost proof is established. Unreviewed warnings fail closed, preserving evidence.
+price, condition, seller and ZIP shipping. Warranty stays unknown, so only new
+listings can qualify. Mandatory fees are an owner-accepted assumption (Nov 8): they count
+as 0 only for a US, fixed-price, USD listing whose ZIP-echoed shipping option has a known
+cost and no `importCharges`, with no `ecoParticipationFee`; otherwise they stay unknown.
+Every eBay alert says "fee assumed, not verified". Unreviewed warnings fail closed, preserving evidence.
 
 Tier 1 (no eBay seller identifier): the parser replaces the seller username with the fixed
 label `eBay seller` and never reads any other seller id. Feedback percentage, score and account

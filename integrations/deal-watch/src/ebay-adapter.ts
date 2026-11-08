@@ -41,7 +41,10 @@ export function discoveryIds(value: unknown): string[] {
     throw new UpstreamError("invalid-data");
   return ids;
 }
-/** No unverified mandatory-fee or warranty inference. This adapter remains nonqualifying until fee proof exists. */
+/**
+ * Fees are unknown (null) unless the owner-approved assumption holds (see `feeAssumed`); the Discord
+ * text then says "fee assumed, not verified". Warranty is never inferred, so only new listings can qualify.
+ */
 export function parseEbay(
   value: unknown,
   w: Watch,
@@ -77,7 +80,8 @@ export function parseEbay(
     seller = object(value.seller) ? value.seller : {};
   if (!condition || !price || !title)
     throw new UpstreamError("invalid-data");
-  const options = Array.isArray(value.shippingOptions)
+  // Options whose delivery-location echo equals the watch ZIP (the only proof the cost is for this ZIP).
+  const matched = Array.isArray(value.shippingOptions)
     ? value.shippingOptions
         .filter(object)
         .filter(
@@ -87,9 +91,17 @@ export function parseEbay(
             s.shipToLocationUsedForEstimate.country === "US" &&
             s.shipToLocationUsedForEstimate.postalCode === w.zip,
         )
-        .map((s) => money(s.shippingCost))
-        .filter((v): v is number => v !== null)
     : [];
+  const options = matched.map((s) => money(s.shippingCost)).filter((v): v is number => v !== null);
+  // Owner decision (November 8, option B): extra fees are assumed to be 0, never verified.
+  // Only when the item is in the US, no import charge or eco fee is shown, and a ZIP-matched
+  // shipping option has a known cost. Fixed price and USD are enforced above and by money().
+  const feeAssumed =
+    object(value.itemLocation) &&
+    value.itemLocation.country === "US" &&
+    options.length > 0 &&
+    matched.every((s) => s.importCharges === undefined) &&
+    value.ecoParticipationFee === undefined;
   const states = Array.isArray(value.estimatedAvailabilities)
     ? value.estimatedAvailabilities
         .filter(object)
@@ -120,7 +132,7 @@ export function parseEbay(
       currency: "USD",
       priceCents: price,
       shippingCents: options.length ? Math.min(...options) : null,
-      feesCents: null,
+      feesCents: feeAssumed ? 0 : null,
       shipping: options.length ? "confirmed" : "unverified",
       zip: w.zip,
       availability,
