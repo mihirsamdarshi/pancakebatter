@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import {
   boundedText,
+  invalid,
   nativeFetch,
   retryAfter,
   UpstreamError,
@@ -128,7 +129,7 @@ export class EbayClient {
     try {
       value = JSON.parse(body);
     } catch {
-      throw new UpstreamError("invalid-data");
+      throw invalid("token");
     }
     if (
       !object(value) ||
@@ -142,7 +143,7 @@ export class EbayClient {
       value.expires_in > 86400 ||
       value.token_type !== "Application Access Token"
     )
-      throw new UpstreamError("invalid-data");
+      throw invalid("token");
     this.token = {
       value: value.access_token,
       expires: this.now() + value.expires_in * 1000 - 60000,
@@ -158,7 +159,7 @@ export class EbayClient {
     return this.minting;
   }
   private async browse(path: string, zip: string): Promise<unknown> {
-    if (!/^\d{5}$/.test(zip)) throw new UpstreamError("invalid-data");
+    if (!/^\d{5}$/.test(zip)) throw invalid("binding");
     const token = await this.accessToken();
     let body: string;
     try {
@@ -179,12 +180,12 @@ export class EbayClient {
     try {
       return JSON.parse(body);
     } catch {
-      throw new UpstreamError("invalid-data");
+      throw invalid("json");
     }
   }
   getItem(legacyItemId: string, zip: string): Promise<unknown> {
     if (!/^\d{9,20}$/.test(legacyItemId))
-      throw new UpstreamError("invalid-data");
+      throw invalid("item-id");
     return this.browse(
       "/buy/browse/v1/item/get_item_by_legacy_id?legacy_item_id=" +
         legacyItemId +
@@ -194,7 +195,7 @@ export class EbayClient {
   }
   getRestItem(itemId: string, zip: string): Promise<unknown> {
     if (!/^v1\|\d{9,20}\|\d{1,20}$/.test(itemId))
-      throw new UpstreamError("invalid-data");
+      throw invalid("item-id");
     return this.browse(
       "/buy/browse/v1/item/" +
         encodeURIComponent(itemId) +
@@ -203,7 +204,7 @@ export class EbayClient {
     );
   }
   searchByGtin(gtin: string, zip: string): Promise<unknown> {
-    if (!/^\d{8,14}$/.test(gtin)) throw new UpstreamError("invalid-data");
+    if (!/^\d{8,14}$/.test(gtin)) throw invalid("binding");
     const params = new URLSearchParams({
       gtin,
       limit: "10",

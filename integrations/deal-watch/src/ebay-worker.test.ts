@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { Worker } from "./worker.ts";
 import { EbayClient } from "./ebay.ts";
 import { readPolicy } from "./policy.ts";
@@ -105,6 +105,120 @@ test("worker schedules search and each detail separately, including after restar
   expect(details).toHaveLength(2);
   expect(mints).toBe(2);
   expect(details.map((o) => (o as { id: string }).id)).toEqual(ids);
+});
+
+/** Runs one eBay check against a canned response; returns the check log line and the completion body. */
+async function checkOnce(task: unknown, respond: () => Response) {
+  const watches = readPolicy(new URL("../fixtures/example-policy.json", import.meta.url).pathname),
+    watch = watches[0]!;
+  watch.bindings = [
+    {
+      id: "ebay",
+      retailer: "ebay",
+      productId: "1234567890123",
+      ebayGtin: "1234567890123",
+      enabled: true,
+      pagePath: "/sch/i.html",
+      note: "Synthetic",
+    },
+  ];
+  let completed: Record<string, unknown> = {};
+  const fetcher = async (request: Request) => {
+    const url = new URL(request.url);
+    if (url.hostname === "receiver.test")
+      return Response.json({ state: "CLEAR", storageDesignVersion: "tier1-v1", instanceId: "x" });
+    if (url.hostname === "api.ebay.com")
+      return request.method === "POST"
+        ? Response.json({
+            access_token: "synthetic",
+            expires_in: 7200,
+            token_type: "Application Access Token",
+          })
+        : respond();
+    if (url.pathname === "/api/dashboard")
+      return Response.json({
+        policyVersion: policyIdentity(watches),
+        watches: [{ id: watch.id, preferences: { paused: false, muted: false, purchased: false } }],
+      });
+    if (url.pathname === "/api/checks/claim")
+      return Response.json({
+        policyVersion: policyIdentity(watches),
+        lease: { leaseId: crypto.randomUUID(), task },
+      });
+    if (url.pathname === "/api/checks/complete") completed = await request.json();
+    return Response.json({ ok: true });
+  };
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await new Worker({
+      baseUrl: "https://app.test",
+      ebayStateUrl: "http://receiver.test:3001",
+      watches,
+      now: () => 1_000_000,
+      random: () => 0,
+      startupDelay: false,
+      fetcher,
+      ebay: new EbayClient({ clientId: "synthetic", clientSecret: "synthetic" }, fetcher, () => 0),
+    }).runOnce();
+    const lines = log.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('"check"'));
+    expect(lines).toHaveLength(1);
+    return { line: lines[0]!, completed };
+  } finally {
+    log.mockRestore();
+  }
+}
+const itemId = "v1|123456789012|0",
+  itemTask = { kind: "item", itemId };
+const listing = {
+  itemId,
+  gtin: "1234567890123",
+  title: "Synthetic Listing Title",
+  conditionId: "1000",
+  buyingOptions: ["FIXED_PRICE"],
+  price: { value: "499.99", currency: "USD" },
+  seller: { username: "SyntheticSellerName", feedbackPercentage: "99.9", feedbackScore: 1000 },
+};
+const forbidden = ["Synthetic", "123456789012", "499.99", "v1|", "api.ebay.com"];
+test("eBay invalid-data is logged with a fixed reason and no listing value, and the app never sees it", async () => {
+  const warning = { errorId: 11510, message: "Synthetic text" };
+  const cases: [() => Response, string][] = [
+    [() => Response.json({ ...listing, warnings: [warning] }), "warnings:11510"],
+    [() => Response.json({ ...listing, gtin: "9876543210123" }), "gtin-mismatch"],
+    [() => Response.json({ ...listing, gtin: undefined }), "gtin-missing"],
+    [() => Response.json({ ...listing, conditionId: "3000" }), "condition"],
+    [() => new Response("not json"), "json"],
+    [() => new Response("x".repeat(1024 * 1024 + 1)), "size"],
+    [() => Response.json({ ...listing, seller: { feedbackScore: 1.5 } }), "schema"],
+  ];
+  for (const [respond, reason] of cases) {
+    const { line, completed } = await checkOnce(itemTask, respond);
+    expect(JSON.parse(line)).toEqual({
+      event: "check",
+      retailer: "ebay",
+      outcome: "invalid-data",
+      reason,
+      ms: expect.any(Number),
+    });
+    for (const value of forbidden) expect(line).not.toContain(value);
+    expect(completed.error).toBe("invalid-data");
+    expect("reason" in completed).toBe(false);
+  }
+  const search = await checkOnce({ kind: "search" }, () =>
+    Response.json({ errors: [{ errorId: 1100, message: "Synthetic" }] }),
+  );
+  expect(JSON.parse(search.line).reason).toBe("errors");
+});
+test("a detail with no item gtin but a matching product.gtins list completes as an offer", async () => {
+  const { gtin: _omit, ...noGtin } = listing;
+  const accepted = await checkOnce(itemTask, () =>
+    Response.json({ ...noGtin, product: { gtins: ["1234567890123"] } }),
+  );
+  expect(JSON.parse(accepted.line)).toEqual({ event: "check", retailer: "ebay", outcome: "ok", ms: expect.any(Number) });
+  expect((accepted.completed.offers as unknown[]).length).toBe(1);
+  const rejected = await checkOnce(itemTask, () =>
+    Response.json({ ...noGtin, product: { gtins: ["9876543210123"] } }),
+  );
+  expect(JSON.parse(rejected.line).reason).toBe("gtin-mismatch");
 });
 
 for (const failure of ["item", "search", "malformed"] as const) {
