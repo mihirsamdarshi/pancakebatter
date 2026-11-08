@@ -57,7 +57,9 @@ export interface Options {
 }
 /**
  * One outcome-only line per attempted retailer check: no ids, prices, URLs or error text. An
- * `invalid-data` outcome may add a fixed `reason` code (see `InvalidReason`); it is never sent to the app.
+ * `invalid-data` outcome may add a fixed `reason` code (see `InvalidReason`). A `not-product` outcome
+ * always has one: `gtin-mismatch` or `gtin-missing:<product>:<condition>`. The reason is never sent
+ * to the app.
  */
 export function checkLine(
   retailer: Retailer,
@@ -273,16 +275,21 @@ export class Worker {
             } catch (error) {
               // Owner decision 19: a listing whose GTIN is not the watch GTIN is not our product. That is a
               // successful check with nothing to store (an empty offers list), never a failure or a backoff.
+              // Owner decision 20: so is a listing with no GTIN at all; the log keeps the adapter's fixed reason.
               if (
-                !(retailer === "ebay" && error instanceof UpstreamError && error.reason === "gtin-mismatch")
+                !(
+                  retailer === "ebay" &&
+                  error instanceof UpstreamError &&
+                  (error.reason === "gtin-mismatch" || error.reason?.startsWith("gtin-missing:"))
+                )
               )
                 throw error;
               offer = null;
+              reason = error.reason;
             }
             if (offer === null) {
               result = { offers: [], mode: "upsert" };
               outcome = "not-product";
-              reason = "gtin-mismatch";
               this.cache.get(key)?.delete(itemId!);
               this.sent.delete(`${key}/${itemId!}`);
             } else {

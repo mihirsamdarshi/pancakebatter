@@ -219,7 +219,7 @@ test("each eBay detail rejection site reports its own fixed reason", () => {
   const cases: [Record<string, unknown>, string][] = [
     [{ itemId: "v1|123456789013|0" }, "item-id"],
     [{ gtin: "9876543210123" }, "gtin-mismatch"],
-    [{ gtin: undefined }, "gtin-missing"],
+    [{ gtin: undefined }, "gtin-missing:no-product:new"],
     [{ buyingOptions: ["AUCTION"] }, "buying-option"],
     [{ buyingOptions: ["BEST_OFFER"] }, "buying-option"],
     [{ errors: [{ errorId: 1100, message: "x" }] }, "errors"],
@@ -265,9 +265,9 @@ test("GTIN identity: item gtin decides; product.gtins only when the item gtin is
   expect(check({ ...noGtin, product: { gtins: [other, b.ebayGtin] } })).toBe("accepted");
   expect(check({ ...noGtin, product: { gtins: [other] } })).toBe("gtin-mismatch");
   expect(check({ ...noGtin, product: { gtins: [` ${b.ebayGtin}`] } })).toBe("gtin-mismatch");
-  expect(check({ ...noGtin, product: { gtins: [] } })).toBe("gtin-missing");
-  expect(check({ ...noGtin, product: {} })).toBe("gtin-missing");
-  expect(check({ ...noGtin, product: { gtins: b.ebayGtin } })).toBe("gtin-missing");
+  expect(check({ ...noGtin, product: { gtins: [] } })).toBe("gtin-missing:no-gtins:new");
+  expect(check({ ...noGtin, product: {} })).toBe("gtin-missing:no-gtins:new");
+  expect(check({ ...noGtin, product: { gtins: b.ebayGtin } })).toBe("gtin-missing:no-gtins:new");
   // A differing item gtin is final, even when the product list matches.
   expect(check({ ...item, gtin: other, product: { gtins: [b.ebayGtin] } })).toBe("gtin-mismatch");
   // Other checks stay in force when the identity comes from product.gtins.
@@ -277,6 +277,55 @@ test("GTIN identity: item gtin decides; product.gtins only when the item gtin is
   expect(check({ ...noGtin, product: { gtins: [b.ebayGtin] }, warnings: [{ errorId: 1 }] })).toBe(
     "warnings:1",
   );
+});
+// Owner decision 20: a listing with no GTIN is logged with two fixed words, never listing data.
+test("a listing with no GTIN reports whether eBay sent a product object and its condition, in fixed words only", () => {
+  const { gtin: _omit, ...noGtin } = item;
+  const check = (patch: Record<string, unknown>) =>
+    reasonOf(() => parseEbay({ ...noGtin, ...patch }, w, b, id, now));
+  const conditions: [unknown, string][] = [
+    ["1000", "new"],
+    ["1500", "open-box"],
+    ["2000", "refurbished"],
+    ["2010", "refurbished"],
+    ["2020", "refurbished"],
+    ["2030", "refurbished"],
+    ["2500", "refurbished"],
+    ["3000", "other"],
+    [undefined, "other"],
+    [1000, "other"],
+    ["Synthetic condition text", "other"],
+    ["constructor", "other"],
+    ["toString", "other"],
+    ["__proto__", "other"],
+  ];
+  for (const [conditionId, word] of conditions) {
+    expect(check({ conditionId })).toBe(`gtin-missing:no-product:${word}`);
+    expect(check({ conditionId, product: {} })).toBe(`gtin-missing:no-gtins:${word}`);
+  }
+  for (const product of [undefined, null, "Synthetic", [], [b.ebayGtin]])
+    expect(check({ product })).toBe("gtin-missing:no-product:new");
+  for (const product of [
+    {},
+    { gtins: [] },
+    { gtins: b.ebayGtin },
+    { gtins: null },
+    { title: "Synthetic" },
+  ])
+    expect(check({ product })).toBe("gtin-missing:no-gtins:new");
+  // The identity check still runs first, so the later checks never see a listing with no GTIN.
+  expect(check({ conditionId: "3000", buyingOptions: ["AUCTION"], price: null })).toBe(
+    "gtin-missing:no-product:other",
+  );
+  // Failures before the identity check still fail for a listing with no GTIN; they are never skipped.
+  expect(check({ warnings: [{ errorId: 11510 }] })).toBe("warnings:11510");
+  expect(check({ itemId: "v1|123456789013|0" })).toBe("item-id");
+  expect(reasonOf(() => parseEbay(noGtin, w, { ...b, ebayGtin: undefined }, id, now))).toBe(
+    "binding",
+  );
+  // A listing with a GTIN still meets buying option and errors before condition, as before.
+  expect(detail({ conditionId: "3000", buyingOptions: ["AUCTION"] })).toBe("buying-option");
+  expect(detail({ conditionId: "3000", errors: [{ errorId: 1100 }] })).toBe("errors");
 });
 test("GTIN identity compares the 14-digit form on both sides and never matches malformed values", () => {
   const upc = { ...b, ebayGtin: "711719024538" };

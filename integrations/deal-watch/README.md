@@ -223,8 +223,12 @@ it does not assert retailer availability. Source freshness/errors remain visible
 in the dashboard. Credentials and upstream response bodies never enter logs.
 
 Each attempted retailer check logs one line,
-`{"event":"check","retailer":"sony","outcome":"ok","ms":412}`; `outcome` is `ok` or the
-failure code (`access-denied`, `throttled`, `network`, `invalid-data`, `unsupported`).
+`{"event":"check","retailer":"sony","outcome":"ok","ms":412}`; `outcome` is `ok`, the
+failure code (`access-denied`, `throttled`, `network`, `invalid-data`, `unsupported`), or
+`not-product` (eBay only: the listing is not the watched product and is skipped).
+An `invalid-data` line may add a fixed `reason` code. A `not-product` line always has one:
+`gtin-mismatch`, or `gtin-missing:<product>:<condition>`, where `<product>` is
+`no-product` or `no-gtins` and `<condition>` is `new`, `open-box`, `refurbished` or `other`.
 The browser service logs one line per served `/observe` request,
 `{"event":"observe","retailer":"target","status":200,"blocked":true,"reason":"captcha","net":null,"responses":2,"ms":31874}`;
 `reason` is `captcha`, `block-text`, `timeout`, `navigation` or `null`, and `net` is
