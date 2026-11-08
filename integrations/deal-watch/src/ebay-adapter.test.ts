@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { parseEbay, discoveryIds } from "./ebay-adapter.ts";
 import { readPolicy } from "./policy.ts";
 import { qualify } from "./vendor/domain.ts";
+import { message } from "./discord.ts";
 const w = readPolicy(new URL("../fixtures/example-policy.json", import.meta.url).pathname)[0]!;
 const b = {
   ...w.bindings[0]!,
@@ -105,5 +106,46 @@ test("warnings are not silently treated as complete source evidence", () => {
       "invalid-data",
     );
     expect(() => parseEbay({ ...item, warnings }, w, b, id, now)).toThrow("invalid-data");
+  }
+});
+
+// Owner decision 14/15 (option B): extra fees are assumed 0 only for new, US, fixed-price, USD, ZIP-proven listings.
+const us = { ...item, itemLocation: { country: "US" } };
+const option = item.shippingOptions[0]!;
+const fees = (v: unknown) => parseEbay(v, w, b, id, now).feesCents;
+test("a US fixed-price USD listing with a ZIP-matched priced shipping option assumes no fee and alerts with the label", () => {
+  const offer = parseEbay(us, w, b, id, now);
+  expect(offer.feesCents).toBe(0);
+  expect(offer.warranty).toBeNull();
+  expect(qualify(w, b, offer, now).eligible).toBe(true);
+  expect(message(w, b, offer, crypto.randomUUID(), now)).toContain("fee assumed, not verified");
+});
+test("fees stay unknown without full proof", () => {
+  const amount = { value: "5.00", currency: "USD" };
+  for (const patch of [
+    { itemLocation: { country: "CA" } },
+    { itemLocation: undefined },
+    { ecoParticipationFee: amount },
+    { shippingOptions: [{ ...option, importCharges: amount }] },
+    { shippingOptions: [option, { ...option, importCharges: amount }] },
+    { shippingOptions: [{ ...option, shipToLocationUsedForEstimate: undefined }] },
+    { shippingOptions: [{ ...option, shipToLocationUsedForEstimate: { country: "US", postalCode: "00000" } }] },
+    { shippingOptions: [{ ...option, shippingCost: undefined }] },
+    { shippingOptions: [{ ...option, shippingCost: { value: "5.00", currency: "CAD" } }] },
+    { shippingOptions: [] },
+  ]) {
+    const offer = parseEbay({ ...us, ...patch }, w, b, id, now);
+    expect(offer.feesCents).toBeNull();
+    expect(qualify(w, b, offer, now).eligible).toBe(false);
+  }
+  for (const patch of [{ price: { value: "500", currency: "CAD" } }, { buyingOptions: ["BEST_OFFER"] }])
+    expect(() => fees({ ...us, ...patch })).toThrow("invalid-data");
+});
+test("open-box and refurbished listings never qualify, even with the fee assumption", () => {
+  for (const conditionId of ["1500", "2000", "2010", "2020", "2030", "2500"]) {
+    const offer = parseEbay({ ...us, conditionId }, w, b, id, now);
+    expect(offer.feesCents).toBe(0);
+    expect(offer.warranty).toBeNull();
+    expect(qualify(w, b, offer, now).reasons).toContain("Returns or warranty evidence missing");
   }
 });

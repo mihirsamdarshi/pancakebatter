@@ -58,7 +58,8 @@ export function message(
     ...(kind === "verify" ? ["VERIFY AT RETAILER: Sony reports an unclear stock status"] : []),
     `${clean(w.title)} — ${usd(q.totalCents!)} before tax`,
     `${b.retailer === "ebay" ? "eBay listing" : clean(o.seller.name)} · ${o.condition} · shipped to ${w.zip}`,
-    `${usd(o.priceCents)} item + ${usd(o.shippingCents!)} shipping + ${usd(o.feesCents!)} mandatory fees`,
+    // eBay fees are an owner-approved assumption (parseEbay); the app cannot tell them from verified fees.
+    `${usd(o.priceCents)} item + ${usd(o.shippingCents!)} shipping + ${usd(o.feesCents!)} mandatory fees${b.retailer === "ebay" ? " (fee assumed, not verified)" : ""}`,
     o.shipping === "policy-supported"
       ? "ZIP checkout unverified — nationwide shipping policy only"
       : "Shipping confirmed for the watch destination",
