@@ -30,7 +30,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: worker
-          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-integrations@sha256:69314c3575b247305048bbae34415eebec9c7c6b1fc737090f320a9c98ca7050
+          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-integrations@sha256:8a075368f36c1226820dd45f7b05c4c7b6e33a251bf554658419d09d4b339c0c
           env:
             - name: APP_BASE_URL
               value: https://deal-watch.${SECRET_DOMAIN_LOCAL}
