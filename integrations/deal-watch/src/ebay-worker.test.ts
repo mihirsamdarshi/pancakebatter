@@ -211,7 +211,6 @@ test("eBay invalid-data is logged with a fixed reason and no listing value, and 
       () => Response.json({ ...listing, warnings: [{ ...awayWarning, errorId: 11509 }, warning] }),
       "warnings:11509,11510",
     ],
-    [() => Response.json({ ...listing, gtin: "9876543210123" }), "gtin-mismatch"],
     [() => Response.json({ ...listing, gtin: undefined }), "gtin-missing"],
     [() => Response.json({ ...listing, conditionId: "3000" }), "condition"],
     [() => new Response("not json"), "json"],
@@ -246,7 +245,29 @@ test("a detail with no item gtin but a matching product.gtins list completes as 
   const rejected = await checkOnce(itemTask, () =>
     Response.json({ ...noGtin, product: { gtins: ["9876543210123"] } }),
   );
-  expect(JSON.parse(rejected.line).reason).toBe("gtin-mismatch");
+  expect(JSON.parse(rejected.line).outcome).toBe("not-product");
+});
+test("a detail whose gtin is not the watch gtin completes with an empty offers list, logs not-product and no listing value", async () => {
+  const { gtin: _omit, ...noGtin } = listing;
+  const responses = [
+    () => Response.json({ ...listing, gtin: "9876543210123" }),
+    () => Response.json({ ...noGtin, product: { gtins: ["9876543210123"] } }),
+  ];
+  for (const respond of responses) {
+    const { line, completed } = await checkOnce(itemTask, respond);
+    expect(JSON.parse(line)).toEqual({
+      event: "check",
+      retailer: "ebay",
+      outcome: "not-product",
+      reason: "gtin-mismatch",
+      ms: expect.any(Number),
+    });
+    for (const value of forbidden) expect(line).not.toContain(value);
+    expect(completed.offers).toEqual([]);
+    expect(completed.mode).toBe("upsert");
+    expect("error" in completed).toBe(false);
+    expect("retryAfterMs" in completed).toBe(false);
+  }
 });
 
 for (const failure of ["item", "search", "malformed"] as const) {

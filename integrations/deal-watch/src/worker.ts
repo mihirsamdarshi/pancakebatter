@@ -251,33 +251,52 @@ export class Worker {
             if (cache) for (const id of cache.keys()) if (!ids.includes(id)) cache.delete(id);
           } else {
             if (retailer === "ebay" && itemId === null) throw invalid("item-id");
-            const offer =
-              retailer === "ebay"
-                ? parseEbay(
-                    await this.options.ebay!.getRestItem(itemId!, watch.zip),
-                    watch,
-                    binding,
-                    itemId!,
-                    this.now(),
-                  )
-                : await collect(
-                    watch,
-                    binding,
-                    this.fetcher,
-                    this.now(),
-                    this.references,
-                    this.options.browserUrl,
-                  );
-            result = retailer === "ebay" ? { offers: [offer], mode: "upsert" } : { offer };
-            const cache =
-              retailer === "ebay"
-                ? (this.cache.get(key) ?? new Map<string, Offer>())
-                : new Map<string, Offer>();
-            cache.set(offer.id, offer);
-            while (cache.size > 10) cache.delete(cache.keys().next().value!);
-            this.cache.set(key, cache);
-            const seen = qualify(watch, binding, offer, this.now());
-            if (!seen.eligible && !seen.verify) this.sent.delete(`${key}/${offer.id}`);
+            let offer: Offer | null;
+            try {
+              offer =
+                retailer === "ebay"
+                  ? parseEbay(
+                      await this.options.ebay!.getRestItem(itemId!, watch.zip),
+                      watch,
+                      binding,
+                      itemId!,
+                      this.now(),
+                    )
+                  : await collect(
+                      watch,
+                      binding,
+                      this.fetcher,
+                      this.now(),
+                      this.references,
+                      this.options.browserUrl,
+                    );
+            } catch (error) {
+              // Owner decision 19: a listing whose GTIN is not the watch GTIN is not our product. That is a
+              // successful check with nothing to store (an empty offers list), never a failure or a backoff.
+              if (
+                !(retailer === "ebay" && error instanceof UpstreamError && error.reason === "gtin-mismatch")
+              )
+                throw error;
+              offer = null;
+            }
+            if (offer === null) {
+              result = { offers: [], mode: "upsert" };
+              outcome = "not-product";
+              reason = "gtin-mismatch";
+              this.cache.get(key)?.delete(itemId!);
+              this.sent.delete(`${key}/${itemId!}`);
+            } else {
+              result = retailer === "ebay" ? { offers: [offer], mode: "upsert" } : { offer };
+              const cache =
+                retailer === "ebay"
+                  ? (this.cache.get(key) ?? new Map<string, Offer>())
+                  : new Map<string, Offer>();
+              cache.set(offer.id, offer);
+              while (cache.size > 10) cache.delete(cache.keys().next().value!);
+              this.cache.set(key, cache);
+              const seen = qualify(watch, binding, offer, this.now());
+              if (!seen.eligible && !seen.verify) this.sent.delete(`${key}/${offer.id}`);
+            }
           }
           this.failures.set(retailer, 0);
         } catch (error) {

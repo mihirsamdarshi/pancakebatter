@@ -199,7 +199,7 @@ export class EbayClient {
     return this.browse(
       "/buy/browse/v1/item/" +
         encodeURIComponent(itemId) +
-        "?quantity_for_shipping_estimate=1",
+        "?quantity_for_shipping_estimate=1&fieldgroups=PRODUCT",
       zip,
     );
   }
