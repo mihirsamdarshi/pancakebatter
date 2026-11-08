@@ -17,12 +17,24 @@ function money(v: unknown): number | null {
   const n = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
   return Number.isSafeInteger(n) && n <= 100000000 ? n : null;
 }
-/** Fail closed on any warning. The log reason carries only eBay's numeric `errorId` values (at most 5), never message text. */
-function rejectWarnings(value: unknown): void {
+/** eBay's "this seller is currently away" notices: 11509 carries a return date, 11508 does not. */
+const SELLER_AWAY = [11508, 11509];
+/**
+ * Fail closed on any warning, except the `allowed` ids, and only when every warning is a well-formed object with
+ * an integer `errorId`. Returns true when it accepted at least one allowed warning. The log reason carries only
+ * eBay's numeric `errorId` values (at most 5), never message text or the return date.
+ */
+function rejectWarnings(value: unknown, allowed: readonly number[] = []): boolean {
   if (!object(value)) throw invalid("schema");
-  if (value.warnings === undefined) return;
+  if (value.warnings === undefined) return false;
   if (!Array.isArray(value.warnings)) throw invalid("warnings");
-  if (value.warnings.length === 0) return;
+  if (value.warnings.length === 0) return false;
+  if (
+    value.warnings.every(
+      (w) => object(w) && Number.isSafeInteger(w.errorId) && allowed.includes(w.errorId as number),
+    )
+  )
+    return true;
   const codes = value.warnings
     .map((w) => (object(w) ? w.errorId : undefined))
     .filter((n): n is number => typeof n === "number" && Number.isSafeInteger(n) && n >= 0)
@@ -66,7 +78,8 @@ export function parseEbay(
   itemId: string,
   now = Date.now(),
 ): Offer {
-  rejectWarnings(value);
+  // Owner decision 18: a seller-away listing is shown, never alerted. Its stock is unknown (see below).
+  const sellerAway = rejectWarnings(value, SELLER_AWAY);
   if (!object(value)) throw invalid("schema");
   if (!b.ebayGtin) throw invalid("binding");
   if (value.itemId !== itemId) throw invalid("item-id");
@@ -128,7 +141,7 @@ export function parseEbay(
         .map((a) => a.estimatedAvailabilityStatus)
     : [];
   const ended = typeof value.itemEndDate === "string" ? Date.parse(value.itemEndDate) : null;
-  const availability =
+  const observed =
     states.includes("OUT_OF_STOCK") || (ended !== null && Number.isFinite(ended) && ended <= now)
       ? "out-of-stock"
       : states.length > 0 &&
@@ -136,6 +149,9 @@ export function parseEbay(
           (ended === null || Number.isFinite(ended))
         ? "in-stock"
         : "unknown";
+  // "unknown" is never in stock for qualify() and is not "verify", so an away seller can never alert. An ended
+  // listing stays out-of-stock so the app still deletes it.
+  const availability = sellerAway && observed === "in-stock" ? "unknown" : observed;
   const percent =
     typeof seller.feedbackPercentage === "string" && /^\d+(\.\d+)?$/.test(seller.feedbackPercentage)
       ? Number(seller.feedbackPercentage)

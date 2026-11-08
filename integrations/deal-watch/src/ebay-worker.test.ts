@@ -178,11 +178,39 @@ const listing = {
   price: { value: "499.99", currency: "USD" },
   seller: { username: "SyntheticSellerName", feedbackPercentage: "99.9", feedbackScore: 1000 },
 };
-const forbidden = ["Synthetic", "123456789012", "499.99", "v1|", "api.ebay.com"];
+const awayWarning = {
+  errorId: 11509,
+  message: "SyntheticAwayText until 2099-01-01",
+  parameters: [{ name: "sellerReturnDate", value: "2099-01-01" }],
+};
+const forbidden = ["Synthetic", "123456789012", "499.99", "v1|", "api.ebay.com", "sellerReturnDate", "2099"];
+test("a seller-away detail completes as an offer with unknown stock and logs nothing from the warning", async () => {
+  const { line, completed } = await checkOnce(itemTask, () =>
+    Response.json({
+      ...listing,
+      warnings: [awayWarning],
+      estimatedAvailabilities: [
+        { estimatedAvailabilityStatus: "IN_STOCK", deliveryOptions: ["SHIP_TO_HOME"] },
+      ],
+    }),
+  );
+  expect(JSON.parse(line)).toEqual({ event: "check", retailer: "ebay", outcome: "ok", ms: expect.any(Number) });
+  for (const value of ["SyntheticAwayText", "sellerReturnDate", "2099", "SyntheticSellerName"])
+    expect(line).not.toContain(value);
+  const offers = completed.offers as { availability: string }[];
+  expect(offers).toHaveLength(1);
+  expect(offers[0]!.availability).toBe("unknown");
+  expect(JSON.stringify(completed)).not.toContain("2099");
+  expect(JSON.stringify(completed)).not.toContain("SyntheticAwayText");
+});
 test("eBay invalid-data is logged with a fixed reason and no listing value, and the app never sees it", async () => {
   const warning = { errorId: 11510, message: "Synthetic text" };
   const cases: [() => Response, string][] = [
     [() => Response.json({ ...listing, warnings: [warning] }), "warnings:11510"],
+    [
+      () => Response.json({ ...listing, warnings: [{ ...awayWarning, errorId: 11509 }, warning] }),
+      "warnings:11509,11510",
+    ],
     [() => Response.json({ ...listing, gtin: "9876543210123" }), "gtin-mismatch"],
     [() => Response.json({ ...listing, gtin: undefined }), "gtin-missing"],
     [() => Response.json({ ...listing, conditionId: "3000" }), "condition"],
