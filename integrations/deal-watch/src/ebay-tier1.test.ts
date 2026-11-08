@@ -162,7 +162,7 @@ function gateHarness(gate: Gate, snapshotOffer?: unknown) {
           {
             id: w.id,
             preferences: { paused: false, muted: false, purchased: false },
-            sources: snapshotOffer ? [{ id: ebay.id, retailer: "ebay", offer: snapshotOffer, offers: [{ offer: snapshotOffer }] }] : [],
+            sources: snapshotOffer ? [{ id: ebay.id, retailer: "ebay", offers: [{ offer: snapshotOffer }] }] : [],
             history: [],
           },
         ],
@@ -248,14 +248,14 @@ test("no enabled eBay binding: no state read and no eBay field reported", async 
 test("Tier 1 audit: a served eBay offer with a name other than the label, or an extra key, blocks eBay", async () => {
   const { w, ebay } = watchesWithEbay();
   const good = parseEbay(ebayItem(), w, ebay, ids[0]!, 1000);
-  const wrap = (offer: unknown) => ({ watches: [{ sources: [{ id: "e", retailer: "ebay", offer, offers: [{ offer }] }], history: [] }] });
+  const wrap = (offer: unknown) => ({ watches: [{ sources: [{ id: "e", retailer: "ebay", offers: [{ offer }] }], history: [] }] });
   expect(auditEbayOffers(wrap(good))).toBe(true);
   expect(auditEbayOffers(wrap({ ...good, seller: { ...good.seller, name: USERNAME } }))).toBe(false);
   expect(auditEbayOffers(wrap({ ...good, userId: USER_ID }))).toBe(false);
   expect(auditEbayOffers(wrap({ ...good, seller: { ...good.seller, username: USERNAME } }))).toBe(false);
   expect(auditEbayOffers({ watches: [{ sources: [{ id: "e", retailer: "ebay", offers: [] }], history: [{ binding_id: "e", offer: { ...good, seller: { ...good.seller, name: USERNAME } } }] }] })).toBe(false);
   // Other retailers keep their seller names.
-  expect(auditEbayOffers({ watches: [{ sources: [{ id: "s", retailer: "sony", offer: { ...good, seller: { ...good.seller, name: "Sony" } } }], history: [] }] })).toBe(true);
+  expect(auditEbayOffers({ watches: [{ sources: [{ id: "s", retailer: "sony", offers: [{ offer: { ...good, seller: { ...good.seller, name: "Sony" } } }] }], history: [] }] })).toBe(true);
   const h = gateHarness("clear", { ...good, seller: { ...good.seller, name: USERNAME } });
   await h.worker.runOnce();
   expect(h.statuses[0]!.ebay).toEqual({ state: "blocked", reason: "tier1-audit" });

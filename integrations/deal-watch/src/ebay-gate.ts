@@ -100,9 +100,8 @@ export function auditEbayOffers(snapshot: unknown): boolean {
     const ebayBindings = new Set<string>();
     for (const s of Array.isArray(row.sources) ? row.sources : []) {
       if (!s || typeof s !== "object" || (s as { retailer?: unknown }).retailer !== "ebay") continue;
-      const src = s as { id?: unknown; offer?: unknown; offers?: unknown };
+      const src = s as { id?: unknown; offers?: unknown };
       if (typeof src.id === "string") ebayBindings.add(src.id);
-      if (src.offer != null && !offerOk(src.offer)) return false;
       for (const e of Array.isArray(src.offers) ? src.offers : [])
         if (!offerOk((e as { offer?: unknown } | null)?.offer)) return false;
     }
