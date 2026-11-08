@@ -1,16 +1,45 @@
 export type Fetcher = (request: Request) => Promise<Response>;
+/**
+ * Closed set of log-safe reasons for an `invalid-data` outcome: one per rejection site, never listing
+ * data. Only `warnings:` carries numbers, and only eBay's own numeric warning `errorId` values.
+ */
+export type InvalidReason =
+  | "warnings"
+  | `warnings:${number}`
+  | `warnings:${number},${number}`
+  | `warnings:${number},${number},${number}`
+  | `warnings:${number},${number},${number},${number}`
+  | `warnings:${number},${number},${number},${number},${number}`
+  | "internal"
+  | "errors"
+  | "schema"
+  | "size"
+  | "encoding"
+  | "json"
+  | "token"
+  | "binding"
+  | "item-id"
+  | "gtin-mismatch"
+  | "gtin-missing"
+  | "condition"
+  | "buying-option"
+  | "price"
+  | "currency"
+  | "title";
 export class UpstreamError extends Error {
   constructor(
     readonly code: "network" | "throttled" | "access-denied" | "invalid-data" | "unsupported",
     readonly retryAfterMs = 0,
+    readonly reason?: InvalidReason,
   ) {
     super(code);
   }
 }
+export const invalid = (reason: InvalidReason) => new UpstreamError("invalid-data", 0, reason);
 export async function boundedText(response: Response, maxBytes = 4 * 1024 * 1024): Promise<string> {
   if (Number(response.headers.get("content-length") ?? 0) > maxBytes) {
     await response.body?.cancel();
-    throw new UpstreamError("invalid-data");
+    throw invalid("size");
   }
   const reader = response.body?.getReader();
   if (!reader) return "";
@@ -23,7 +52,7 @@ export async function boundedText(response: Response, maxBytes = 4 * 1024 * 1024
       size += value.byteLength;
       if (size > maxBytes) {
         await reader.cancel();
-        throw new UpstreamError("invalid-data");
+        throw invalid("size");
       }
       chunks.push(value);
     }
@@ -39,7 +68,7 @@ export async function boundedText(response: Response, maxBytes = 4 * 1024 * 1024
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    throw new UpstreamError("invalid-data");
+    throw invalid("encoding");
   }
 }
 export function retryAfter(value: string | null, now = Date.now()): number {

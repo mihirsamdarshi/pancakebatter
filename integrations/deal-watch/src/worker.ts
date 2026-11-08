@@ -13,7 +13,14 @@ import { EbayClient } from "./ebay.ts";
 import { discoveryIds, parseEbay } from "./ebay-adapter.ts";
 import { collect, fetchReferences, referenceCodes } from "./adapters.ts";
 import { parseBrowserUrl } from "./browser-adapters.ts";
-import { boundedText, nativeFetch, UpstreamError, type Fetcher } from "./http.ts";
+import {
+  boundedText,
+  invalid,
+  nativeFetch,
+  UpstreamError,
+  type Fetcher,
+  type InvalidReason,
+} from "./http.ts";
 import { readEbayGate, parseEbayStateUrl, auditEbayOffers, type EbayGate } from "./ebay-gate.ts";
 import { sendDiscord, message, type Delivery } from "./discord.ts";
 interface QueueEvent {
@@ -48,9 +55,17 @@ export interface Options {
   startupDelay?: boolean;
   allowLocalHttp?: boolean;
 }
-/** One outcome-only line per attempted retailer check: no ids, prices, URLs or error text. */
-export function checkLine(retailer: Retailer, outcome: string, ms: number): string {
-  return JSON.stringify({ event: "check", retailer, outcome, ms });
+/**
+ * One outcome-only line per attempted retailer check: no ids, prices, URLs or error text. An
+ * `invalid-data` outcome may add a fixed `reason` code (see `InvalidReason`); it is never sent to the app.
+ */
+export function checkLine(
+  retailer: Retailer,
+  outcome: string,
+  ms: number,
+  reason?: InvalidReason,
+): string {
+  return JSON.stringify({ event: "check", retailer, outcome, ...(reason && { reason }), ms });
 }
 export class Worker {
   readonly policyVersion: string;
@@ -216,6 +231,7 @@ export class Worker {
         const task = claim.lease.task;
         const checkStart = Date.now();
         let outcome = "ok";
+        let reason: InvalidReason | undefined;
         const itemId =
           isObject(task) &&
           task.kind === "item" &&
@@ -225,7 +241,7 @@ export class Worker {
             : null;
         try {
           if (retailer === "ebay" && !this.options.ebay) throw new UpstreamError("unsupported");
-          if (retailer === "ebay" && !binding.ebayGtin) throw new UpstreamError("invalid-data");
+          if (retailer === "ebay" && !binding.ebayGtin) throw invalid("binding");
           if (retailer === "ebay" && isObject(task) && task.kind === "search") {
             const ids = discoveryIds(
               await this.options.ebay!.searchByGtin(binding.ebayGtin!, watch.zip),
@@ -234,7 +250,7 @@ export class Worker {
             const cache = this.cache.get(key);
             if (cache) for (const id of cache.keys()) if (!ids.includes(id)) cache.delete(id);
           } else {
-            if (retailer === "ebay" && itemId === null) throw new UpstreamError("invalid-data");
+            if (retailer === "ebay" && itemId === null) throw invalid("item-id");
             const offer =
               retailer === "ebay"
                 ? parseEbay(
@@ -265,11 +281,17 @@ export class Worker {
           }
           this.failures.set(retailer, 0);
         } catch (error) {
+          // An unexpected (non-upstream) exception is labelled internal so a code bug never passes as an eBay data problem.
           const failure =
-              error instanceof UpstreamError ? error : new UpstreamError("invalid-data"),
+              error instanceof UpstreamError
+                ? error
+                : retailer === "ebay"
+                  ? invalid("internal")
+                  : new UpstreamError("invalid-data"),
             count = Math.min((this.failures.get(retailer) ?? 0) + 1, 12);
           this.failures.set(retailer, count);
           outcome = failure.code;
+          reason = failure.reason;
           const delay = Math.max(
             budgets[retailer] * Math.min(2 ** count, 32),
             failure.retryAfterMs,
@@ -282,7 +304,7 @@ export class Worker {
             this.cache.delete(key);
           result = { error: failure.code, retryAfterMs: delay };
         }
-        console.log(checkLine(retailer, outcome, Date.now() - checkStart));
+        console.log(checkLine(retailer, outcome, Date.now() - checkStart, reason));
         // If scheduling/results cannot be persisted, stop this cycle; do not continue upstream work.
         await this.api("/api/checks/complete", {
           watchId: watch.id,

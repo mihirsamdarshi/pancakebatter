@@ -1,5 +1,5 @@
 import { parseOffer, type Offer, type Watch, type Binding } from "./vendor/domain.ts";
-import { UpstreamError } from "./http.ts";
+import { invalid, type InvalidReason } from "./http.ts";
 import { EBAY_SELLER_LABEL } from "./ebay-gate.ts";
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -17,29 +17,43 @@ function money(v: unknown): number | null {
   const n = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
   return Number.isSafeInteger(n) && n <= 100000000 ? n : null;
 }
+/** Fail closed on any warning. The log reason carries only eBay's numeric `errorId` values (at most 5), never message text. */
 function rejectWarnings(value: unknown): void {
-  if (
-    !object(value) ||
-    (value.warnings !== undefined && (!Array.isArray(value.warnings) || value.warnings.length > 0))
-  )
-    throw new UpstreamError("invalid-data");
+  if (!object(value)) throw invalid("schema");
+  if (value.warnings === undefined) return;
+  if (!Array.isArray(value.warnings)) throw invalid("warnings");
+  if (value.warnings.length === 0) return;
+  const codes = value.warnings
+    .map((w) => (object(w) ? w.errorId : undefined))
+    .filter((n): n is number => typeof n === "number" && Number.isSafeInteger(n) && n >= 0)
+    .slice(0, 5);
+  throw invalid(codes.length ? (`warnings:${codes.join(",")}` as InvalidReason) : "warnings");
 }
+const hasErrors = (value: Record<string, unknown>) =>
+  value.errors !== undefined && (!Array.isArray(value.errors) || value.errors.length > 0);
 export function discoveryIds(value: unknown): string[] {
   rejectWarnings(value);
-  if (
-    !object(value) ||
-    (value.errors !== undefined && (!Array.isArray(value.errors) || value.errors.length))
-  )
-    throw new UpstreamError("invalid-data");
+  if (!object(value)) throw invalid("schema");
+  if (hasErrors(value)) throw invalid("errors");
   if (value.total === 0 && value.itemSummaries === undefined) return [];
   if (!Array.isArray(value.itemSummaries) || value.itemSummaries.length > 10)
-    throw new UpstreamError("invalid-data");
+    throw invalid("schema");
   const ids = value.itemSummaries.map((item) =>
     object(item) && typeof item.itemId === "string" ? item.itemId : "",
   );
   if (ids.some((id) => !/^v1\|\d{9,20}\|\d{1,20}$/.test(id)) || new Set(ids).size !== ids.length)
-    throw new UpstreamError("invalid-data");
+    throw invalid("schema");
   return ids;
+}
+/**
+ * Identity: the item-level `gtin` decides when present (exact string, no normalization). Only when it
+ * is absent may `product.gtins` (Browse `Product.gtins`, string[]) contain exactly the watch GTIN.
+ */
+function gtinReason(value: Record<string, unknown>, gtin: string): InvalidReason | null {
+  if (value.gtin !== undefined) return value.gtin === gtin ? null : "gtin-mismatch";
+  const gtins = object(value.product) ? value.product.gtins : undefined;
+  if (!Array.isArray(gtins) || gtins.length === 0) return "gtin-missing";
+  return gtins.some((g) => g === gtin) ? null : "gtin-mismatch";
 }
 /**
  * Fees are unknown (null) unless the owner-approved assumption holds (see `feeAssumed`); the Discord
@@ -53,17 +67,18 @@ export function parseEbay(
   now = Date.now(),
 ): Offer {
   rejectWarnings(value);
+  if (!object(value)) throw invalid("schema");
+  if (!b.ebayGtin) throw invalid("binding");
+  if (value.itemId !== itemId) throw invalid("item-id");
+  const identity = gtinReason(value, b.ebayGtin);
+  if (identity) throw invalid(identity);
   if (
-    !object(value) ||
-    !b.ebayGtin ||
-    value.itemId !== itemId ||
-    value.gtin !== b.ebayGtin ||
     !Array.isArray(value.buyingOptions) ||
     !value.buyingOptions.includes("FIXED_PRICE") ||
-    value.buyingOptions.includes("AUCTION") ||
-    (value.errors !== undefined && (!Array.isArray(value.errors) || value.errors.length))
+    value.buyingOptions.includes("AUCTION")
   )
-    throw new UpstreamError("invalid-data");
+    throw invalid("buying-option");
+  if (hasErrors(value)) throw invalid("errors");
   const conditions: Record<string, Offer["condition"]> = {
     "1000": "new",
     "1500": "open-box",
@@ -78,8 +93,10 @@ export function parseEbay(
   const price = money(value.price),
     title = text(value.title),
     seller = object(value.seller) ? value.seller : {};
-  if (!condition || !price || !title)
-    throw new UpstreamError("invalid-data");
+  if (!condition) throw invalid("condition");
+  if (!price)
+    throw invalid(object(value.price) && value.price.currency !== "USD" ? "currency" : "price");
+  if (!title) throw invalid("title");
   // Options whose delivery-location echo equals the watch ZIP (the only proof the cost is for this ZIP).
   const matched = Array.isArray(value.shippingOptions)
     ? value.shippingOptions

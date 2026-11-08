@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseEbay, discoveryIds } from "./ebay-adapter.ts";
+import { UpstreamError } from "./http.ts";
 import { readPolicy } from "./policy.ts";
 import { qualify } from "./vendor/domain.ts";
 import { message } from "./discord.ts";
@@ -148,4 +149,78 @@ test("open-box and refurbished listings never qualify, even with the fee assumpt
     expect(offer.warranty).toBeNull();
     expect(qualify(w, b, offer, now).reasons).toContain("Returns or warranty evidence missing");
   }
+});
+
+const reasonOf = (run: () => unknown) => {
+  try {
+    run();
+  } catch (error) {
+    return error instanceof UpstreamError ? error.reason : "not-an-upstream-error";
+  }
+  return "accepted";
+};
+const detail = (patch: Record<string, unknown>) =>
+  reasonOf(() => parseEbay({ ...item, ...patch }, w, b, id, now));
+test("each eBay detail rejection site reports its own fixed reason", () => {
+  const cases: [Record<string, unknown>, string][] = [
+    [{ itemId: "v1|123456789013|0" }, "item-id"],
+    [{ gtin: "9876543210123" }, "gtin-mismatch"],
+    [{ gtin: undefined }, "gtin-missing"],
+    [{ buyingOptions: ["AUCTION"] }, "buying-option"],
+    [{ buyingOptions: ["BEST_OFFER"] }, "buying-option"],
+    [{ errors: [{ errorId: 1100, message: "x" }] }, "errors"],
+    [{ conditionId: "3000" }, "condition"],
+    [{ price: { value: "500", currency: "CAD" } }, "currency"],
+    [{ price: { value: "abc", currency: "USD" } }, "price"],
+    [{ title: "" }, "title"],
+    [{ warnings: "bad" }, "warnings"],
+  ];
+  for (const [patch, reason] of cases) expect(detail(patch)).toBe(reason);
+  expect(reasonOf(() => parseEbay("nope", w, b, id, now))).toBe("schema");
+  expect(reasonOf(() => parseEbay(item, w, { ...b, ebayGtin: undefined }, id, now))).toBe(
+    "binding",
+  );
+});
+test("a warning response is rejected with only eBay's numeric codes", () => {
+  const warnings = [
+    { errorId: 11510, message: "Synthetic shipping text", parameters: [{ value: "secret" }] },
+    { errorId: 11502 },
+    { message: "no code" },
+  ];
+  expect(detail({ warnings })).toBe("warnings:11510,11502");
+  expect(reasonOf(() => discoveryIds({ itemSummaries: [{ itemId: id }], warnings }))).toBe(
+    "warnings:11510,11502",
+  );
+  expect(detail({ warnings: [{ message: "no code" }] })).toBe("warnings");
+  expect(detail({ warnings: [{ errorId: "Synthetic-secret", message: "x" }, { errorId: 1.5 }] })).toBe(
+    "warnings",
+  );
+  expect(detail({ warnings: Array.from({ length: 8 }, (_, i) => ({ errorId: 100 + i })) })).toBe(
+    "warnings:100,101,102,103,104",
+  );
+});
+test("discovery rejections report their reason", () => {
+  expect(reasonOf(() => discoveryIds({ errors: [{ errorId: 1100 }] }))).toBe("errors");
+  expect(reasonOf(() => discoveryIds({ itemSummaries: [{ itemId: "bad" }] }))).toBe("schema");
+  expect(reasonOf(() => discoveryIds(null))).toBe("schema");
+});
+test("GTIN identity: item gtin decides; product.gtins only when the item gtin is absent", () => {
+  const { gtin: _omit, ...noGtin } = item;
+  const other = "9876543210123";
+  const check = (v: unknown) => reasonOf(() => parseEbay(v, w, b, id, now));
+  expect(check({ ...noGtin, product: { gtins: [other, b.ebayGtin] } })).toBe("accepted");
+  expect(check({ ...noGtin, product: { gtins: [other] } })).toBe("gtin-mismatch");
+  expect(check({ ...noGtin, product: { gtins: [` ${b.ebayGtin}`] } })).toBe("gtin-mismatch");
+  expect(check({ ...noGtin, product: { gtins: [] } })).toBe("gtin-missing");
+  expect(check({ ...noGtin, product: {} })).toBe("gtin-missing");
+  expect(check({ ...noGtin, product: { gtins: b.ebayGtin } })).toBe("gtin-missing");
+  // A differing item gtin is final, even when the product list matches.
+  expect(check({ ...item, gtin: other, product: { gtins: [b.ebayGtin] } })).toBe("gtin-mismatch");
+  // Other checks stay in force when the identity comes from product.gtins.
+  expect(check({ ...noGtin, product: { gtins: [b.ebayGtin] }, buyingOptions: ["AUCTION"] })).toBe(
+    "buying-option",
+  );
+  expect(check({ ...noGtin, product: { gtins: [b.ebayGtin] }, warnings: [{ errorId: 1 }] })).toBe(
+    "warnings:1",
+  );
 });
