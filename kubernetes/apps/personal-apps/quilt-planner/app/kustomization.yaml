@@ -1,10 +1,10 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 # What is left of the bootstrap after the move to the app platform: the
-# StorageClass and the registry Secret. The workload is applied by the platform
-# Kustomization flux-system/app-quilt-planner (entry apps/quilt-planner.yaml).
+# StorageClass of the quilt-data claim. The workload and its pull Secret
+# apps-ghcr are applied by the platform Kustomization
+# flux-system/app-quilt-planner (entry apps/quilt-planner.yaml).
 # The Kustomization quilt-planner-bootstrap itself is never renamed or deleted:
 # the other Quilt Kustomizations depend on it.
 resources:
   - storage-class.yaml
-  - registry.sops.yaml
