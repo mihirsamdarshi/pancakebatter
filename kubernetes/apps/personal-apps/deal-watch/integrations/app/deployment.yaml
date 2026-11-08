@@ -13,7 +13,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/runtime-config: 6f6fa77b7d8bb4e280a909aaab7a8be988d60554f65751c30b2ed0ff8141a8cd
+        checksum/runtime-config: 1249dbe90f0cc6f1692baf638c7ed68063f51be1581f0a588e8dd4cde10c810f
         checksum/ebay-credentials: c1caf5b1e1f27506cb1882503d0eb74f3aed94e476b71192bd1ecf753dd29011
       labels:
         app.kubernetes.io/name: deal-watch-integrations
