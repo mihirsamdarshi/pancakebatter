@@ -21,11 +21,14 @@
 #   admits the node there.
 # - the pods of this namespace whose app.kubernetes.io/name is not the app's
 #   own: the job pod (name <app>-job), the backup pods and, because NotIn also
-#   matches a pod that has no such label (Kubernetes label-selector rules), the
+#   matches a pod that has no such label (Cilium's matchExpressions follow the
+#   Kubernetes rule, pkg/policy/types/requirements.go lines 176-177), the
 #   VolSync mover and sqlite-export pods, which carry no name label. The app
 #   pod itself (name <app>) is not matched. A pod of another namespace is never
 #   matched, so cloudflared (namespace <app>-share) is still admitted by the
 #   allow rule.
+# This is a network rule: kubectl exec, port-forward and debug containers
+# bypass it (admin access only).
 # Why not GUEST_TRUSTED_PEERS as well: the lock should be the network, and the
 # app's own address check would need cloudflared's pod range, which changes with
 # the cluster. The setting stays unset.

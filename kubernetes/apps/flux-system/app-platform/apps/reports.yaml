@@ -61,7 +61,7 @@ spec:
       # STORAGE stays at the 1Gi default: local-retain cannot expand a bound volume, and the
       # reports plus their git history are tens of MB.
       CPU: 100m
-      MEMORY: 512Mi
+      MEMORY: 1Gi
       MEMORY_LIMIT: 3Gi
       VOLSYNC_SCHEDULE: "0 13 * * *"
       # The weekly job refreshes a collection's County data: LA County's public

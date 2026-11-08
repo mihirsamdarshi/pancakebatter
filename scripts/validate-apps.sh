@@ -685,6 +685,11 @@ def podlabels:
           end),
        (if ([$appc.ports[]? | select(.name == "guest")]) != [{name: "guest", containerPort: 3001}] then "share must give container app of Deployment \($name) exactly the port guest (3001)" else empty end),
        (if ([$appc.env[]? | select(.name | startswith("GUEST_"))] | sort_by(.name)) != [{name: "GUEST_ACCESS_AUD", value: $shareaud}, {name: "GUEST_ACCESS_MODE", value: "claims"}, {name: "GUEST_ACCESS_TEAM", value: $shareteam}, {name: "GUEST_AGENT", value: "on"}, {name: "GUEST_COLLECTIONS", value: $guestcols}, {name: "GUEST_HOSTS", value: "\($sharehost).\($domain)"}, {name: "GUEST_PORT", value: "3001"}, {name: "GUEST_SEED_EMAILS", value: $shareseed}] then "share must give container app of Deployment \($name) exactly GUEST_ACCESS_AUD=${SECRET_SHARE_ACCESS_AUD}, GUEST_ACCESS_MODE=claims, GUEST_ACCESS_TEAM=${SECRET_SHARE_ACCESS_TEAM}, GUEST_AGENT=on, GUEST_COLLECTIONS=\($guestcols), GUEST_HOSTS=\($sharehost).<zone>, GUEST_PORT=3001 and GUEST_SEED_EMAILS=${SECRET_SHARE_GUEST_SEED_EMAILS} (no GUEST_TRUSTED_PEERS, no GUEST_RUN_TIMEOUT_MS)" else empty end),
+       # The deny rule selects by the name label, so the app pod must be the only
+       # pod with it, with one container and no way to pull in other settings.
+       ([$all | podlabels | select(.labels["app.kubernetes.io/name"] == $name and .id != "Deployment/\($name)")][] | "\(.id) carries the label app.kubernetes.io/name=\($name), which only the app Deployment may carry with the share part (the share policy trusts that pod alone on 3001)"),
+       ([.[] | select(type == "object" and .kind == "Deployment" and .metadata.name == $name) | .spec.template.spec | select((.containers | length) != 1 or ((.initContainers // []) | length) > 0)][] | "with the share part the Deployment \($name) must have exactly one container and no init container"),
+       (if (($appc.envFrom // []) | length) > 0 then "with the share part the app container must have no envFrom (its settings are exactly the listed env)" else empty end),
        (if ([$appc.env[]? | select(.name == "SHARE_ADMIN_HOSTS")]) != [{name: "SHARE_ADMIN_HOSTS", value: "\($host).\($local)"}] then "share must give container app of Deployment \($name) exactly SHARE_ADMIN_HOSTS=\($host).<local zone> (the LAN host only)" else empty end)
      else
        (if ($svcs | any(.metadata.name == "\($name)-share")) then "a Service \($name)-share without the share part" else empty end),
@@ -1017,6 +1022,26 @@ validate_entry() {
     echo "    ok: $name in $ns (components: $(yq '[.spec.components[]? | sub(".*/", "")] | join(" ")' "$tmp/ks.yaml"))"
 }
 
+# The share part substitutes three cluster-secrets keys into the app's env. A
+# missing seed key renders empty and the app then writes an empty guest list
+# once, so the real tree must hold all three as encrypted, non-empty values.
+# Values are never decrypted; only the key names and the ENC[ prefix are read.
+check_share_secrets() {
+    local f key v cs="kubernetes/components/sops/cluster-secrets.sops.yaml" need=false
+    for f in "$apps_dir"/*.yaml; do
+        [[ "$(basename "$f")" != kustomization.yaml ]] || continue
+        if yq -e '.spec.defaultValues.parts[] | select(. == "share")' "$f" >/dev/null 2>&1; then need=true; fi
+    done
+    [[ "$need" == true ]] || return 0
+    [[ -f "$cs" ]] || die "$cs is missing (the share part needs three keys in it)"
+    for key in SECRET_SHARE_ACCESS_AUD SECRET_SHARE_ACCESS_TEAM SECRET_SHARE_GUEST_SEED_EMAILS; do
+        v="$(yq ".stringData.$key // \"\"" "$cs")"
+        [[ "$v" == ENC\[* && ${#v} -gt 10 ]] \
+            || die "$cs has no encrypted non-empty $key, which the share part substitutes into the app (see 'Claims mode, the assistant and the Share panel' in kubernetes/apps/personal-apps/README.md; a missing seed key makes the app write an empty guest list once)"
+    done
+    echo "--- share: cluster-secrets holds the three share keys as encrypted values"
+}
+
 # --- Cross-entry checks ------------------------------------------------------
 
 check_unique() {
@@ -1319,6 +1344,7 @@ main() {
         yq -e ".resources[] | select(. == \"./$(basename "$f")\")" "$apps_dir/kustomization.yaml" >/dev/null 2>&1 \
             || die "$apps_dir/kustomization.yaml does not list ./$(basename "$f")"
     done
+    check_share_secrets
     check_cross_entry
     check_retired_list
     check_alert_namespaces

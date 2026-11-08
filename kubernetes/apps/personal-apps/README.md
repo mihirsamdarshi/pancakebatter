@@ -748,33 +748,36 @@ these `GUEST_` variables and `SHARE_ADMIN_HOSTS`, and refuses the same names in
 | `GUEST_AGENT` | `on` | The Ask assistant for guests |
 | `SHARE_ADMIN_HOSTS` | `<HOST>.<zone>` (the LAN host) | The Share panel, and every change to the guest list, answer on this host only |
 
-`GUEST_AGENT=on` is inert until the apps image has the guest assistant (the
-apps repo's open PR for it, #80, at the time of writing): an older image ignores
-the variable, so there is no Ask panel for guests to look for until it merges and
-the entry follows the new image. The Share panel's "Guest questions" list uses
-its own host setting in that PR (`GUEST_QUESTIONS_HOSTS`, which that PR will fold
-into `SHARE_ADMIN_HOSTS`); this change does not set it.
+`GUEST_AGENT=on` goes live with this change: the apps image the entry follows
+already has the guest assistant, so at the merge guests get the "Ask about this
+report" panel on the guest view (it costs money per question, within the
+per-guest and per-day limits in the apps README), and the family sees the
+read-only "Guest questions" list on the LAN host. Step 4 checks both.
 
 `GUEST_TRUSTED_PEERS` is unset (the policy above is the lock) and
 `GUEST_RUN_TIMEOUT_MS` keeps the app's default. The memory limit of the reports
-entry is 3Gi (it was 2Gi) for two agent runs at once, one for the family and one
-for a guest.
+entry is 3Gi (it was 2Gi), with a 1Gi request, for two agent runs at once, one
+for the family and one for a guest.
 
 ##### Set it up (the owner)
 
 Do this after the share-admin set-up above is done and `sa GET /guests` works.
 The app image must be one that has claims mode and the Share panel (the apps
 repo's `main`, which the entry follows). Do steps 1 and 2 on the branch of the PR
-that adds this change, before it merges. If the key is missing at the first
-start, the app writes an empty guest list and never seeds again, so every guest
-(the realtor too) would be turned away until you edit `guests.json` by hand.
+that adds this change, before it merges. `scripts/validate-apps.sh` fails until
+the three share keys are in `cluster-secrets` as encrypted values. If the seed
+key were missing at the first start, the app would write an empty guest list and
+never seed again, and every guest (the realtor too) would be turned away until
+you add them again in the Share panel (which repairs the list) or edit
+`guests.json`.
 
 1. List the emails that are in the Access policy now: from the Cloudflare
    dashboard (Zero Trust, Access, Policies, the guest policy), or with
    `sa GET /guests` from step 6 of the share-admin set-up. Write them in lower
    case, separated by commas, no spaces. Every one that is missing is locked out.
-2. Set the one key `SECRET_SHARE_GUEST_SEED_EMAILS`. Run this from the repo root
-   in bash or zsh and type the list at the prompt (it never goes in a file or
+2. Set the one key `SECRET_SHARE_GUEST_SEED_EMAILS`. Type `zsh` first (the
+   `read` below behaves the same in bash, but this keeps one shell), run this
+   from the repo root and type the list at the prompt (it never goes in a file or
    in the shell history). It checks the list before it writes, writes only that
    key, and then checks that the stored value is encrypted:
 
@@ -782,16 +785,19 @@ start, the app writes an empty guest list and never seeds again, so every guest
    ( set -o pipefail
      cs=kubernetes/components/sops/cluster-secrets.sops.yaml
      key=SECRET_SHARE_GUEST_SEED_EMAILS
-     e='[a-z0-9]([a-z0-9._+-]*[a-z0-9_+-])?@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}'
+     e='[a-z0-9_%+-]+(\.[a-z0-9_%+-]+)*@([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]*[a-z0-9])?'
      printf 'Guest emails, lower case, comma-separated, no spaces: '; read -r emails
-     printf '%s' "$emails" | grep -Eq "^$e(,$e)*\$" \
+     [ "$(printf '%s' "$emails" | tr ',' '\n' | awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }')" -le 254 ] \
+       && printf '%s' "$emails" | grep -Eq "^$e(,$e)*\$" \
        && jq -n --arg v "$emails" '$v' | sops set --value-stdin "$cs" "[\"stringData\"][\"$key\"]" \
        && yq ".stringData.$key" "$cs" | grep -q '^ENC\[' \
        || { echo "failed: $key was not set" >&2; false; } )
    ```
 
-   The app refuses a start with an address it cannot manage (it names the
-   address in the log), so a typo shows up at once rather than later.
+   Each address is at most 254 characters. The app checks the value at start with
+   the same rule, and **an address it refuses stops the whole reports app at
+   every start** (the LAN and family hosts go down with it; the log names the
+   address), so check the list twice.
 3. Commit `cluster-secrets.sops.yaml` and merge. Flux restarts the reports pod
    (a short break for the LAN and family hosts).
 4. Check:
@@ -814,15 +820,20 @@ start, the app writes an empty guest list and never seeds again, so every guest
    - The guest port is closed to everyone but cloudflared. Get the pod IP with
      `kubectl -n reports get pod -l app.kubernetes.io/name=reports -o jsonpath='{.items[0].status.podIP}'`
      and its node with `-o jsonpath='{.items[0].spec.nodeName}'`. Each of these
-     must time out (no answer, exit 28), because `/healthz` on the guest port
+     must time out (curl prints `000`), because `/healthz` on the guest port
      answers 200 to anyone who can reach it:
      - from the `default` namespace (this timed out before this change too; it
-       shows the allow rule is narrow):
-       `kubectl -n default run policy-check --rm -it --restart=Never --image=curlimages/curl --command -- curl -m 5 -s -o /dev/null -w '%{http_code}\n' http://<pod ip>:3001/healthz`
+       shows the allow rule is narrow). The namespace enforces Pod Security
+       `restricted`, so the pod needs the security fields (curl prints `000` when
+       it times out):
+       `kubectl -n default run policy-check --rm -it --restart=Never --image=curlimages/curl --override-type=strategic --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":100,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"policy-check","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' -- curl -m 5 -s -o /dev/null -w '%{http_code}\n' http://<pod ip>:3001/healthz`
      - from the node (replace `<node>`; this answered 200 before this change,
        because of allow-localhost, and must time out now):
-       `kubectl debug node/<node> -it --image=curlimages/curl -- curl -m 5 -s -o /dev/null -w '%{http_code}\n' http://<pod ip>:3001/healthz`;
-       delete the debug pod afterwards (`kubectl get pods | grep node-debugger`)
+       `kubectl -n kube-system debug node/<node> -it --image=curlimages/curl -- curl -m 5 -s -o /dev/null -w '%{http_code}\n' http://<pod ip>:3001/healthz`
+       (a node debugger shares the host's namespaces, which only `kube-system`
+       allows). It prints `000` on a timeout. Delete the debugger pod afterwards:
+       `kubectl -n kube-system get pods | grep node-debugger`, then
+       `kubectl -n kube-system delete pod <name>`
      - from a pod in the `reports` namespace that has no name label (this is
        the case the `NotIn` rule covers, and the one thing this change assumes
        about Cilium instead of knowing: that `NotIn` matches a pod with no such
@@ -836,8 +847,16 @@ start, the app writes an empty guest list and never seeds again, so every guest
      failures (`kubectl -n reports describe pod -l app.kubernetes.io/name=reports`,
      Events), and `curl -s -o /dev/null -w '%{http_code}\n' https://reports.<local zone>/healthz`
      prints `200`. The probes go to port 3000.
+   - The guest assistant is on: a guest's page (open `https://share.<zone>/` as
+     the realtor or a test guest) shows "Ask about this report", and
+     `curl -s -o /dev/null -w '%{http_code}\n' https://reports.<local zone>/api/guest-questions`
+     prints `200` while the same path on `https://reports.family.<zone>/` prints
+     `404`.
    - `kubectl -n reports get deploy reports -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'`
      prints `3Gi`.
+
+This is a network rule: `kubectl exec`, `port-forward` and debug containers
+bypass network rules, so it limits pods and the node, not a cluster admin.
 
 If a guest is turned away after the first start, the list in the app is wrong or
 empty. Add the guest in the Share panel, or see "The first start" in the reports
@@ -979,14 +998,17 @@ Flux Kustomization stays not ready.
    i. Check that the policy drops everyone else. Get the pod IP with
       `kubectl -n share-admin get pod -l app.kubernetes.io/name=share-admin -o jsonpath='{.items[0].status.podIP}'`
       and its node with `-o jsonpath='{.items[0].spec.nodeName}'`.
-      - From a pod in the `default` namespace the call must time out:
-        `kubectl -n default run policy-check --rm -it --restart=Never --image=curlimages/curl --command -- curl -m 5 -s -o /dev/null -w '%{http_code}\n' http://<pod ip>:8080/guests`
-        (no answer, exit 28).
+      - From a pod in the `default` namespace the call must time out (the
+        namespace enforces Pod Security `restricted`, hence the overrides; curl
+        prints `000`):
+        `kubectl -n default run policy-check --rm -it --restart=Never --image=curlimages/curl --override-type=strategic --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":100,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"policy-check","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' -- curl -m 5 -s -o /dev/null -w '%{http_code}\n' http://<pod ip>:8080/guests`
       - From the node, with a debug pod on it (replace `<node>`):
-        `kubectl debug node/<node> -it --image=curlimages/curl -- curl -m 5 -s -o /dev/null -w '%{http_code}\n' http://<pod ip>:8080/guests`
-        must time out (the `ingressDeny`), and the same with
-        `http://<pod ip>:8081/healthz` must print `200`. Then delete the debug
-        pod: `kubectl get pods | grep node-debugger`, then `kubectl delete pod <name>`.
+        `kubectl -n kube-system debug node/<node> -it --image=curlimages/curl -- curl -m 5 -s -o /dev/null -w '%{http_code}\n' http://<pod ip>:8080/guests`
+        (a node debugger shares the host's namespaces, which only `kube-system`
+        allows) must time out (`000`, the `ingressDeny`), and the same with
+        `http://<pod ip>:8081/healthz` must print `200`. Then delete the debugger
+        pod: `kubectl -n kube-system get pods | grep node-debugger`, then
+        `kubectl -n kube-system delete pod <name>`.
 
 #### Rotation and expiry
 
