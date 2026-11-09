@@ -750,8 +750,8 @@ these `GUEST_` variables and `SHARE_ADMIN_HOSTS`, and refuses the same names in
 No setting names the guests. At the first start in claims mode, when the app has
 no guest list yet (`guests.json` in its data folder), it asks share-admin for the
 emails on the Access policy, gives each of them today's `GUEST_COLLECTIONS` and
-writes the list. Until share-admin answers, the app writes nothing, the guest
-port refuses every guest, and the app asks again every 60 seconds. After that
+writes the list. Until a try works, the app writes nothing, the guest port
+refuses every guest, and the app asks again every 60 seconds. After that
 the Share panel keeps the list, and every change to it also goes through
 share-admin. Because claims mode seeds and edits the guest list only through
 share-admin, the validator refuses the `share` part in claims mode without the
@@ -762,7 +762,7 @@ README of the apps repo.
 already has the guest assistant, so at the merge guests get the "Ask about this
 report" panel on the guest view (it costs money per question, within the
 per-guest and per-day limits in the apps README), and the family sees the
-read-only "Guest questions" list on the LAN host. Step 2 checks both.
+read-only "Guest questions" list on the LAN host. Step 3 checks both.
 
 `GUEST_TRUSTED_PEERS` is unset (the policy above is the lock) and
 `GUEST_RUN_TIMEOUT_MS` keeps the app's default. The memory limit of the reports
@@ -772,38 +772,69 @@ for the family and one for a guest.
 ##### Set it up (the owner)
 
 Do this after the share-admin set-up above is done and `sa GET /guests` works:
-the app takes its first guest list through share-admin. The entry follows the
-apps repo's `main`, so merge only after mihirsamdarshi/apps#125 (the first
-guest list from share-admin) is on that `main`. An image without it writes an empty guest list
-at the first start in claims mode and never seeds again, and every guest (the
-realtor too) would be turned away until you add them again in the Share panel
-or edit `guests.json`. `scripts/validate-apps.sh` fails until the two keys the part
-substitutes (`SECRET_SHARE_ACCESS_AUD`, `SECRET_SHARE_ACCESS_TEAM`) are in
-`cluster-secrets` as encrypted values; step 11 of the share part's set-up above
-set them.
+the app takes its first guest list through share-admin. Merge only after the
+reports pod runs an image built from an apps commit that includes
+mihirsamdarshi/apps#125 (the first guest list from share-admin), and that
+rollout has finished. Being on the apps repo's `main` is not enough: the entry
+follows the `main` tag and checks it every 2 minutes, so a merge in that gap
+starts claims mode on the old image. An image without that change writes an
+empty guest list at the first start in claims mode and never seeds again, and
+every guest (the realtor too) would be turned away until you add them again in
+the Share panel or edit `guests.json`. `scripts/validate-apps.sh` fails until
+the two keys the part substitutes (`SECRET_SHARE_ACCESS_AUD`,
+`SECRET_SHARE_ACCESS_TEAM`) are in `cluster-secrets` as encrypted values; step 11
+of the share part's set-up above set them.
 
-1. Merge. Flux restarts the reports pod (a short break for the LAN and family
+1. Check the image before you merge. In the apps repo's Actions, open the run
+   for the merge commit of mihirsamdarshi/apps#125 (or a later commit on
+   `main`); its `publish (reports)` job prints the digest it pushed. Then:
+
+   ```sh
+   kubectl -n reports get deploy reports -o jsonpath='{.spec.template.spec.containers[0].image}'
+   kubectl -n reports rollout status deploy/reports
+   ```
+
+   The image must end in that digest (`...@sha256:<digest>`), or in the digest
+   of a later apps commit, and the rollout must have finished
+   (`successfully rolled out`). If the digest is older, wait for the next check
+   (every 2 minutes) and run both again.
+2. Merge. Flux restarts the reports pod (a short break for the LAN and family
    hosts).
-2. Check:
+3. Check:
 
    ```sh
    kubectl -n reports rollout status deploy/reports
-   kubectl -n reports logs deploy/reports | grep -E 'guest view|guest list|still waiting for share-admin'
+   kubectl -n reports logs deploy/reports | grep -E 'guest view|guest list|still waiting'
    ```
 
    The log shows a line `guest view ... claims` (the guest port started in
-   claims mode) and `share: wrote the first guest list (guests.json) for N
-   guest(s) from Cloudflare's guest policy`, with N the number of emails that
-   `sa GET /guests` (step 6 of the share-admin set-up) lists. N is smaller only
-   if the log also says it left entries out (an entry that is not a lower-case
-   plain `name@domain.tld`). If the log shows `share: no guest list yet, so
-   nobody may enter: share-admin did not give Cloudflare's guest list
-   (<reason>); trying again every 60 s` instead, or later `seed: still waiting
-   for share-admin since <time>, <tries> tries`, the guest port refuses every guest
-   until share-admin answers: check `sa GET /guests` and the share-admin pod.
-   While the app waits, do not add a guest in the Share panel unless that guest
-   should be the whole list: the first guest added starts the list, and the app
-   then stops asking Cloudflare. Then:
+   claims mode) and one of these:
+
+   - `share: wrote the first guest list (guests.json) for N guest(s) from
+     Cloudflare's guest policy`: the list is written. N is the number of
+     emails that `sa GET /guests` (step 6 of the share-admin set-up) lists,
+     counted after the app lower-cases each one, so an address in mixed case
+     is kept, and after it removes repeats. N is smaller still when the log
+     also says it left entries out (an entry that is not a plain
+     `name@domain.tld`).
+   - `share: the first guest list (guests.json) is empty (Cloudflare's guest
+     policy has no email the guest list can hold), so nobody may enter; add a
+     guest in the Share panel`: the policy has no usable email. Add the guests
+     in the Share panel.
+   - `share: no guest list yet, so nobody may enter: <reason>; trying again
+     every 60 s`, where `<reason>` is for example `share-admin could not be
+     reached`, `share-admin did not answer in time`, `share-admin answered 502
+     (upstream_error)`, `Cloudflare's guest policy has N entries; the guest
+     list holds at most 25` or `the first guest list could not be saved: ...`.
+     While the same reason goes on, the log adds one line an hour:
+     `share: still waiting for the first guest list since <time>, N tries
+     (<last reason>)`. The guest port refuses every guest until a try works:
+     check `sa GET /guests` and the share-admin pod. While the app waits, do
+     not add a guest in the Share panel unless that guest should be the whole
+     list: the first guest added starts the list, and the app then stops
+     asking Cloudflare.
+
+   Then:
 
    - Open `https://reports.<local zone>/`: the **Share** button is in the top
      bar, and the Guests tab lists your guests with no "Waiting for the first
@@ -865,8 +896,9 @@ reports README (`guests.json` in the data folder).
 
 A small service that edits the guest list of the reports share
 (`share.<zone>`). It holds the Cloudflare API token, so the reports app does
-not. The Share panel in the app (a later change) asks it to list guests, replace
-the list, end all guest sessions and look up a guest's last sign-in. Its code,
+not. The Share panel in the app (on the LAN host; "Claims mode, the assistant
+and the Share panel" above turns it on) asks it to list guests, replace the
+list, end all guest sessions and look up a guest's last sign-in. Its code,
 routes and rules are in `integrations/reports-share-admin/README.md`.
 
 It runs outside the platform, like `claude-proxy`, in its own Namespace
