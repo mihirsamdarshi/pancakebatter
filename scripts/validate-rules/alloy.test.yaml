@@ -126,3 +126,97 @@ tests:
       - eval_time: 30m
         alertname: SyslogParsingErrors
         exp_alerts: []
+  - name: 'TrueNASLogsSilent: no TrueNAS syslog counter at all (only the UCG listener counts): fires after 6 hours'
+    interval: 1m
+    input_series:
+      - series: 'loki_source_syslog_entries_total{component_id="loki.source.syslog.ucg"}'
+        values: '0+5x420'
+    alert_rule_test:
+      - eval_time: 5h50m
+        alertname: TrueNASLogsSilent
+        exp_alerts: []
+      - eval_time: 6h10m
+        alertname: TrueNASLogsSilent
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+            exp_annotations:
+              summary: 'No syslog lines from TrueNAS for 6 hours'
+              description: "The receiver got no line from TrueNAS (192.168.10.75, TCP 514) for 6 hours, or its counter is missing. Check that syslog-ng is active on TrueNAS and its syslog server is still 192.168.10.12 (TCP), and that alloy-receiver runs. A line from any other source address is dropped by the receiver's network policy without a count, so this alert is the only sign of it. Receipt is not storage: AlloyWriteDropping shows lines Alloy could not hand to Loki."
+  - name: 'TrueNASLogsSilent: counter present but flat, the state before TrueNAS sends: fires after 6 hours'
+    interval: 1m
+    input_series:
+      - series: 'loki_source_syslog_entries_total{component_id="loki.source.syslog.truenas"}'
+        values: '0+0x420'
+      - series: 'loki_source_syslog_entries_total{component_id="loki.source.syslog.ucg"}'
+        values: '0+5x420'
+    alert_rule_test:
+      - eval_time: 5h50m
+        alertname: TrueNASLogsSilent
+        exp_alerts: []
+      - eval_time: 6h10m
+        alertname: TrueNASLogsSilent
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+            exp_annotations:
+              summary: 'No syslog lines from TrueNAS for 6 hours'
+              description: "The receiver got no line from TrueNAS (192.168.10.75, TCP 514) for 6 hours, or its counter is missing. Check that syslog-ng is active on TrueNAS and its syslog server is still 192.168.10.12 (TCP), and that alloy-receiver runs. A line from any other source address is dropped by the receiver's network policy without a count, so this alert is the only sign of it. Receipt is not storage: AlloyWriteDropping shows lines Alloy could not hand to Loki."
+  - name: 'TrueNASLogsSilent: TrueNAS lines arrive: quiet'
+    interval: 1m
+    input_series:
+      - series: 'loki_source_syslog_entries_total{component_id="loki.source.syslog.truenas"}'
+        values: '0+30x420'
+    alert_rule_test:
+      - eval_time: 6h10m
+        alertname: TrueNASLogsSilent
+        exp_alerts: []
+      - eval_time: 7h
+        alertname: TrueNASLogsSilent
+        exp_alerts: []
+  - name: 'TrueNASLogsSilent: TrueNAS stops after 2 hours: the 1-hour rate is 0 from 3h, fires at 9h'
+    interval: 1m
+    input_series:
+      - series: 'loki_source_syslog_entries_total{component_id="loki.source.syslog.truenas"}'
+        values: '0+30x120 3600+0x450'
+    alert_rule_test:
+      - eval_time: 8h50m
+        alertname: TrueNASLogsSilent
+        exp_alerts: []
+      - eval_time: 9h10m
+        alertname: TrueNASLogsSilent
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+            exp_annotations:
+              summary: 'No syslog lines from TrueNAS for 6 hours'
+              description: "The receiver got no line from TrueNAS (192.168.10.75, TCP 514) for 6 hours, or its counter is missing. Check that syslog-ng is active on TrueNAS and its syslog server is still 192.168.10.12 (TCP), and that alloy-receiver runs. A line from any other source address is dropped by the receiver's network policy without a count, so this alert is the only sign of it. Receipt is not storage: AlloyWriteDropping shows lines Alloy could not hand to Loki."
+  - name: 'TrueNASLogsSilent: the receiver restarts (counter reset) while TrueNAS keeps sending: quiet'
+    interval: 1m
+    input_series:
+      - series: 'loki_source_syslog_entries_total{component_id="loki.source.syslog.truenas"}'
+        values: '0+30x200 0+30x300'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: TrueNASLogsSilent
+        exp_alerts: []
+      - eval_time: 8h
+        alertname: TrueNASLogsSilent
+        exp_alerts: []
+  - name: 'TrueNASLogsSilent: the counter disappears after 1 hour (receiver gone): absent from ~1h05m, fires ~7h05m'
+    interval: 1m
+    input_series:
+      - series: 'loki_source_syslog_entries_total{component_id="loki.source.syslog.truenas"}'
+        values: '0+30x60'
+    alert_rule_test:
+      - eval_time: 6h55m
+        alertname: TrueNASLogsSilent
+        exp_alerts: []
+      - eval_time: 7h15m
+        alertname: TrueNASLogsSilent
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+            exp_annotations:
+              summary: 'No syslog lines from TrueNAS for 6 hours'
+              description: "The receiver got no line from TrueNAS (192.168.10.75, TCP 514) for 6 hours, or its counter is missing. Check that syslog-ng is active on TrueNAS and its syslog server is still 192.168.10.12 (TCP), and that alloy-receiver runs. A line from any other source address is dropped by the receiver's network policy without a count, so this alert is the only sign of it. Receipt is not storage: AlloyWriteDropping shows lines Alloy could not hand to Loki."
