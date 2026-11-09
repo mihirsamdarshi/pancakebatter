@@ -1,0 +1,24 @@
+---
+# expect: SHARE_ADMIN_HOSTS or port 3001 on the app container without the share part
+# mutate: map(if .kind=="Deployment" and .metadata.name=="share-admin-hosts-without-part" then .spec.template.spec.containers[0].env += [{"name":"SHARE_ADMIN_HOSTS","value":"x.example.test"}] else . end)
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-admin-hosts-without-part
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-admin-hosts-without-part
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-admin-hosts-without-part
+    parts: [pullsecret, internal-route]

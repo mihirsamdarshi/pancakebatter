@@ -2,10 +2,36 @@
 # A second policy beside the namespace policy ${APP} (the netpol component).
 # Cilium adds up the policies that select a pod, so this opens 3001/TCP to the
 # cloudflared pods and nothing else: no egress section, no other port. The
-# namespace policy's ingress rules name only 3000, so the gateways cannot reach
-# 3001, and nothing else reaches it. It selects the app pod only (the job's
-# pods carry another name label). The cloudflared side is in
+# namespace policy's ingress rules name only 3000 for the gateways, so the
+# gateways cannot reach 3001. It selects the app pod only (the job's pods carry
+# another name label). The cloudflared side is in
 # kubernetes/apps/personal-apps/<app>-share/app/networkpolicy.yaml.
+#
+# The guest port trusts the Cloudflare Access token as cloudflared passes it
+# (GUEST_ACCESS_MODE=claims, see kustomization.yaml): the app does not check its
+# signature, so whoever can open a connection to 3001 can claim to be any guest.
+# This policy is the lock, so "cloudflared only" has to hold against two
+# things the allow rule above does not stop (the namespace policy's first
+# ingress rule admits every pod of the namespace on every port, and Cilium's
+# allow-localhost lets the node's host processes reach every port of a pod on
+# it). A deny wins over every allow, so ingressDeny closes both on 3001:
+# - fromEntities host: the kubelet, host-network pods (Alloy, node-exporter, the
+#   Cilium agent) and any process on the node. Probes are not affected: they
+#   go to 3000 (the container's `http` port), and the namespace policy still
+#   admits the node there.
+# - the pods of this namespace whose app.kubernetes.io/name is not the app's
+#   own: the job pod (name <app>-job), the backup pods and, because NotIn also
+#   matches a pod that has no such label (Cilium's matchExpressions follow the
+#   Kubernetes rule, pkg/policy/types/requirements.go lines 176-177), the
+#   VolSync mover and sqlite-export pods, which carry no name label. The app
+#   pod itself (name <app>) is not matched. A pod of another namespace is never
+#   matched, so cloudflared (namespace <app>-share) is still admitted by the
+#   allow rule.
+# This is a network rule: kubectl exec, port-forward and debug containers
+# bypass it (admin access only).
+# Why not GUEST_TRUSTED_PEERS as well: the lock should be the network, and the
+# app's own address check would need cloudflared's pod range, which changes with
+# the cluster. The setting stays unset.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -19,6 +45,25 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: ${APP}-share
             app.kubernetes.io/name: cloudflared
+      toPorts:
+        - ports:
+            - port: "3001"
+              protocol: TCP
+  ingressDeny:
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "3001"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ${APP_NAMESPACE}
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: NotIn
+              values:
+                - ${APP}
       toPorts:
         - ports:
             - port: "3001"

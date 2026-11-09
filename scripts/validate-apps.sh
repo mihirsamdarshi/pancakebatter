@@ -41,7 +41,11 @@
 #      the own namespace and claude-proxy); only the job's CronJob carries the
 #      job pod label that policy selects; with share, the second policy
 #      <name>-share (cloudflared to 3001/TCP only), the Service <name>-share
-#      (only 3001) and the three GUEST_ variables; with share-admin, the second
+#      (only 3001), exactly the GUEST_ variables (claims mode, the access
+#      audience and team, the assistant, no trusted-peers list) and
+#      SHARE_ADMIN_HOSTS = the LAN host, and in claims mode the share-admin
+#      part too; its policy also denies 3001
+#      to the node and to every other pod of the namespace; with share-admin, the second
 #      policy <name>-share-admin (egress from the app pod to the share-admin
 #      pods on 8080/TCP only) and the fixed SHARE_ADMIN_URL;
 #   6. no credentials: no Secret reference in any pod spec, no service-account
@@ -75,6 +79,9 @@ base_path="./kubernetes/components/app-platform/base"
 fake_local="local.example.test"
 fake_family="family.example.test"
 fake_domain="example.test"
+# Stand-ins for the cluster-secrets keys the share part substitutes (never real).
+fake_share_aud="fake-access-aud"
+fake_share_team="fake-access-team"
 fake_digest="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 # Same Kubernetes schemas as validate-kubernetes.sh, and no
@@ -415,7 +422,7 @@ def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|
       | (if (.key | test("^[A-Z][A-Z0-9_]*$") | not) then "env key \(.key) must be uppercase letters, digits and _" else empty end),
         (if (.key | IN("N", "Y", "ON", "OFF")) then "env key \(.key) is a YAML boolean" else empty end),
         (if (.key | secretish) then "env key \(.key) looks like a credential name (apps hold no credentials)" else empty end),
-        (if (.key == "PORT" or .key == "SHARE_ADMIN_URL" or (.key | startswith("GUEST_"))) then "env key \(.key) is reserved: the platform sets PORT, the share part sets the GUEST_ variables and the share-admin part sets SHARE_ADMIN_URL" else empty end),
+        (if (.key == "PORT" or .key == "SHARE_ADMIN_URL" or .key == "SHARE_ADMIN_HOSTS" or (.key | startswith("GUEST_"))) then "env key \(.key) is reserved: the platform sets PORT, the share part sets the GUEST_ variables and SHARE_ADMIN_HOSTS and the share-admin part sets SHARE_ADMIN_URL" else empty end),
         (if (.value | isstr | not) then "env \(.key): values are plain strings (no valueFrom, no maps, no numbers)"
          elif (.value | gsub("\\$\\$"; "") | contains("$")) then "env \(.key): a literal $ must be written $$"
          else empty end)),
@@ -583,10 +590,16 @@ def expected_job_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name
                {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "claude-proxy"}}]}]};
 # share: a second policy that admits the cloudflared pods of the namespace
 # <name>-share to the app pod on 3001/TCP, and nothing else (no egress, no
-# other port).
+# other port), and denies 3001 to the node and to every pod of the app's own
+# namespace whose name label is not the app's (a deny wins over the namespace
+# policy's same-namespace allow and over Cilium's allow-localhost).
 def expected_share_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name": $name}},
   ingress: [{fromEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "\($name)-share", "app.kubernetes.io/name": "cloudflared"}}],
-             toPorts: [{ports: [{port: "3001", protocol: "TCP"}]}]}]};
+             toPorts: [{ports: [{port: "3001", protocol: "TCP"}]}]}],
+  ingressDeny: [{fromEntities: ["host"], toPorts: [{ports: [{port: "3001", protocol: "TCP"}]}]},
+                {fromEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": $ns},
+                                  matchExpressions: [{key: "app.kubernetes.io/name", operator: "NotIn", values: [$name]}]}],
+                 toPorts: [{ports: [{port: "3001", protocol: "TCP"}]}]}]};
 # share-admin: a second policy for the app pod only, egress to the share-admin
 # pods on 8080/TCP and nothing else (no ingress, no other port).
 def expected_share_admin_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name": $name}},
@@ -642,7 +655,7 @@ def podlabels:
          (if $share then
             $sharepols[0] as $s
             | (if $s.kind != "CiliumNetworkPolicy" or $s.metadata.namespace != $ns then "the share policy must be a CiliumNetworkPolicy named \($name)-share in \($ns)" else empty end),
-              (if $s.spec != expected_share_spec then "the share policy \($name)-share must be exactly: endpointSelector app.kubernetes.io/name=\($name), ingress from the pods app.kubernetes.io/name=cloudflared in the namespace \($name)-share on 3001/TCP only, and no egress" else empty end)
+              (if $s.spec != expected_share_spec then "the share policy \($name)-share must be exactly: endpointSelector app.kubernetes.io/name=\($name), ingress from the pods app.kubernetes.io/name=cloudflared in the namespace \($name)-share on 3001/TCP only, ingressDeny on 3001/TCP from the host entity and from the pods of \($ns) whose app.kubernetes.io/name is NotIn [\($name)], and no egress" else empty end)
           else empty end),
          (if $shareadmin then
             $sapols[0] as $a
@@ -661,9 +674,10 @@ def podlabels:
           elif .[0].labels["app.kubernetes.io/name"] != "\($name)-job" then "CronJob \($name)-job: the pod label app.kubernetes.io/name must be \($name)-job"
           else empty end)
      else empty end),
-    # share: the Service exposes only the guest port, the container port and the
-    # three GUEST_ variables are exactly the part's, and without the part none of
-    # them exists. The main port is named by no Service other than the app's own.
+    # share: the Service exposes only the guest port, the container port, the
+    # GUEST_ variables and SHARE_ADMIN_HOSTS are exactly the part's, claims mode
+    # comes with the share-admin part, and without the part none of them exists.
+    # The main port is named by no Service other than the app's own.
     (if $share then
        ($svcs | map(select(.metadata.name == "\($name)-share"))
         | if length != 1 then "share renders no Service \($name)-share"
@@ -671,10 +685,18 @@ def podlabels:
             | (if $s.spec.ports != [{name: "guest", port: 3001, targetPort: "guest"}] or $s.spec.selector != {"app.kubernetes.io/name": $name} or ($s.spec.type // "ClusterIP") != "ClusterIP" then "the Service \($name)-share must be a ClusterIP Service that exposes only port 3001 (targetPort guest) of the app pod" else empty end)
           end),
        (if ([$appc.ports[]? | select(.name == "guest")]) != [{name: "guest", containerPort: 3001}] then "share must give container app of Deployment \($name) exactly the port guest (3001)" else empty end),
-       (if ([$appc.env[]? | select(.name | startswith("GUEST_"))] | sort_by(.name)) != [{name: "GUEST_COLLECTIONS", value: $guestcols}, {name: "GUEST_HOSTS", value: "\($sharehost).\($domain)"}, {name: "GUEST_PORT", value: "3001"}] then "share must give container app of Deployment \($name) exactly GUEST_COLLECTIONS=\($guestcols), GUEST_HOSTS=\($sharehost).<zone> and GUEST_PORT=3001" else empty end)
+       (if ([$appc.env[]? | select(.name | startswith("GUEST_"))] | sort_by(.name)) != [{name: "GUEST_ACCESS_AUD", value: $shareaud}, {name: "GUEST_ACCESS_MODE", value: "claims"}, {name: "GUEST_ACCESS_TEAM", value: $shareteam}, {name: "GUEST_AGENT", value: "on"}, {name: "GUEST_COLLECTIONS", value: $guestcols}, {name: "GUEST_HOSTS", value: "\($sharehost).\($domain)"}, {name: "GUEST_PORT", value: "3001"}] then "share must give container app of Deployment \($name) exactly GUEST_ACCESS_AUD=${SECRET_SHARE_ACCESS_AUD}, GUEST_ACCESS_MODE=claims, GUEST_ACCESS_TEAM=${SECRET_SHARE_ACCESS_TEAM}, GUEST_AGENT=on, GUEST_COLLECTIONS=\($guestcols), GUEST_HOSTS=\($sharehost).<zone> and GUEST_PORT=3001 (no GUEST_TRUSTED_PEERS, no GUEST_RUN_TIMEOUT_MS)" else empty end),
+       # The deny rule selects by the name label, so the app pod must be the only
+       # pod with it, with one container and no way to pull in other settings.
+       ([$all | podlabels | select(.labels["app.kubernetes.io/name"] == $name and .id != "Deployment/\($name)")][] | "\(.id) carries the label app.kubernetes.io/name=\($name), which only the app Deployment may carry with the share part (the share policy trusts that pod alone on 3001)"),
+       ([.[] | select(type == "object" and .kind == "Deployment" and .metadata.name == $name) | .spec.template.spec | select((.containers | length) != 1 or ((.initContainers // []) | length) > 0)][] | "with the share part the Deployment \($name) must have exactly one container and no init container"),
+       (if (($appc.envFrom // []) | length) > 0 then "with the share part the app container must have no envFrom (its settings are exactly the listed env)" else empty end),
+       (if ([$appc.env[]? | select(.name == "SHARE_ADMIN_HOSTS")]) != [{name: "SHARE_ADMIN_HOSTS", value: "\($host).\($local)"}] then "share must give container app of Deployment \($name) exactly SHARE_ADMIN_HOSTS=\($host).<local zone> (the LAN host only)" else empty end),
+       # Claims mode seeds and edits the guest list only through share-admin.
+       (if ($shareadmin | not) and ([$appc.env[]? | select(.name == "GUEST_ACCESS_MODE" and .value == "claims")] | length) > 0 then "the share part in claims mode (GUEST_ACCESS_MODE=claims) needs the share-admin part: the app seeds and edits its guest list only through share-admin" else empty end)
      else
        (if ($svcs | any(.metadata.name == "\($name)-share")) then "a Service \($name)-share without the share part" else empty end),
-       (if ([$appc.env[]? | select(.name | startswith("GUEST_"))] | length) > 0 or ([$appc.ports[]? | select(.containerPort == 3001)] | length) > 0 then "GUEST_ variables or port 3001 on the app container without the share part" else empty end)
+       (if ([$appc.env[]? | select((.name | startswith("GUEST_")) or .name == "SHARE_ADMIN_HOSTS")] | length) > 0 or ([$appc.ports[]? | select(.containerPort == 3001)] | length) > 0 then "GUEST_ variables, SHARE_ADMIN_HOSTS or port 3001 on the app container without the share part" else empty end)
      end),
     # share-admin: SHARE_ADMIN_URL on the app container is exactly the part's fixed address, and without the part there is none.
     (if $shareadmin then
@@ -954,7 +976,7 @@ validate_entry() {
     fi
 
     # 4. Build the Kustomization as Flux would, with stand-in zones.
-    yq ".spec.postBuild.substitute.SECRET_DOMAIN_LOCAL = \"$fake_local\" | .spec.postBuild.substitute.SECRET_FAMILY_DOMAIN = \"$fake_family\" | .spec.postBuild.substitute.SECRET_DOMAIN = \"$fake_domain\"" "$tmp/ks.yaml" >"$tmp/ks-build.yaml"
+    yq ".spec.postBuild.substitute.SECRET_DOMAIN_LOCAL = \"$fake_local\" | .spec.postBuild.substitute.SECRET_FAMILY_DOMAIN = \"$fake_family\" | .spec.postBuild.substitute.SECRET_DOMAIN = \"$fake_domain\" | .spec.postBuild.substitute.SECRET_SHARE_ACCESS_AUD = \"$fake_share_aud\" | .spec.postBuild.substitute.SECRET_SHARE_ACCESS_TEAM = \"$fake_share_team\"" "$tmp/ks.yaml" >"$tmp/ks-build.yaml"
     flux build ks "app-$name" --namespace flux-system --dry-run --path "${path:-$base_path}" \
         --kustomization-file "$tmp/ks-build.yaml" >"$tmp/build.yaml" 2>"$tmp/build.err" \
         || fail "flux build ks failed: $(cat "$tmp/build.err")"
@@ -992,6 +1014,7 @@ validate_entry() {
         --argjson parts "$parts_json" --arg host "$host" --arg famhost "$famhost" \
         --argjson jobegress "$jobegress" --arg jobcidr "$jobcidr" \
         --argjson share "$share" --argjson shareadmin "$shareadmin" --arg sharehost "$sharehost" --arg guestcols "$guestcols" --arg domain "$fake_domain" \
+        --arg shareaud "$fake_share_aud" --arg shareteam "$fake_share_team" \
         --arg local "$fake_local" --arg family "$fake_family" "$netpol_jq" "$tmp/build.json")"
     [[ -z "$errs" ]] || fail "network policy or routes: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
 
@@ -1000,6 +1023,26 @@ validate_entry() {
     yq '.spec.defaultValues.vars.VOLSYNC_SCHEDULE // ""' "$file" >>"$tmp/entry.volsync"
     yq '.spec.defaultValues.vars.SQLITE_SCHEDULE // ""' "$file" >>"$tmp/entry.sqlite"
     echo "    ok: $name in $ns (components: $(yq '[.spec.components[]? | sub(".*/", "")] | join(" ")' "$tmp/ks.yaml"))"
+}
+
+# The share part substitutes two cluster-secrets keys into the app's env. A
+# missing key renders an empty value, so the real tree must hold both as
+# encrypted, non-empty values.
+# Values are never decrypted; only the key names and the ENC[ prefix are read.
+check_share_secrets() {
+    local f key v cs="kubernetes/components/sops/cluster-secrets.sops.yaml" need=false
+    for f in "$apps_dir"/*.yaml; do
+        [[ "$(basename "$f")" != kustomization.yaml ]] || continue
+        if yq -e '.spec.defaultValues.parts[] | select(. == "share")' "$f" >/dev/null 2>&1; then need=true; fi
+    done
+    [[ "$need" == true ]] || return 0
+    [[ -f "$cs" ]] || die "$cs is missing (the share part needs two keys in it)"
+    for key in SECRET_SHARE_ACCESS_AUD SECRET_SHARE_ACCESS_TEAM; do
+        v="$(yq ".stringData.$key // \"\"" "$cs")"
+        [[ "$v" == ENC\[* && ${#v} -gt 10 ]] \
+            || die "$cs has no encrypted non-empty $key, which the share part substitutes into the app (see 'Claims mode, the assistant and the Share panel' in kubernetes/apps/personal-apps/README.md)"
+    done
+    echo "--- share: cluster-secrets holds the two share keys as encrypted values"
 }
 
 # --- Cross-entry checks ------------------------------------------------------
@@ -1304,6 +1347,7 @@ main() {
         yq -e ".resources[] | select(. == \"./$(basename "$f")\")" "$apps_dir/kustomization.yaml" >/dev/null 2>&1 \
             || die "$apps_dir/kustomization.yaml does not list ./$(basename "$f")"
     done
+    check_share_secrets
     check_cross_entry
     check_retired_list
     check_alert_namespaces

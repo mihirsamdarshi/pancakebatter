@@ -1,0 +1,32 @@
+---
+# Test fixture for scripts/validate-apps.sh: the reports shape. The share and
+# share-admin parts with egress: claude-proxy, a 3Gi memory limit (two agent
+# runs at once) and the LAN host set apart from the entry name. The self-test
+# gives it a Namespace folder and a cloudflared folder (share-claims-share).
+# Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-claims
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-claims
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-claims
+    parts: [pullsecret, internal-route, share, share-admin]
+    egress: claude-proxy
+    vars:
+      HOST: lan
+      MEMORY_LIMIT: 3Gi
+      SHARE_HOST: view
+      GUEST_COLLECTIONS: alpha,beta-2

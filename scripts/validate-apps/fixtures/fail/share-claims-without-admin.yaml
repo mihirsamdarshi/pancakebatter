@@ -1,0 +1,26 @@
+---
+# expect: the share part in claims mode (GUEST_ACCESS_MODE=claims) needs the share-admin part
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-claims-without-admin
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-claims-without-admin
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-claims-without-admin
+    parts: [pullsecret, internal-route, share]
+    vars:
+      SHARE_HOST: view
+      GUEST_COLLECTIONS: alpha

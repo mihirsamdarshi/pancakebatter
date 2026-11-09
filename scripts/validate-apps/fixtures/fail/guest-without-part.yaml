@@ -1,5 +1,5 @@
 ---
-# expect: GUEST_ variables or port 3001 on the app container without the share part
+# expect: GUEST_ variables, SHARE_ADMIN_HOSTS or port 3001 on the app container without the share part
 # mutate: map(if .kind=="Deployment" then .spec.template.spec.containers[0].env += [{"name":"GUEST_PORT","value":"3001"}] else . end)
 # Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
 apiVersion: fluxcd.controlplane.io/v1
