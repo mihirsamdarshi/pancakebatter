@@ -141,22 +141,49 @@ and `<uid>`/`<gid>` with the app's `APP_UID`/`APP_GID` (568 unless the app's
     kubectl -n <ns> get pods                          # wait until the app's pod is gone
     ```
 
-    **Quilt:** in place of the `flux suspend kustomization` line, suspend two
+    **Quilt:** run this block instead of the one above. Quilt has two
     Kustomizations, in two namespaces. `app-quilt-planner` owns the Deployment
     and `quilt-data`. `quilt-planner-backup` owns the ReplicationSource and the
-    export CronJob.
+    export CronJob. Suspending a Kustomization does not stop the
+    ReplicationSource or the CronJob from running on their schedules, so pause
+    both as well.
 
     ```sh
     flux suspend kustomization app-quilt-planner -n flux-system
     flux suspend kustomization quilt-planner-backup -n quilt-planner
+    kubectl -n quilt-planner patch replicationsource quilt-planner --type merge -p '{"spec":{"paused":true}}'
+    kubectl -n quilt-planner patch cronjob quilt-planner-sqlite-export -p '{"spec":{"suspend":true}}'
+    kubectl -n quilt-planner scale deploy/quilt-planner --replicas=0
+    kubectl -n quilt-planner get pods             # wait until the app's pod is gone
+    ```
+
+    `flux suspend` prints an error but still exits 0 when the name or namespace is
+    wrong, so check both. SUSPENDED must say True:
+
+    ```sh
+    flux get kustomization app-quilt-planner -n flux-system
+    flux get kustomization quilt-planner-backup -n quilt-planner
+    ```
+
+    Run the two checks again just before you apply the ReplicationDestination in
+    step 2. If either says False, stop, scale the app to 0 again, and find out why
+    before you restore.
+
+    Also check that the ReplicationSource is paused and the CronJob is
+    suspended. Both commands must print `true`:
+
+    ```sh
+    kubectl -n quilt-planner get replicationsource quilt-planner -o jsonpath='{.spec.paused}{"\n"}'
+    kubectl -n quilt-planner get cronjob quilt-planner-sqlite-export -o jsonpath='{.spec.suspend}{"\n"}'
     ```
 
     Leave Quilt's other two Kustomizations running. `quilt-planner-bootstrap`
-    holds the StorageClass and an old registry Secret that is being removed.
-    `network/quilt-planner-internal` holds the LAN route. The restore touches
-    neither.
+    holds the StorageClass `quilt-local-retain` (and, until its removal lands,
+    the old registry Secret). `network/quilt-planner-internal` holds the LAN
+    route. The restore touches neither.
 
-    Use `flux suspend`, not `kubectl patch`. The ResourceSet `apps` renders
+    Suspend the Kustomizations with `flux suspend`, not `kubectl patch`. The
+    ResourceSet `apps` renders
     `app-quilt-planner` and applies it again from time to time. Each time,
     flux-operator undoes fields that kubectl, Helm or kustomize-controller
     wrote, but not fields that the flux CLI wrote (field manager `flux`). So a
@@ -169,7 +196,14 @@ and `<uid>`/`<gid>` with the app's `APP_UID`/`APP_GID` (568 unless the app's
     ResourceSetInputProvider `app-quilt-planner`). That would not stop
     kustomize-controller from applying the Deployment, and the ResourceSet
     serves every platform app. If a new image comes out during the restore, the
-    app starts on it when you resume.
+    app starts on it when you resume. If you need a specific image, pin it in
+    the entry before you resume (see the app's deployment guide, "Rollback").
+
+    Do not use the annotation `fluxcd.controlplane.io/reconcile=disabled` on
+    `app-quilt-planner`: `flux suspend` alone keeps the app stopped. If you find
+    it set, remove it before step 4's `flux resume`
+    (`kubectl -n flux-system annotate kustomization app-quilt-planner fluxcd.controlplane.io/reconcile-`),
+    or Quilt stops getting releases without any error.
 
 2. Restore into the existing PVC. `enableFileDeletion` makes the volume match the
    snapshot exactly, so files created after it are removed. Apply this by hand;
@@ -311,12 +345,20 @@ and `<uid>`/`<gid>` with the app's `APP_UID`/`APP_GID` (568 unless the app's
     accept the restored quilts instead of making conflicted copies. The exact
     command for this after a VolSync restore is not written or rehearsed yet.
     See the app repo's `quilt-planner/docs/deployment.md`, section "Backup and
-    restore". Do not use that file's pre-v4 restore script for this: it only
+    restore" (`#backup-and-restore`). Do not use that file's pre-v4 restore
+    script (under "Rolling back past a database migration") for this: it only
     accepts a schema-3 copy, so it refuses a VolSync restore.
 
-    A restore drill on Nov 8, 2026 restored a snapshot into a throw-away PVC,
-    and all checks passed. That proved the restic restore itself. Only the
-    version bump after the restore is unproven.
+    Until that command exists, do not start the app after a restore. Leave it
+    stopped at this point and ask the owner. Starting it without the bump makes
+    devices create conflicted copies of the restored quilts.
+
+    A restore drill on Nov 8, 2026 restored a snapshot into a throw-away PVC and
+    checked it with a read-only pod: the database export was intact and every
+    photo it named was present. That proved the backup can be restored. Not yet
+    rehearsed for Quilt: the restore into the live `quilt-data` (step 2), the
+    SQLite restore Job (step 3), the suspend and resume of `app-quilt-planner`
+    (steps 1 and 4), and the version bump.
 
 4. Start the app again:
 
@@ -332,14 +374,22 @@ and `<uid>`/`<gid>` with the app's `APP_UID`/`APP_GID` (568 unless the app's
     put the replica count back, and a suspended export creates no Job, so nothing
     would alert while the exports go stale.
 
-    **Quilt:** in place of the `flux resume kustomization` line, resume both
-    Kustomizations from step 1. Resuming `app-quilt-planner` also sets the
-    replicas back to 1.
+    **Quilt:** run this block instead of the one above. If you find the
+    annotation `fluxcd.controlplane.io/reconcile=disabled` on `app-quilt-planner`
+    (see step 1), remove it first:
+    `kubectl -n flux-system annotate kustomization app-quilt-planner fluxcd.controlplane.io/reconcile-`.
+    Resuming `app-quilt-planner` also sets the replicas back to 1.
 
     ```sh
+    kubectl -n quilt-planner patch replicationsource quilt-planner --type merge -p '{"spec":{"paused":false}}'
+    kubectl -n quilt-planner patch cronjob quilt-planner-sqlite-export -p '{"spec":{"suspend":false}}'
     flux resume kustomization quilt-planner-backup -n quilt-planner
     flux resume kustomization app-quilt-planner -n flux-system
     ```
+
+    Check that both now say SUSPENDED False and READY True (the same two
+    `flux get` commands). Check the ReplicationSource and the CronJob with the
+    same two `kubectl get` commands as in step 1: neither may print `true`.
 
 ### If the node is lost
 
