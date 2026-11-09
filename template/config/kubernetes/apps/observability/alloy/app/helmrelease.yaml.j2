@@ -1,11 +1,17 @@
 ---
 # Alloy on every node: reads the pod logs from /var/log/pods and pushes them to
 # Loki. Pod logs only; node and syslog sources arrive in later changes.
+# Not collected: the CI runner namespace arc-runners. Its pods are dropped at
+# discovery, so they are never tailed and never reach the rate limiter; CI logs
+# stay on GitHub. arc-systems (the ARC controller and listener) is collected.
 #
 # Labels (anything not listed stays in the line or in structured metadata):
 # job=pods, namespace, app, container; pod and node as structured metadata.
 # Per pod: 50 lines/s (burst 500) and 8 KB per line. Loki's own byte cap
 # (50 KB/s for all sources) is the hard limit.
+#
+# Discord and Slack webhook tokens in a line are replaced by <redacted> before
+# the line is stored (the same two stages as in alloy-receiver).
 #
 # Host networking: Alloy's port 12345 (UI and /metrics) binds on the node IP,
 # VLAN 10 only and without auth. Accepted. The root filesystem is read-only; the
@@ -67,6 +73,12 @@ spec:
 
           discovery.relabel "pods" {
             targets = discovery.kubernetes.pods.targets
+            // CI runner pods: not tailed at all (logs stay on GitHub).
+            rule {
+              source_labels = ["__meta_kubernetes_namespace"]
+              regex         = "arc-runners"
+              action        = "drop"
+            }
             rule {
               source_labels = ["__meta_kubernetes_namespace"]
               target_label  = "namespace"
@@ -111,6 +123,18 @@ spec:
             stage.cri {}
             stage.drop {
               longer_than = "8KB"
+            }
+            // Webhook tokens. Only the capture group (the token) is replaced.
+            // Discord: /api/webhooks/<id>/<token>, with or without /v<N>/, any
+            // host. Slack: hooks.slack.com/services/<team>/<bot>/<token>.
+            // "/" or URL-encoded "%2F" between the parts.
+            stage.replace {
+              expression = "(?:/|%2[Ff])api(?:/|%2[Ff])(?:v[0-9]+(?:/|%2[Ff]))?webhooks(?:/|%2[Ff])[0-9]+(?:/|%2[Ff])([A-Za-z0-9_-]+)"
+              replace    = "<redacted>"
+            }
+            stage.replace {
+              expression = "hooks\\.slack\\.com(?:/|%2[Ff])services(?:/|%2[Ff])[A-Za-z0-9_-]+(?:/|%2[Ff])[A-Za-z0-9_-]+(?:/|%2[Ff])([A-Za-z0-9_-]+)"
+              replace    = "<redacted>"
             }
             stage.limit {
               rate          = 50

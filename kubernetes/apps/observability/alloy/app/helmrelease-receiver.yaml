@@ -10,8 +10,10 @@
 # job and host are fixed by the listener, `app` is an allowlist (everything else
 # becomes "other"), `level` has at most 8 values, lines over 4 KB are dropped
 # and counted, and each source has a line-rate cap. A webhook token that a failed
-# Discord send writes into a TrueNAS log line is replaced by <redacted> before
-# the line is stored.
+# Discord send writes into a log line is replaced by <redacted> before the line
+# is stored: Discord /api/webhooks/<id>/<token> with or without /v<N>/ and Slack
+# hooks.slack.com/services/..., also URL-encoded (the same two stages as in the
+# pod-log pipeline of the Alloy DaemonSet).
 #
 # externalTrafficPolicy: Local keeps the sender's address, so the connection
 # address filter works (a relabel `keep` rule plus the drop stage in the
@@ -174,8 +176,16 @@ spec:
             stage.drop {
               longer_than = "4KB"
             }
+            // Webhook tokens. Only the capture group (the token) is replaced.
+            // Discord: /api/webhooks/<id>/<token>, with or without /v<N>/, any
+            // host. Slack: hooks.slack.com/services/<team>/<bot>/<token>.
+            // "/" or URL-encoded "%2F" between the parts.
             stage.replace {
-              expression = "/api/webhooks/[0-9]+/([A-Za-z0-9_-]+)"
+              expression = "(?:/|%2[Ff])api(?:/|%2[Ff])(?:v[0-9]+(?:/|%2[Ff]))?webhooks(?:/|%2[Ff])[0-9]+(?:/|%2[Ff])([A-Za-z0-9_-]+)"
+              replace    = "<redacted>"
+            }
+            stage.replace {
+              expression = "hooks\\.slack\\.com(?:/|%2[Ff])services(?:/|%2[Ff])[A-Za-z0-9_-]+(?:/|%2[Ff])[A-Za-z0-9_-]+(?:/|%2[Ff])([A-Za-z0-9_-]+)"
               replace    = "<redacted>"
             }
             stage.limit {
@@ -199,8 +209,16 @@ spec:
             stage.drop {
               longer_than = "4KB"
             }
+            // Webhook tokens. Only the capture group (the token) is replaced.
+            // Discord: /api/webhooks/<id>/<token>, with or without /v<N>/, any
+            // host. Slack: hooks.slack.com/services/<team>/<bot>/<token>.
+            // "/" or URL-encoded "%2F" between the parts.
             stage.replace {
-              expression = "/api/webhooks/[0-9]+/([A-Za-z0-9_-]+)"
+              expression = "(?:/|%2[Ff])api(?:/|%2[Ff])(?:v[0-9]+(?:/|%2[Ff]))?webhooks(?:/|%2[Ff])[0-9]+(?:/|%2[Ff])([A-Za-z0-9_-]+)"
+              replace    = "<redacted>"
+            }
+            stage.replace {
+              expression = "hooks\\.slack\\.com(?:/|%2[Ff])services(?:/|%2[Ff])[A-Za-z0-9_-]+(?:/|%2[Ff])[A-Za-z0-9_-]+(?:/|%2[Ff])([A-Za-z0-9_-]+)"
               replace    = "<redacted>"
             }
             stage.limit {
