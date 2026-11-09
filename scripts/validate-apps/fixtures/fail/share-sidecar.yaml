@@ -1,0 +1,27 @@
+---
+# expect: must have exactly one container and no init container
+# mutate: map(if .kind=="Deployment" and .metadata.name=="share-sidecar" then .spec.template.spec.containers += [(.spec.template.spec.containers[0] | .name = "side" | .env = [])] else . end)
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-sidecar
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-sidecar
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-sidecar
+    parts: [pullsecret, internal-route, share]
+    vars:
+      SHARE_HOST: view
+      GUEST_COLLECTIONS: alpha
