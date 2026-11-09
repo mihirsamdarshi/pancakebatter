@@ -1,6 +1,7 @@
 ---
-# Test fixture for scripts/validate-apps.sh: the share part beside the family
-# route and the mapkit part. The self-test gives it a Namespace folder, a
+# Test fixture for scripts/validate-apps.sh: the share part (with the
+# share-admin part that claims mode needs) beside the family route and the
+# mapkit part. The self-test gives it a Namespace folder, a
 # cloudflared folder (share-share) and a stand-in mapkit Secret.
 # mapkit-secret: stand-in
 # Never applied to a cluster.
@@ -23,7 +24,7 @@ spec:
     limit: 1
   defaultValues:
     name: share
-    parts: [pullsecret, internal-route, family-route, mapkit, share]
+    parts: [pullsecret, internal-route, family-route, mapkit, share, share-admin]
     vars:
       FAMILY_HOST: guests
       SHARE_HOST: view

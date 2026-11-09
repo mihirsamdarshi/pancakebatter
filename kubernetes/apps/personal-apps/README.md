@@ -748,9 +748,15 @@ these `GUEST_` variables and `SHARE_ADMIN_HOSTS`, and refuses the same names in
 | `SHARE_ADMIN_HOSTS` | `<HOST>.<zone>` (the LAN host) | The Share panel, and every change to the guest list, answer on this host only |
 
 No setting names the guests. At the first start in claims mode, when the app has
-no guest list yet, it seeds the list from the Access policy through share-admin,
-and it retries until share-admin answers. After that the Share panel keeps the
-list.
+no guest list yet (`guests.json` in its data folder), it asks share-admin for the
+emails on the Access policy, gives each of them today's `GUEST_COLLECTIONS` and
+writes the list. Until share-admin answers, the app writes nothing, the guest
+port refuses every guest, and the app asks again every 60 seconds. After that
+the Share panel keeps the list, and every change to it also goes through
+share-admin. Because claims mode seeds and edits the guest list only through
+share-admin, the validator refuses the `share` part in claims mode without the
+`share-admin` part. The details are under "The first guest list" in the reports
+README of the apps repo.
 
 `GUEST_AGENT=on` goes live with this change: the apps image the entry follows
 already has the guest assistant, so at the merge guests get the "Ask about this
@@ -766,14 +772,12 @@ for the family and one for a guest.
 ##### Set it up (the owner)
 
 Do this after the share-admin set-up above is done and `sa GET /guests` works:
-the app seeds its guest list through share-admin. The app image must be one that
-has claims mode, the Share panel and the seed from share-admin (the apps repo's
-`main`, which the entry follows). Merge only once the seed from share-admin is on
-the apps repo's `main`: an older image seeds only from a `GUEST_SEED_EMAILS`
-setting, which this part no longer sets, so it writes an empty guest list at the
-first start in claims mode and never seeds again, and every guest (the realtor
-too) would be turned away until you add them again in the Share panel or edit
-`guests.json`. `scripts/validate-apps.sh` fails until the two keys the part
+the app takes its first guest list through share-admin. The entry follows the
+apps repo's `main`, so merge only after mihirsamdarshi/apps#125 (the first
+guest list from share-admin) is on that `main`. An image without it writes an empty guest list
+at the first start in claims mode and never seeds again, and every guest (the
+realtor too) would be turned away until you add them again in the Share panel
+or edit `guests.json`. `scripts/validate-apps.sh` fails until the two keys the part
 substitutes (`SECRET_SHARE_ACCESS_AUD`, `SECRET_SHARE_ACCESS_TEAM`) are in
 `cluster-secrets` as encrypted values; step 11 of the share part's set-up above
 set them.
@@ -784,21 +788,30 @@ set them.
 
    ```sh
    kubectl -n reports rollout status deploy/reports
-   kubectl -n reports logs deploy/reports | grep 'guest view'
+   kubectl -n reports logs deploy/reports | grep -E 'guest view|guest list|still waiting for share-admin'
    ```
 
    The log shows a line `guest view ... claims` (the guest port started in
-   claims mode). Then:
+   claims mode) and `share: wrote the first guest list (guests.json) for N
+   guest(s) from Cloudflare's guest policy`, with N the number of emails that
+   `sa GET /guests` (step 6 of the share-admin set-up) lists. N is smaller only
+   if the log also says it left entries out (an entry that is not a lower-case
+   plain `name@domain.tld`). If the log shows `share: no guest list yet, so
+   nobody may enter: share-admin did not give Cloudflare's guest list
+   (<reason>); trying again every 60 s` instead, or later `seed: still waiting
+   for share-admin since <time>, <tries> tries`, the guest port refuses every guest
+   until share-admin answers: check `sa GET /guests` and the share-admin pod.
+   While the app waits, do not add a guest in the Share panel unless that guest
+   should be the whole list: the first guest added starts the list, and the app
+   then stops asking Cloudflare. Then:
 
    - Open `https://reports.<local zone>/`: the **Share** button is in the top
-     bar and the panel lists your guests: every email that `sa GET /guests`
-     (step 6 of the share-admin set-up) lists, with the shared collection. From
-     the LAN,
-     `curl -s https://reports.<local zone>/api/share/guests | jq -r '.guests[] | "\(.email) \(.where) \(.collections | join(","))"'`
-     prints each guest with `both` (in the app's list and in Cloudflare). A
-     guest with `cloudflare` is in the Access policy but not in the app's list,
-     so the app turns them away: check the reports log and that
-     `sa GET /guests` works before you change anything. Open
+     bar, and the Guests tab lists your guests with no "Waiting for the first
+     guest list from Cloudflare" notice. From the LAN,
+     `curl -s https://reports.<local zone>/api/share/guests | jq -r '"seed: \(.seed)", (.guests[] | "\(.email) \(.where) \(.by) \(.collections | join(","))")'`
+     prints `seed: null`, then every email of `sa GET /guests` with `both` (in
+     the app's list and in Cloudflare), `seed` (the first guest list wrote it)
+     and today's `GUEST_COLLECTIONS` (`fay-ave`). Open
      `https://reports.family.<zone>/`: there is no Share button.
    - The realtor can still sign in: ask them to open `https://share.<zone>/`
      (or use a test address that you added in the panel), sign in with the
@@ -845,8 +858,8 @@ This is a network rule: `kubectl exec`, `port-forward` and debug containers
 bypass network rules, so it limits pods and the node, not a cluster admin.
 
 If a guest is turned away after the first start, the list in the app is wrong or
-empty. Add the guest in the Share panel, or see "The first start" in the reports
-README (`guests.json` in the data folder).
+empty. Add the guest in the Share panel, or see "The first guest list" in the
+reports README (`guests.json` in the data folder).
 
 ### share-admin
 

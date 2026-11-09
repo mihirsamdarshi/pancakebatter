@@ -21,7 +21,7 @@ spec:
     limit: 1
   defaultValues:
     name: share-no-folder
-    parts: [pullsecret, internal-route, share]
+    parts: [pullsecret, internal-route, share, share-admin]
     vars:
       SHARE_HOST: view
       GUEST_COLLECTIONS: alpha

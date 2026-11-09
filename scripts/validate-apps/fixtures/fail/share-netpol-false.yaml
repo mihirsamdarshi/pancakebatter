@@ -20,7 +20,7 @@ spec:
     limit: 1
   defaultValues:
     name: share-netpol-false
-    parts: [pullsecret, internal-route, share]
+    parts: [pullsecret, internal-route, share, share-admin]
     netpol: false
     netpolReason: test
     vars:

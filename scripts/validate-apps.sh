@@ -43,7 +43,8 @@
 #      <name>-share (cloudflared to 3001/TCP only), the Service <name>-share
 #      (only 3001), exactly the GUEST_ variables (claims mode, the access
 #      audience and team, the assistant, no trusted-peers list) and
-#      SHARE_ADMIN_HOSTS = the LAN host; its policy also denies 3001
+#      SHARE_ADMIN_HOSTS = the LAN host, and in claims mode the share-admin
+#      part too; its policy also denies 3001
 #      to the node and to every other pod of the namespace; with share-admin, the second
 #      policy <name>-share-admin (egress from the app pod to the share-admin
 #      pods on 8080/TCP only) and the fixed SHARE_ADMIN_URL;
@@ -673,9 +674,10 @@ def podlabels:
           elif .[0].labels["app.kubernetes.io/name"] != "\($name)-job" then "CronJob \($name)-job: the pod label app.kubernetes.io/name must be \($name)-job"
           else empty end)
      else empty end),
-    # share: the Service exposes only the guest port, the container port and the
-    # three GUEST_ variables are exactly the part's, and without the part none of
-    # them exists. The main port is named by no Service other than the app's own.
+    # share: the Service exposes only the guest port, the container port, the
+    # GUEST_ variables and SHARE_ADMIN_HOSTS are exactly the part's, claims mode
+    # comes with the share-admin part, and without the part none of them exists.
+    # The main port is named by no Service other than the app's own.
     (if $share then
        ($svcs | map(select(.metadata.name == "\($name)-share"))
         | if length != 1 then "share renders no Service \($name)-share"
@@ -689,7 +691,9 @@ def podlabels:
        ([$all | podlabels | select(.labels["app.kubernetes.io/name"] == $name and .id != "Deployment/\($name)")][] | "\(.id) carries the label app.kubernetes.io/name=\($name), which only the app Deployment may carry with the share part (the share policy trusts that pod alone on 3001)"),
        ([.[] | select(type == "object" and .kind == "Deployment" and .metadata.name == $name) | .spec.template.spec | select((.containers | length) != 1 or ((.initContainers // []) | length) > 0)][] | "with the share part the Deployment \($name) must have exactly one container and no init container"),
        (if (($appc.envFrom // []) | length) > 0 then "with the share part the app container must have no envFrom (its settings are exactly the listed env)" else empty end),
-       (if ([$appc.env[]? | select(.name == "SHARE_ADMIN_HOSTS")]) != [{name: "SHARE_ADMIN_HOSTS", value: "\($host).\($local)"}] then "share must give container app of Deployment \($name) exactly SHARE_ADMIN_HOSTS=\($host).<local zone> (the LAN host only)" else empty end)
+       (if ([$appc.env[]? | select(.name == "SHARE_ADMIN_HOSTS")]) != [{name: "SHARE_ADMIN_HOSTS", value: "\($host).\($local)"}] then "share must give container app of Deployment \($name) exactly SHARE_ADMIN_HOSTS=\($host).<local zone> (the LAN host only)" else empty end),
+       # Claims mode seeds and edits the guest list only through share-admin.
+       (if ($shareadmin | not) and ([$appc.env[]? | select(.name == "GUEST_ACCESS_MODE" and .value == "claims")] | length) > 0 then "the share part in claims mode (GUEST_ACCESS_MODE=claims) needs the share-admin part: the app seeds and edits its guest list only through share-admin" else empty end)
      else
        (if ($svcs | any(.metadata.name == "\($name)-share")) then "a Service \($name)-share without the share part" else empty end),
        (if ([$appc.env[]? | select((.name | startswith("GUEST_")) or .name == "SHARE_ADMIN_HOSTS")] | length) > 0 or ([$appc.ports[]? | select(.containerPort == 3001)] | length) > 0 then "GUEST_ variables, SHARE_ADMIN_HOSTS or port 3001 on the app container without the share part" else empty end)
