@@ -23,7 +23,10 @@ spec:
     pin: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
     vars:
       IMAGE: ghcr.io/mihirsamdarshi/quilt-planner
-      PULL_SECRET: quilt-registry
+      # ghcr-apps-read only because it is the one dockerconfigjson Secret the
+      # validator itself requires in Git, so this pass case cannot break when
+      # old pull Secrets are removed.
+      PULL_SECRET: ghcr-apps-read
       STORAGE_CLASS: quilt-local-retain
       CLAIM: quilt-data
       HEALTH_PATH: /api/health
