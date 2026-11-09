@@ -1,0 +1,37 @@
+---
+# The service that edits the guest list of the reports share (share.<zone>). It
+# holds the Cloudflare API token, so it runs outside the credential-free app
+# platform, in its own Namespace share-admin. The reports app pod is the only
+# caller (the `share-admin` part of the reports entry). Code:
+# integrations/reports-share-admin/.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: share-admin
+  namespace: flux-system
+spec:
+  # The CiliumNetworkPolicy needs the Cilium CRDs.
+  dependsOn:
+    - name: cilium
+      namespace: kube-system
+  decryption:
+    provider: sops
+  interval: 1h
+  retryInterval: 2m
+  path: ./kubernetes/apps/personal-apps/share-admin/app
+  # The Cloudflare account, the Access policy and the Access application IDs
+  # (SECRET_SHARE_ACCESS_ACCOUNT_ID, SECRET_SHARE_ACCESS_POLICY_ID,
+  # SECRET_SHARE_ACCESS_APP_ID) fill the environment of the Deployment. IDs, not
+  # credentials; set them before this reconciles, or the service stops at start.
+  postBuild:
+    substituteFrom:
+      - name: cluster-secrets
+        kind: Secret
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: share-admin
+  timeout: 3m
+  wait: true

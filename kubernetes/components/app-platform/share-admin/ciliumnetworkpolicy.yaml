@@ -1,0 +1,25 @@
+---
+# A second policy beside the namespace policy ${APP} (the netpol component).
+# Cilium adds up the policies that select a pod, so this opens egress to the
+# share-admin pods on 8080/TCP for the app pod and nothing else: no ingress
+# section, no other port, no other destination. It selects the app pod only
+# (the job's pods carry another name label), so they stay unable to reach it.
+# The service side is in
+# kubernetes/apps/personal-apps/share-admin/app/networkpolicy.yaml.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ${APP}-share-admin
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: ${APP}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: share-admin
+            app.kubernetes.io/name: share-admin
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

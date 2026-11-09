@@ -15,7 +15,7 @@
 # references, never this Secret.
 #
 # `inputs` lists the namespaces of the apps outside the platform that pull
-# private images (claude-proxy, deal-watch-integrations, deal-watch-ebay). They are not
+# private images (claude-proxy, deal-watch-integrations, deal-watch-ebay, share-admin). They are not
 # ResourceSetInputProviders, because a provider would also render an app-*
 # Kustomization in `apps`. Flux Operator concatenates `inputs` with the provider
 # inputs (docs/api/v1/resourceset.md, "Inputs configuration"). Each namespace
@@ -33,6 +33,7 @@ spec:
     - name: claude-proxy
     - name: deal-watch-integrations
     - name: deal-watch-ebay
+    - name: share-admin
   dependsOn:
     - apiVersion: v1
       kind: Secret

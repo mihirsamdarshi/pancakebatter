@@ -1,0 +1,12 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: share-admin
+resources:
+  - ./deployment.yaml
+  - ./service.yaml
+  - ./networkpolicy.yaml
+  # The Cloudflare API token. The owner writes this file from 1Password with the
+  # command in "share-admin" in kubernetes/apps/personal-apps/README.md; until
+  # then it holds a dummy value that Cloudflare rejects.
+  - ./credentials.sops.yaml # share-admin-credentials (key cloudflare-token)

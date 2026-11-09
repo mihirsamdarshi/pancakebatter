@@ -1,0 +1,29 @@
+---
+# `share-admin`: lets the app pod ask the share-admin service to edit the guest
+# list of its share (the reports app; the Share panel). The service holds the
+# Cloudflare API token, outside the platform, in the Namespace share-admin
+# (kubernetes/apps/personal-apps/share-admin/). The app holds no credential.
+#
+# Adds two things:
+# - SHARE_ADMIN_URL on the app container, the fixed address of the service's
+#   Service. It names the exact Host that the service accepts.
+# - The CiliumNetworkPolicy ${APP}-share-admin, a second policy beside the
+#   namespace policy (the way job-egress and share add one): egress from the
+#   app pod only, to the share-admin pods on 8080/TCP, and nothing else. The
+#   service's own policy admits only the pods app.kubernetes.io/name=reports
+#   of the namespace reports on 8080, so the job pod and the backup pods can
+#   neither be sent there nor accepted there.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - ./ciliumnetworkpolicy.yaml
+patches:
+  - target:
+      kind: Deployment
+      name: "[$][{]APP[}]"
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SHARE_ADMIN_URL
+          value: http://share-admin.share-admin.svc.cluster.local:8080

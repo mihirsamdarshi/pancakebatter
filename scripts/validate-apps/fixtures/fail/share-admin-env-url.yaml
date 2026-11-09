@@ -1,0 +1,25 @@
+---
+# expect: env key SHARE_ADMIN_URL is reserved
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-admin-env-url
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-admin-env-url
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-admin-env-url
+    parts: [pullsecret, internal-route, share-admin]
+    env:
+      SHARE_ADMIN_URL: http://evil.example.test:8080

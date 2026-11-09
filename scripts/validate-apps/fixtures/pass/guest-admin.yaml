@@ -1,0 +1,28 @@
+---
+# Test fixture for scripts/validate-apps.sh: the share-admin part beside the
+# share part and egress: claude-proxy. The self-test gives it a Namespace folder
+# and a cloudflared folder (guest-admin-share). Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-guest-admin
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/guest-admin
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: guest-admin
+    parts: [pullsecret, internal-route, share, share-admin]
+    egress: claude-proxy
+    vars:
+      SHARE_HOST: view
+      GUEST_COLLECTIONS: alpha
