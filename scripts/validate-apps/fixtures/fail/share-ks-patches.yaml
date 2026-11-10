@@ -1,0 +1,27 @@
+---
+# expect: the Flux Kustomization must be share-ks-patches-share-tunnel
+# share-files: ks-patches
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-ks-patches
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-ks-patches
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-ks-patches
+    parts: [pullsecret, internal-route, share, share-admin]
+    vars:
+      SHARE_HOST: view
+      GUEST_COLLECTIONS: alpha

@@ -1,0 +1,28 @@
+---
+# Test fixture for scripts/validate-apps.sh: the share part with the changes the
+# cloudflared check allows: another image digest, resources, annotations and
+# replicas. Never applied to a cluster.
+# share-files: harmless
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-harmless-changes
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-harmless-changes
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-harmless-changes
+    parts: [pullsecret, internal-route, share, share-admin]
+    vars:
+      SHARE_HOST: view
+      GUEST_COLLECTIONS: alpha

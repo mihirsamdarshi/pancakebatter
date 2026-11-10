@@ -1,0 +1,27 @@
+---
+# expect: the share policy share-policy-specs-share must be exactly
+# mutate: map(if .kind=="CiliumNetworkPolicy" and .metadata.name=="share-policy-specs-share" then .specs = [{"endpointSelector":{"matchLabels":{"app.kubernetes.io/name":"share-policy-specs"}},"ingress":[{"fromEndpoints":[{"matchExpressions":[{"key":"io.kubernetes.pod.namespace","operator":"Exists"}]}],"toPorts":[{"ports":[{"port":"3001","protocol":"TCP"}]}]}]}] else . end)
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-policy-specs
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-policy-specs
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-policy-specs
+    parts: [pullsecret, internal-route, share, share-admin]
+    vars:
+      SHARE_HOST: view
+      GUEST_COLLECTIONS: alpha

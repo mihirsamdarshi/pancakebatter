@@ -1,0 +1,27 @@
+---
+# expect: it must build to exactly the Namespace share-admin
+# share-admin-files: parent-policy
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-admin-parent-policy
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-admin-parent-policy
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-admin-parent-policy
+    parts: [pullsecret, internal-route, share, share-admin]
+    vars:
+      SHARE_HOST: view
+      GUEST_COLLECTIONS: alpha

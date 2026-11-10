@@ -1,0 +1,24 @@
+---
+# expect: specs[0]: ingress is not
+# mutate: map(if .kind=="CiliumNetworkPolicy" and .metadata.name=="netpol-specs" then .specs = [{"endpointSelector":{},"ingress":[{"fromEntities":["cluster"]}]}] else . end)
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-netpol-specs
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/netpol-specs
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: netpol-specs
+    parts: [pullsecret, internal-route]

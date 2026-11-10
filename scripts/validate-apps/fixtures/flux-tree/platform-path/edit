@@ -1,0 +1,1 @@
+kubernetes/apps/flux-system/kustomization.yaml .patches = [{"target": {"group": "kustomize.toolkit.fluxcd.io", "kind": "Kustomization", "name": "app-platform"}, "patch": "- op: replace\n  path: /spec/path\n  value: ./kubernetes/apps/flux-system/app-platform-b\n"}]

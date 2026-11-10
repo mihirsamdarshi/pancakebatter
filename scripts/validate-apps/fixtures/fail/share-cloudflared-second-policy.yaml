@@ -1,0 +1,27 @@
+---
+# expect: it must build to exactly the Deployment cloudflared
+# share-files: policy-second-doc
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-share-cloudflared-second-policy
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/share-cloudflared-second-policy
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: share-cloudflared-second-policy
+    parts: [pullsecret, internal-route, share, share-admin]
+    vars:
+      SHARE_HOST: view
+      GUEST_COLLECTIONS: alpha
