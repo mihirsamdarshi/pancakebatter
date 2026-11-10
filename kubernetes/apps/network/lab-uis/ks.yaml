@@ -1,9 +1,9 @@
 ---
-# The TrueNAS and Proxmox (Hobbes) web UIs on envoy-internal, as
-# truenas.${SECRET_DOMAIN_LOCAL} and hobbes.${SECRET_DOMAIN_LOCAL}. The
-# backends are fixed lab addresses outside the cluster and the pinned backend
-# certificates are this lab's, so this app is specific to this cluster and not
-# part of template/ (only its line in network/kustomization.yaml is mirrored).
+# Web UIs of lab machines outside the cluster, on envoy-internal as
+# <name>.${SECRET_DOMAIN_LOCAL}; one file per UI under app/. The backends are
+# fixed lab addresses and the pinned backend certificates are this lab's, so
+# this app is specific to this cluster and not part of template/ (only its line
+# in network/kustomization.yaml is mirrored).
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:

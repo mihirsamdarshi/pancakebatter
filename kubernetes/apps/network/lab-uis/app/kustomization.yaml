@@ -5,7 +5,5 @@ kind: Kustomization
 # objects name the CA ConfigMaps directly, so they are plain ConfigMaps, not
 # generated ones (a generator's hash suffix would break that reference).
 resources:
-  - ./truenas.yaml
-  - ./truenas-ca.yaml
   - ./hobbes.yaml
   - ./hobbes-ca.yaml
