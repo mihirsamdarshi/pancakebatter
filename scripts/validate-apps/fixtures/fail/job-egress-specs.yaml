@@ -1,0 +1,30 @@
+---
+# expect: the job policy job-egress-specs-job must be exactly
+# mutate: map(if .kind=="CiliumNetworkPolicy" and .metadata.name=="job-egress-specs-job" then .specs = [{"endpointSelector":{"matchLabels":{"app.kubernetes.io/name":"job-egress-specs-job"}},"egress":[{"toCIDR":["198.51.100.0/24"],"toPorts":[{"ports":[{"port":"443","protocol":"TCP"}]}]}]}] else . end)
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-job-egress-specs
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/job-egress-specs
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: job-egress-specs
+    parts: [pullsecret, internal-route, job, job-egress]
+    vars:
+      JOB_SCHEDULE: "0 11 * * 0"
+      JOB_COMMAND: bun jobs/refresh.ts
+      JOB_READ_PATH: content
+      JOB_WORK_PATH: feeds
+      JOB_EGRESS_CIDR: 203.0.113.0/24

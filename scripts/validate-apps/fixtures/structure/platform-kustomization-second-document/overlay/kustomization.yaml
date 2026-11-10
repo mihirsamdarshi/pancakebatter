@@ -1,0 +1,15 @@
+---
+# Rejected: kustomize reads the first document, which applies a third folder;
+# the second is the expected one.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./app
+  - ./apps
+  - ./sneak
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./app
+  - ./apps

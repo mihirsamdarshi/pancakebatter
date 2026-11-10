@@ -38,7 +38,9 @@
 #      route rules;
 #   5. the network policy, compared field by field with the design, and with
 #      job-egress the job's own policy (its allow rule and its deny rules for
-#      the own namespace and claude-proxy); only the job's CronJob carries the
+#      the own namespace and claude-proxy); Cilium enforces a policy's `spec`
+#      and every entry of its `specs` list alike, so every policy check here
+#      runs on each of them; only the job's CronJob carries the
 #      job pod label that policy selects; with share, the second policy
 #      <name>-share (cloudflared to 3001/TCP only), the Service <name>-share
 #      (only 3001), exactly the GUEST_ variables (claims mode, the access
@@ -56,10 +58,23 @@
 #   7. the pull Secret that `apps-pull` renders;
 #   8. the Namespace folder under kubernetes/apps/personal-apps, and renames;
 #      with the mapkit part, its SOPS Secret mapkit.sops.yaml there; with the
-#      share part, the folder <name>-share/ for its cloudflared;
+#      share part, the folder <name>-share/ for its cloudflared: its Flux
+#      Kustomization applies the folder unchanged, and the folder builds to
+#      exactly the Deployment cloudflared (one container, fixed args, no env,
+#      the routing file mounted from the generated ConfigMap), that ConfigMap,
+#      its policy and the tunnel Secret; with the share-admin part, the
+#      service's folder share-admin/: its Flux Kustomization applies the
+#      folder unchanged, and its one policy admits only the app pod on 8080
+#      (and the node on the health port) and reaches only DNS and 443;
 #   9. the flux-operator CLI version equals the operator chart tag; the
 #      PrometheusRule app-platform exists, names every entry's namespace and
 #      passes promtool check and its unit tests.
+#
+# Every YAML file a check reads field by field must hold exactly one document:
+# yq answers for each document, `jq -e` takes its status from the last one,
+# and a reader such as cloudflared takes only the first, so a second document
+# could hide from a check. Builds and the Git facts are read document by
+# document.
 
 set -euo pipefail
 
@@ -204,6 +219,7 @@ check_structure() {
             *) die "$f is not allowed in $platform_dir (ks.yaml, kustomization.yaml, retired.txt, app/, apps/ only)" ;;
         esac
     done < <(find "$platform_dir" -mindepth 1 -maxdepth 1 -print0)
+    [[ "$(yq ea '[.] | length' "$platform_dir/kustomization.yaml")" == "1" ]] || die "$platform_dir/kustomization.yaml must hold exactly one document"
     yq -o=json '.' "$platform_dir/kustomization.yaml" \
         | jq -e '(keys == ["apiVersion", "kind", "resources"]) and .apiVersion == "kustomize.config.k8s.io/v1beta1" and .kind == "Kustomization" and (.resources == ["./app", "./apps"])' >/dev/null \
         || die "$platform_dir/kustomization.yaml must be a Kustomization that lists exactly ./app and ./apps, with no other key"
@@ -229,6 +245,7 @@ check_structure() {
         entry_files+=("./$name")
     done < <(find "$apps_dir" -mindepth 1 -maxdepth 1 -print0)
     [[ -f "$apps_dir/kustomization.yaml" ]] || die "$apps_dir/kustomization.yaml is missing"
+    [[ "$(yq ea '[.] | length' "$apps_dir/kustomization.yaml")" == "1" ]] || die "$apps_dir/kustomization.yaml must hold exactly one document"
     expected_json="$(printf '%s\n' ${entry_files[@]+"${entry_files[@]}"} | jq -R . | jq -s 'map(select(. != "")) | sort')"
     yq -o=json '.' "$apps_dir/kustomization.yaml" \
         | jq -e --argjson want "$expected_json" '(keys == ["apiVersion", "kind", "resources"]) and .apiVersion == "kustomize.config.k8s.io/v1beta1" and .kind == "Kustomization" and ((.resources | sort) == $want) and ((.resources | length) == ($want | length))' >/dev/null \
@@ -256,6 +273,7 @@ check_structure() {
         [[ "$item" == "$expected" ]] || die "$f must be $expected, not $item"
     done < <(find "$app_dir" -mindepth 1 -maxdepth 1 -print0)
     [[ -f "$app_dir/kustomization.yaml" ]] || die "$app_dir/kustomization.yaml is missing"
+    [[ "$(yq ea '[.] | length' "$app_dir/kustomization.yaml")" == "1" ]] || die "$app_dir/kustomization.yaml must hold exactly one document"
     yq -o=json '.' "$app_dir/kustomization.yaml" \
         | jq -e '(keys == ["apiVersion", "kind", "resources"]) and .apiVersion == "kustomize.config.k8s.io/v1beta1" and .kind == "Kustomization"
             and ((.resources | sort) == ["./alert.yaml", "./discord-webhook.sops.yaml", "./ghcr-apps-read.sops.yaml", "./provider.yaml", "./resourceset-pull.yaml", "./resourceset.yaml"])' >/dev/null \
@@ -269,6 +287,8 @@ check_structure() {
 check_tooling() {
     local cli chart pin
     cli="$(flux-operator version --client | awk '{print $2}')"
+    [[ "$(yq ea '[.] | length' kubernetes/apps/flux-system/flux-operator/app/ocirepository.yaml)" == "1" ]] \
+        || die "kubernetes/apps/flux-system/flux-operator/app/ocirepository.yaml must hold exactly one document"
     chart="$(yq '.spec.ref.tag' kubernetes/apps/flux-system/flux-operator/app/ocirepository.yaml)"
     [[ -n "$cli" && "$cli" == "$chart" ]] \
         || die "flux-operator CLI $cli does not equal the operator chart tag $chart (kubernetes/apps/flux-system/flux-operator/app/ocirepository.yaml)"
@@ -511,6 +531,21 @@ JQ
 
 # --- 4-6. Rendered output ----------------------------------------------------
 
+# Prepended to every jq program that checks a Cilium policy. Cilium enforces a
+# policy's `spec` and every entry of its `specs` list alike, so a check that
+# looked at `spec` alone would pass a rule added under `specs`. `rules` lists
+# them all, each with the prefix a message names it by ("" for spec); a policy
+# with neither has no rule and passes no check. `private` is true for an IPv4
+# address in a range that is not public; `publiccidrs` accepts a non-empty
+# toCIDRSet of public ranges, each /12 or smaller.
+read -r -d '' policy_jq <<'JQ' || true
+def rules: [(.spec // empty | {at: "", r: .}), ((.specs // []) | to_entries[] | {at: "specs[\(.key)]: ", r: .value})];
+def allpass(f): (rules | length) > 0 and all(rules[]; .r | f);
+def allare($want): allpass(. == $want);
+def private: test("^(0|10|127)\\.|^192\\.168\\.|^172\\.(1[6-9]|2[0-9]|3[01])\\.|^100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\.|^169\\.254\\.|^22[4-9]\\.|^2[3-5][0-9]\\.");
+def publiccidrs: length > 0 and all(keys == ["cidr"] and (.cidr | test("^[0-9.]+/[0-9]+$")) and (.cidr | private | not) and ((.cidr | split("/")[1] | tonumber) >= 12));
+JQ
+
 # Pod specs of a built manifest stream (slurped). Checks the restricted fields,
 # the read-only root filesystem, no service-account token, no Secret reference
 # and, when $ns is not empty, the namespace. With $mapkit, the Deployment $app
@@ -633,34 +668,36 @@ def podlabels:
      else
        ($pols - $jobpols - $sharepols - $sapols)[0] as $p
        | (if $p.kind != "CiliumNetworkPolicy" or $p.metadata.name != $name or $p.metadata.namespace != $ns then "the policy must be a CiliumNetworkPolicy named \($name) in \($ns)" else empty end),
-         (if $p.spec.endpointSelector != {} then "endpointSelector must be exactly {} (namespace-wide)" else empty end),
-         (if ($p.spec | keys) != ["egress", "endpointSelector", "ingress"] then "the policy spec has keys other than endpointSelector, ingress and egress" else empty end),
-         (if $p.spec.ingress != expected_ingress then "ingress is not: own namespace, the two gateways on 3000/TCP, host on 3000/TCP" else empty end),
-         (if $egress == "internet" then
-            (if ($p.spec.egress | length) != 3 or $p.spec.egress[0:2] != expected_egress then "egress must be the own-namespace rule and kube-dns on 53, then the internet rule"
-             else
-               $p.spec.egress[2] as $r
-               | (if ($r | keys) != ["toCIDRSet"] or ($r.toCIDRSet | length) != 1 or ($r.toCIDRSet[0] | keys) != ["cidr", "except"] or $r.toCIDRSet[0].cidr != "0.0.0.0/0" then "the internet rule must be a single toCIDRSet of 0.0.0.0/0 with an except list" else empty end),
-                 (if ($r.toCIDRSet[0].except | sort) != (internet_except | sort) then "the except list must be exactly \(internet_except | join(", "))" else empty end)
-             end)
-          elif $egress == "claude-proxy" then
-            (if $p.spec.egress != expected_egress + [claude_proxy_rule] then "egress must be the own-namespace rule, kube-dns on 53, then the claude-proxy pods on 3000/TCP" else empty end)
-          elif $p.spec.egress != expected_egress then "egress is not: own namespace, kube-dns on 53 UDP and TCP"
-          else empty end),
+         (if ($p | rules | length) == 0 then "the policy \($name) has no spec" else empty end),
+         ($p | rules[] | .at as $at | .r as $r
+          | (if $r.endpointSelector != {} then "\($at)endpointSelector must be exactly {} (namespace-wide)" else empty end),
+            (if ($r | type) != "object" or ($r | keys) != ["egress", "endpointSelector", "ingress"] then "\($at)the policy spec has keys other than endpointSelector, ingress and egress" else empty end),
+            (if $r.ingress != expected_ingress then "\($at)ingress is not: own namespace, the two gateways on 3000/TCP, host on 3000/TCP" else empty end),
+            (if $egress == "internet" then
+               (if ($r.egress | length) != 3 or $r.egress[0:2] != expected_egress then "\($at)egress must be the own-namespace rule and kube-dns on 53, then the internet rule"
+                else
+                  $r.egress[2] as $i
+                  | (if ($i | keys) != ["toCIDRSet"] or ($i.toCIDRSet | length) != 1 or ($i.toCIDRSet[0] | keys) != ["cidr", "except"] or $i.toCIDRSet[0].cidr != "0.0.0.0/0" then "\($at)the internet rule must be a single toCIDRSet of 0.0.0.0/0 with an except list" else empty end),
+                    (if ($i.toCIDRSet[0].except | sort) != (internet_except | sort) then "\($at)the except list must be exactly \(internet_except | join(", "))" else empty end)
+                end)
+             elif $egress == "claude-proxy" then
+               (if $r.egress != expected_egress + [claude_proxy_rule] then "\($at)egress must be the own-namespace rule, kube-dns on 53, then the claude-proxy pods on 3000/TCP" else empty end)
+             elif $r.egress != expected_egress then "\($at)egress is not: own namespace, kube-dns on 53 UDP and TCP"
+             else empty end)),
          (if $jobegress then
             $jobpols[0] as $j
             | (if $j.kind != "CiliumNetworkPolicy" or $j.metadata.namespace != $ns then "the job policy must be a CiliumNetworkPolicy named \($name)-job in \($ns)" else empty end),
-              (if $j.spec != expected_job_spec then "the job policy \($name)-job must be exactly: endpointSelector app.kubernetes.io/name=\($name)-job, egress to \($jobcidr) on 443/TCP only, egressDeny to the namespace \($ns) and to the namespace claude-proxy, and no ingress" else empty end)
+              (if ($j | allare(expected_job_spec) | not) then "the job policy \($name)-job must be exactly: endpointSelector app.kubernetes.io/name=\($name)-job, egress to \($jobcidr) on 443/TCP only, egressDeny to the namespace \($ns) and to the namespace claude-proxy, and no ingress, in spec and in every entry of specs" else empty end)
           else empty end),
          (if $share then
             $sharepols[0] as $s
             | (if $s.kind != "CiliumNetworkPolicy" or $s.metadata.namespace != $ns then "the share policy must be a CiliumNetworkPolicy named \($name)-share in \($ns)" else empty end),
-              (if $s.spec != expected_share_spec then "the share policy \($name)-share must be exactly: endpointSelector app.kubernetes.io/name=\($name), ingress from the pods app.kubernetes.io/name=cloudflared in the namespace \($name)-share on 3001/TCP only, ingressDeny on 3001/TCP from the host entity and from the pods of \($ns) whose app.kubernetes.io/name is NotIn [\($name)], and no egress" else empty end)
+              (if ($s | allare(expected_share_spec) | not) then "the share policy \($name)-share must be exactly: endpointSelector app.kubernetes.io/name=\($name), ingress from the pods app.kubernetes.io/name=cloudflared in the namespace \($name)-share on 3001/TCP only, ingressDeny on 3001/TCP from the host entity and from the pods of \($ns) whose app.kubernetes.io/name is NotIn [\($name)], and no egress, in spec and in every entry of specs" else empty end)
           else empty end),
          (if $shareadmin then
             $sapols[0] as $a
             | (if $a.kind != "CiliumNetworkPolicy" or $a.metadata.namespace != $ns then "the share-admin policy must be a CiliumNetworkPolicy named \($name)-share-admin in \($ns)" else empty end),
-              (if $a.spec != expected_share_admin_spec then "the share-admin policy \($name)-share-admin must be exactly: endpointSelector app.kubernetes.io/name=\($name), egress to the pods app.kubernetes.io/name=share-admin in the namespace share-admin on 8080/TCP only, and no ingress" else empty end)
+              (if ($a | allare(expected_share_admin_spec) | not) then "the share-admin policy \($name)-share-admin must be exactly: endpointSelector app.kubernetes.io/name=\($name), egress to the pods app.kubernetes.io/name=share-admin in the namespace share-admin on 8080/TCP only, and no ingress, in spec and in every entry of specs" else empty end)
           else empty end),
          ($pols[] | select(tojson | test("\"world\"|kube-apiserver|toEntities|toFQDNs")) | "the policy \(.metadata.name) has a world, kube-apiserver, toEntities or toFQDNs rule")
      end),
@@ -743,6 +780,7 @@ custom_kinds='["Deployment","StatefulSet","Job","CronJob","Service","ConfigMap",
 check_custom_path() {
     local dir="$1" kinds
     [[ -f "$dir/kustomization.yaml" ]] || fail "custom path $dir has no kustomization.yaml"
+    [[ "$(yq ea '[.] | length' "$dir/kustomization.yaml")" == "1" ]] || fail "$dir/kustomization.yaml must hold exactly one document"
     [[ "$(yq '.secretGenerator // [] | length' "$dir/kustomization.yaml")" == "0" ]] \
         || fail "custom path $dir uses secretGenerator (apps hold no credentials)"
     kustomize build "$dir" --load-restrictor=LoadRestrictionsNone >"$tmp/custom.yaml" \
@@ -783,6 +821,7 @@ check_mapkit_secret() {
     [[ "$(yq '[.stringData[] | test("^ENC\\[")] | all' "$f")" == "true" ]] || fail "$f: a stringData value is not SOPS-encrypted"
     [[ "$(yq '.data // {} | length' "$f")" == "0" ]] || fail "$f has a data field; use stringData (flux build ks cannot mask an encrypted data value)"
     yq -e '.sops.age' "$f" >/dev/null 2>&1 || fail "$f has no sops metadata (not encrypted)"
+    [[ "$(yq ea '[.] | length' .sops.yaml)" == "1" ]] || fail ".sops.yaml must hold exactly one document"
     rule="$(mapkit_rule)"
     [[ "$rule" != "null" && -n "$rule" ]] || fail ".sops.yaml has no creation rule for kubernetes/apps/personal-apps/"
     yq -o=json -I=0 '.sops' "$f" | jq -e --argjson rule "$rule" '
@@ -798,15 +837,86 @@ check_mapkit_secret() {
     echo "    mapkit: $f is an encrypted Secret $name-mapkit with MAPKIT_TOKEN, for the repo's age recipient"
 }
 
-# The share part's cloudflared, compared with the design: the routing file has
+# A Flux Kustomization that applies a folder outside the platform (the share
+# part's cloudflared, the share-admin service), checked so that it applies the
+# folder as the checks here build it: the one path, the target namespace, the
+# Git source of this repo, substitution only from cluster-secrets, and no other
+# spec key. patches, components, images, a name prefix or a substitute value
+# would change the objects (or the Access audience) after those checks.
+check_flux_ks() {
+    local f="$1" path="$2" ns="$3"
+    [[ -f "$f" ]] || fail "$f is missing (the Flux Kustomization that applies $path)"
+    yq -o=json -N '.' "$f" | jq -s -e --arg path "$path" --arg ns "$ns" 'length == 1 and (.[0]
+        | .apiVersion == "kustomize.toolkit.fluxcd.io/v1" and .kind == "Kustomization" and .metadata.namespace == "flux-system"
+        and .spec.path == $path and .spec.targetNamespace == $ns
+        and .spec.sourceRef == {kind: "GitRepository", name: "flux-system", namespace: "flux-system"}
+        and .spec.postBuild == {substituteFrom: [{name: "cluster-secrets", kind: "Secret"}]}
+        and ((.spec | keys) - ["dependsOn", "decryption", "interval", "path", "postBuild", "prune", "retryInterval", "sourceRef", "targetNamespace", "timeout", "wait"] == []))' >/dev/null \
+        || fail "$f must hold one Flux Kustomization in flux-system for path $path with targetNamespace $ns, sourceRef GitRepository flux-system/flux-system and postBuild only substituteFrom the Secret cluster-secrets, and no other spec key (no patches, components, images, namePrefix, nameSuffix or substitute): Flux must apply the folder as it is checked here"
+}
+
+# What the share part's cloudflared folder builds to, slurped. Exactly four
+# objects: the Deployment cloudflared, one ConfigMap, the policy cloudflared
+# and the tunnel Secret (any other pod in the namespace labelled cloudflared
+# would reach 3001). The Deployment has one container, no command, the fixed
+# args (their --config is the mounted routing file), no env (cloudflared reads
+# its flags, --url and --token among them, from TUNNEL_ variables too), and
+# mounts the routing file once, from the generated ConfigMap, whose only key
+# config.yaml is the routing file checked before ($routing). The policy allows
+# only cluster DNS, the app pod on 3001, the tunnel (7844) and 443 to public
+# ranges, and admits only the kubelet probe. Image, resources and probes are
+# not compared. Secret values are never read.
+read -r -d '' share_build_jq <<'JQ' || true
+def args: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "--config", "/etc/cloudflared/config.yaml", "run"];
+def cfrule: type == "object" and keys == ["egress", "endpointSelector", "ingress"]
+  and .endpointSelector == {}
+  and .ingress == [{fromEntities: ["host"], toPorts: [{ports: [{port: "2000", protocol: "TCP"}]}]}]
+  and (.egress | length) == 4
+  and .egress[0] == {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "kube-system", "k8s-app": "kube-dns"}}], toPorts: [{ports: [{port: "53", protocol: "UDP"}, {port: "53", protocol: "TCP"}]}]}
+  and .egress[1] == {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": $name, "app.kubernetes.io/name": $name}}], toPorts: [{ports: [{port: "3001", protocol: "TCP"}]}]}
+  and .egress[2] == {toCIDRSet: [{cidr: "198.41.192.0/24"}, {cidr: "198.41.200.0/24"}], toPorts: [{ports: [{port: "7844", protocol: "TCP"}, {port: "7844", protocol: "UDP"}]}]}
+  and (.egress[3] | keys) == ["toCIDRSet", "toPorts"]
+  and .egress[3].toPorts == [{ports: [{port: "443", protocol: "TCP"}]}]
+  and (.egress[3].toCIDRSet | publiccidrs);
+[.[] | select(type == "object")] as $all
+| [$all[] | select(.kind == "Deployment" and .metadata.name == "cloudflared")] as $deps
+| [$all[] | select(.kind == "ConfigMap")] as $cms
+| [$all[] | select(.kind == "CiliumNetworkPolicy" and .metadata.name == "cloudflared")] as $pols
+| [$all[] | select(.kind == "Secret" and .metadata.name == "\($name)-share-tunnel")] as $secrets
+| if ([$deps, $cms, $pols, $secrets] | map(length)) != [1, 1, 1, 1] or ($all | length) != 4 then
+    "it must build to exactly the Deployment cloudflared, one ConfigMap, the CiliumNetworkPolicy cloudflared and the Secret \($name)-share-tunnel, nothing else (any other pod there labelled cloudflared would reach 3001); found: \([$all[] | "\(.kind)/\(.metadata.name)"] | join(", "))"
+  else
+    $deps[0].spec.template.spec as $s | $cms[0] as $cm | $pols[0] as $p
+    | (if (($s.containers // []) | length) != 1 or (($s.initContainers // []) | length) > 0 or (($s.ephemeralContainers // []) | length) > 0
+       then "the Deployment cloudflared must have exactly one container and no init or ephemeral container"
+       else
+         $s.containers[0] as $c
+         | [($c.volumeMounts // [])[] | select(.mountPath == "/etc/cloudflared/config.yaml")] as $m
+         | (if ($c | has("command")) or $c.args != args then "the cloudflared container must set no command, and its args must be exactly: \(args | join(" ")) (no --url, --hello-world, --token or other --config)" else empty end),
+           (if (($c.env // []) | length) > 0 or (($c.envFrom // []) | length) > 0 then "the cloudflared container must have no env or envFrom (cloudflared reads its flags, --url and --token among them, from TUNNEL_ variables too)" else empty end),
+           (if ($m | length) != 1 or ($m[0] | keys - ["readOnly"]) != ["mountPath", "name", "subPath"] or $m[0].subPath != "config.yaml"
+               or [($s.volumes // [])[] | select(.name == $m[0].name)] != [{name: $m[0].name, configMap: {name: $cm.metadata.name}}]
+            then "the cloudflared container must mount /etc/cloudflared/config.yaml once, as subPath config.yaml of a volume that is the generated ConfigMap \($cm.metadata.name) and nothing else" else empty end)
+       end),
+      (if ($cm | keys) != ["apiVersion", "data", "kind", "metadata"] or $cm.data != {"config.yaml": $routing}
+       then "the ConfigMap \($cm.metadata.name) must hold only config.yaml, equal to resources/cloudflared.yaml (its configMapGenerator must read the routing file checked here)" else empty end),
+      (if $p.apiVersion != "cilium.io/v2" or ($p.metadata | keys - ["name", "namespace"]) != [] or ($p | allpass(cfrule) | not)
+       then "the policy cloudflared must be exactly: ingress only the kubelet probe on 2000/TCP; egress only cluster DNS, the pods app.kubernetes.io/name=\($name) in the namespace \($name) on 3001/TCP (never 3000), the tunnel edge 198.41.192.0/24 and 198.41.200.0/24 on 7844 TCP and UDP, and 443/TCP to public IPv4 ranges (/12 or smaller, none private); in spec and in every entry of specs" else empty end)
+  end
+JQ
+
+# The share part's cloudflared, compared with the design. $1 is the folder
+# <name>-share/app: its Flux Kustomization ../ks.yaml applies it unchanged;
+# the routing file is one document (cloudflared reads only the first) with
 # exactly the guest host to the guest Service on 3001 with cloudflared's own
-# Access check required, then a 404; and its policy allows only cluster DNS,
-# the app pod on 3001, the tunnel (7844) and 443 to public ranges, and admits
-# only the kubelet probe. $1 is the folder <name>-share/app.
+# Access check required, then a 404; and the folder builds to what
+# share_build_jq describes.
 check_share_files() {
-    local dir="$1" name="$2" host="$3" f
+    local dir="$1" name="$2" host="$3" f errs
+    check_flux_ks "$(dirname "$dir")/ks.yaml" "./kubernetes/apps/personal-apps/$name-share/app" "$name-share"
     f="$dir/resources/cloudflared.yaml"
     [[ -f "$f" ]] || fail "the share part needs $f"
+    [[ "$(yq ea '[.] | length' "$f")" == "1" ]] || fail "$f must hold exactly one document (cloudflared reads only the first)"
     yq -o=json -N '.' "$f" | jq -e --arg host "$host" --arg name "$name" '
         (keys == ["credentials-file", "ingress", "tunnel"])
         and .tunnel == "${SECRET_SHARE_TUNNEL_ID}"
@@ -817,30 +927,59 @@ check_share_files() {
            originRequest: {access: {required: true, teamName: "${SECRET_SHARE_ACCESS_TEAM}", audTag: ["${SECRET_SHARE_ACCESS_AUD}"]}}},
           {service: "http_status:404"}]' >/dev/null \
         || fail "$f must have only the keys tunnel, credentials-file and ingress; ingress rule 0 must be hostname $host.\${SECRET_DOMAIN} to http://$name-share.$name.svc.cluster.local:3001 with originRequest.access {required: true, teamName: \${SECRET_SHARE_ACCESS_TEAM}, audTag: [\${SECRET_SHARE_ACCESS_AUD}]} and nothing else, and rule 1 must be http_status:404 (the vars.SHARE_HOST of the entry must match the hostname)"
-    f="$dir/networkpolicy.yaml"
-    [[ -f "$f" ]] || fail "the share part needs $f"
-    yq -o=json -N '.' "$f" | jq -e --arg name "$name" '
-        def private: test("^(0|10|127)\\.|^192\\.168\\.|^172\\.(1[6-9]|2[0-9]|3[01])\\.|^100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\.|^169\\.254\\.|^22[4-9]\\.|^2[3-5][0-9]\\.");
-        . as $p
-        | ($p.spec.egress | length) == 4
-        and $p.apiVersion == "cilium.io/v2" and $p.kind == "CiliumNetworkPolicy" and $p.metadata == {name: "cloudflared"}
-        and ($p.spec | keys) == ["egress", "endpointSelector", "ingress"]
-        and $p.spec.endpointSelector == {}
-        and $p.spec.ingress == [{fromEntities: ["host"], toPorts: [{ports: [{port: "2000", protocol: "TCP"}]}]}]
-        and $p.spec.egress[0] == {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "kube-system", "k8s-app": "kube-dns"}}], toPorts: [{ports: [{port: "53", protocol: "UDP"}, {port: "53", protocol: "TCP"}]}]}
-        and $p.spec.egress[1] == {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": $name, "app.kubernetes.io/name": $name}}], toPorts: [{ports: [{port: "3001", protocol: "TCP"}]}]}
-        and $p.spec.egress[2] == {toCIDRSet: [{cidr: "198.41.192.0/24"}, {cidr: "198.41.200.0/24"}], toPorts: [{ports: [{port: "7844", protocol: "TCP"}, {port: "7844", protocol: "UDP"}]}]}
-        and ($p.spec.egress[3] | keys) == ["toCIDRSet", "toPorts"]
-        and $p.spec.egress[3].toPorts == [{ports: [{port: "443", protocol: "TCP"}]}]
-        and ($p.spec.egress[3].toCIDRSet | length) > 0
-        and ($p.spec.egress[3].toCIDRSet | all(keys == ["cidr"] and (.cidr | test("^[0-9.]+/[0-9]+$")) and (.cidr | private | not) and ((.cidr | split("/")[1] | tonumber) >= 12)))' >/dev/null \
-        || fail "$f must be exactly: ingress only the kubelet probe on 2000/TCP; egress only cluster DNS, the pods app.kubernetes.io/name=$name in the namespace $name on 3001/TCP (never 3000), the tunnel edge 198.41.192.0/24 and 198.41.200.0/24 on 7844 TCP and UDP, and 443/TCP to public IPv4 ranges (/12 or smaller, none private)"
-    echo "    share: $dir routes only the guest host to $name-share:3001 with the Access check required, and its policy reaches nothing else"
+    kustomize build "$dir" --load-restrictor=LoadRestrictionsNone >"$tmp/share-build.yaml" 2>"$tmp/share-build.err" \
+        || fail "kustomize build $dir failed: $(cat "$tmp/share-build.err")"
+    errs="$(yq -o=json -N '.' "$tmp/share-build.yaml" | jq -s -r --arg name "$name" --rawfile routing "$f" "$policy_jq
+$share_build_jq")"
+    [[ -z "$errs" ]] || fail "share: $dir: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
+    echo "    share: $dir routes only the guest host to $name-share:3001 with the Access check required, runs one cloudflared with that file and nothing else, and its policy reaches nothing else"
+}
+
+# The share-admin service's policy, slurped from what its folder builds to:
+# exactly one network policy, the CiliumNetworkPolicy share-admin, for every pod
+# of the namespace. Ingress 8080/TCP only from the app pod
+# (app.kubernetes.io/name=$name in $ns), 8081/TCP (/healthz only) from the node
+# for probes, and 8080 denied to the node (Cilium lets the node reach every
+# port otherwise); egress only cluster DNS and 443/TCP to public IPv4 ranges.
+read -r -d '' share_admin_build_jq <<'JQ' || true
+def tcp($p): [{ports: [{port: $p, protocol: "TCP"}]}];
+def sarule: type == "object" and keys == ["egress", "endpointSelector", "ingress", "ingressDeny"]
+  and .endpointSelector == {}
+  and .ingress == [{fromEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": $ns, "app.kubernetes.io/name": $name}}], toPorts: tcp("8080")},
+                   {fromEntities: ["host"], toPorts: tcp("8081")}]
+  and .ingressDeny == [{fromEntities: ["host"], toPorts: tcp("8080")}]
+  and (.egress | length) == 2
+  and .egress[0] == {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "kube-system", "k8s-app": "kube-dns"}}], toPorts: [{ports: [{port: "53", protocol: "UDP"}, {port: "53", protocol: "TCP"}]}]}
+  and (.egress[1] | keys) == ["toCIDRSet", "toPorts"]
+  and .egress[1].toPorts == tcp("443")
+  and (.egress[1].toCIDRSet | publiccidrs);
+[.[] | select(type == "object" and (.kind | IN("CiliumNetworkPolicy", "CiliumClusterwideNetworkPolicy", "NetworkPolicy")))] as $pols
+| if ($pols | length) != 1 or $pols[0].kind != "CiliumNetworkPolicy" or $pols[0].metadata.name != "share-admin" then
+    "it must build to exactly one network policy, the CiliumNetworkPolicy share-admin; found: \([$pols[] | "\(.kind)/\(.metadata.name)"] | join(", "))"
+  elif $pols[0].apiVersion != "cilium.io/v2" or ($pols[0] | allpass(sarule) | not) then
+    "the policy share-admin must be exactly: endpointSelector {}; ingress 8080/TCP only from the pods app.kubernetes.io/name=\($name) in the namespace \($ns) and 8081/TCP from the host entity; ingressDeny 8080/TCP from the host entity; egress only cluster DNS and 443/TCP to public IPv4 ranges (/12 or smaller, none private); in spec and in every entry of specs"
+  else empty end
+JQ
+
+# The share-admin part's other half: the service's own folder (outside the
+# platform) admits only this app's pod. $1 is the folder share-admin/ (in the
+# self-test, a copy per sample): its Flux Kustomization ks.yaml applies app/
+# unchanged, and app/ builds to the one policy share_admin_build_jq describes.
+# Only the policies are compared; Secret values are never read.
+check_share_admin_files() {
+    local dir="$1" name="$2" ns="$3" errs
+    check_flux_ks "$dir/ks.yaml" "./kubernetes/apps/personal-apps/share-admin/app" "share-admin"
+    kustomize build "$dir/app" --load-restrictor=LoadRestrictionsNone >"$tmp/share-admin-build.yaml" 2>"$tmp/share-admin-build.err" \
+        || fail "kustomize build $dir/app failed: $(cat "$tmp/share-admin-build.err")"
+    errs="$(yq -o=json -N '.' "$tmp/share-admin-build.yaml" | jq -s -r --arg name "$name" --arg ns "$ns" "$policy_jq
+$share_admin_build_jq")"
+    [[ -z "$errs" ]] || fail "share-admin: $dir/app: $errs"
+    echo "    share-admin: $dir/app admits only the pods $name of $ns on 8080 (the node only on the health port) and reaches only DNS and 443 to public ranges"
 }
 
 validate_entry() {
     local file="$1" stem fx=false errs name ns path parts_json pull_json host famhost netpol egress
-    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot mapkit listed other share sharehost guestcols shareadmin
+    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot mapkit listed other share sharehost guestcols shareadmin sadir
     stem="$(basename "$file" .yaml)"
     entry_label="$stem"
     case "$file" in "$fixtures_dir"/*) fx=true ;; esac
@@ -885,6 +1024,9 @@ validate_entry() {
     nsdir="$nsroot/$ns"
     [[ -f "$nsdir/kustomization.yaml" ]] \
         || fail "the Namespace folder $nsdir/kustomization.yaml is missing; add it (and its line in $nsroot/kustomization.yaml) in the same PR"
+    for n in "$nsdir/kustomization.yaml" "$nsroot/kustomization.yaml"; do
+        [[ "$(yq ea '[.] | length' "$n")" == "1" ]] || fail "$n must hold exactly one document"
+    done
     [[ "$(yq '.namespace' "$nsdir/kustomization.yaml")" == "$ns" ]] \
         || fail "$nsdir/kustomization.yaml: namespace must be $ns"
     yq -e '.components[] | select(. == "../../../components/personal-namespace")' "$nsdir/kustomization.yaml" >/dev/null 2>&1 \
@@ -900,6 +1042,19 @@ validate_entry() {
         yq -e ".resources[] | select(. == \"./$name-share\")" "$nsroot/kustomization.yaml" >/dev/null 2>&1 \
             || fail "$nsroot/kustomization.yaml does not list ./$name-share (the share part's cloudflared)"
         check_share_files "$nsroot/$name-share/app" "$name" "$sharehost"
+    fi
+    # 8c. The share-admin service lives outside the platform, in the folder
+    # share-admin/ (Namespace share-admin): its policy is the other half of the
+    # app's egress to it. The self-test gives each sample its own copy,
+    # <name>-share-admin/, because that policy names the app.
+    if [[ "$shareadmin" == true ]]; then
+        sadir="$nsroot/share-admin"
+        if [[ "$fx" == true && -n "${VALIDATE_APPS_NS_ROOT:-}" ]]; then sadir="$nsroot/$name-share-admin"; fi
+        [[ -f "$sadir/kustomization.yaml" ]] \
+            || fail "the share-admin part needs the folder $sadir/ (the share-admin service in the Namespace share-admin)"
+        yq -e ".resources[] | select(. == \"./$(basename "$sadir")\")" "$nsroot/kustomization.yaml" >/dev/null 2>&1 \
+            || fail "$nsroot/kustomization.yaml does not list ./$(basename "$sadir") (the share-admin service)"
+        check_share_admin_files "$sadir" "$name" "$ns"
     fi
     # 8a. The MapKit Secret, with the mapkit part only.
     mapkit="$(echo "$parts_json" | jq 'index("mapkit") != null')"
@@ -1015,7 +1170,8 @@ validate_entry() {
         --argjson jobegress "$jobegress" --arg jobcidr "$jobcidr" \
         --argjson share "$share" --argjson shareadmin "$shareadmin" --arg sharehost "$sharehost" --arg guestcols "$guestcols" --arg domain "$fake_domain" \
         --arg shareaud "$fake_share_aud" --arg shareteam "$fake_share_team" \
-        --arg local "$fake_local" --arg family "$fake_family" "$netpol_jq" "$tmp/build.json")"
+        --arg local "$fake_local" --arg family "$fake_family" "$policy_jq
+$netpol_jq" "$tmp/build.json")"
     [[ -z "$errs" ]] || fail "network policy or routes: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
 
     # Cross-entry facts, checked once all entries are known.
@@ -1037,6 +1193,7 @@ check_share_secrets() {
     done
     [[ "$need" == true ]] || return 0
     [[ -f "$cs" ]] || die "$cs is missing (the share part needs two keys in it)"
+    [[ "$(yq ea '[.] | length' "$cs")" == "1" ]] || die "$cs must hold exactly one document"
     for key in SECRET_SHARE_ACCESS_AUD SECRET_SHARE_ACCESS_TEAM; do
         v="$(yq ".stringData.$key // \"\"" "$cs")"
         [[ "$v" == ENC\[* && ${#v} -gt 10 ]] \
@@ -1110,6 +1267,7 @@ check_renames() {
 check_alert_namespaces() {
     local rule="kubernetes/apps/observability/kube-prometheus-stack/app/prometheusrule-app-platform.yaml" list ns
     [[ -f "$rule" ]] || die "$rule is missing: do not deploy an app without alerts"
+    [[ "$(yq ea '[.] | length' "$rule")" == "1" ]] || die "$rule must hold exactly one document"
     list="$(yq '.spec.groups[].rules[] | select(.alert == "AppPlatformDeploymentUnavailable") | .expr' "$rule" \
         | sed -nE 's/.*namespace=~"([^"]*)".*/\1/p')"
     [[ -n "$list" ]] || die "$rule: AppPlatformDeploymentUnavailable has no namespace=~\"...\" matcher"
@@ -1175,7 +1333,7 @@ write_mapkit_standin() {
 }
 
 run_self_test() {
-    local f expect out rc passed=0 failed=0 nsroot="$tmp/fixture-ns" c root name mapkit_case
+    local f expect out rc passed=0 failed=0 nsroot="$tmp/fixture-ns" c root name mapkit_case sd ad
     # An entry lives in the namespace of its own name, so each sample gets a
     # Namespace folder of that name under a temporary root (a sample marked
     # `# no-namespace-folder` gets none).
@@ -1191,19 +1349,66 @@ run_self_test() {
         # A sample with the share part gets the cloudflared folder too, unless it
         # says `# no-share-folder`.
         if yq -e '.spec.defaultValues.parts[] | select(. == "share")' "$f" >/dev/null 2>&1 && ! grep -q '^# no-share-folder' "$f"; then
-            mkdir -p "$nsroot/$name-share/app/resources"
-            printf -- '---\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n' >"$nsroot/$name-share/kustomization.yaml"
+            sd="$nsroot/$name-share"
+            mkdir -p "$sd/app/resources"
+            printf -- '---\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n' >"$sd/kustomization.yaml"
             yq -i ".resources += [\"./$name-share\"]" "$nsroot/kustomization.yaml"
-            # cloudflared's routing and policy: the real files for this sample's
-            # names, or with `# share-files: <case>` a broken copy.
-            real="kubernetes/apps/personal-apps/reports-share/app"
+            # The real folder reports-share/ for this sample's names, with a
+            # stand-in tunnel Secret that holds no credentials, or with
+            # `# share-files: <case>` a broken copy.
+            real="kubernetes/apps/personal-apps/reports-share"
             sh_host="$(yq '.spec.defaultValues.vars.SHARE_HOST' "$f")"
-            sed "s#share\.\${SECRET_DOMAIN}#$sh_host.\${SECRET_DOMAIN}#; s#reports-share\.reports\.svc#$name-share.$name.svc#" "$real/resources/cloudflared.yaml" >"$nsroot/$name-share/app/resources/cloudflared.yaml"
-            yq "(.spec.egress[] | select(.toEndpoints[0].matchLabels[\"app.kubernetes.io/name\"] == \"reports\") | .toEndpoints[0].matchLabels) |= (.[\"io.kubernetes.pod.namespace\"] = \"$name\" | .[\"app.kubernetes.io/name\"] = \"$name\")" "$real/networkpolicy.yaml" >"$nsroot/$name-share/app/networkpolicy.yaml"
+            sed "s#reports-share#$name-share#g" "$real/ks.yaml" >"$sd/ks.yaml"
+            sed "s#reports-share#$name-share#g" "$real/app/kustomization.yaml" >"$sd/app/kustomization.yaml"
+            sed "s#reports-share#$name-share#g" "$real/app/cloudflared-deployment.yaml" >"$sd/app/cloudflared-deployment.yaml"
+            printf -- '---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: %s-share-tunnel\ntype: Opaque\nstringData:\n  credentials.json: stand-in\n' "$name" >"$sd/app/tunnel-credentials.sops.yaml"
+            sed "s#share\.\${SECRET_DOMAIN}#$sh_host.\${SECRET_DOMAIN}#; s#reports-share\.reports\.svc#$name-share.$name.svc#" "$real/app/resources/cloudflared.yaml" >"$sd/app/resources/cloudflared.yaml"
+            yq "(.spec.egress[] | select(.toEndpoints[0].matchLabels[\"app.kubernetes.io/name\"] == \"reports\") | .toEndpoints[0].matchLabels) |= (.[\"io.kubernetes.pod.namespace\"] = \"$name\" | .[\"app.kubernetes.io/name\"] = \"$name\")" "$real/app/networkpolicy.yaml" >"$sd/app/networkpolicy.yaml"
             case "$(sed -n 's/^# share-files: //p' "$f")" in
-                required-false) sed -i.bak 's/required: true/required: false/' "$nsroot/$name-share/app/resources/cloudflared.yaml" ;;
-                extra-rule) yq -i '.ingress = [{"hostname": "x.example.test", "service": "http://x.x.svc.cluster.local:80"}] + .ingress' "$nsroot/$name-share/app/resources/cloudflared.yaml" ;;
-                policy-3000) yq -i '(.spec.egress[] | select(.toEndpoints[0].matchLabels["app.kubernetes.io/name"] != null) | .toPorts[0].ports) += [{"port": "3000", "protocol": "TCP"}]' "$nsroot/$name-share/app/networkpolicy.yaml" ;;
+                required-false) sed -i.bak 's/required: true/required: false/' "$sd/app/resources/cloudflared.yaml" ;;
+                extra-rule) yq -i '.ingress = [{"hostname": "x.example.test", "service": "http://x.x.svc.cluster.local:80"}] + .ingress' "$sd/app/resources/cloudflared.yaml" ;;
+                # A catch-all first document, which cloudflared would read; a second one.
+                routing-first-doc) { printf -- '---\ningress:\n  - service: http://%s-share.%s.svc.cluster.local:3001\n---\n' "$name" "$name"; cat "$sd/app/resources/cloudflared.yaml"; } >"$sd/app/resources/new" && mv "$sd/app/resources/new" "$sd/app/resources/cloudflared.yaml" ;;
+                routing-second-doc) printf -- '---\ningress:\n  - service: http://%s.%s.svc.cluster.local:3000\n' "$name" "$name" >>"$sd/app/resources/cloudflared.yaml" ;;
+                # configMapGenerator re-pointed at another file; the volume at another ConfigMap.
+                routing-other-file)
+                    printf -- 'tunnel: x\ningress:\n  - service: http://%s-share.%s.svc.cluster.local:3001\n' "$name" "$name" >"$sd/app/resources/other.yaml"
+                    yq -i '.configMapGenerator[0].files = ["config.yaml=./resources/other.yaml"]' "$sd/app/kustomization.yaml" ;;
+                config-volume) yq -i '(.spec.template.spec.volumes[] | select(.name == "config") | .configMap.name) = "other-config"' "$sd/app/cloudflared-deployment.yaml" ;;
+                args-url) yq -i ".spec.template.spec.containers[0].args += [\"--url\", \"http://$name.$name.svc.cluster.local:3000\"]" "$sd/app/cloudflared-deployment.yaml" ;;
+                args-config) yq -i '(.spec.template.spec.containers[0].args[] | select(. == "/etc/cloudflared/config.yaml")) = "/tmp/config.yaml"' "$sd/app/cloudflared-deployment.yaml" ;;
+                env-url) yq -i ".spec.template.spec.containers[0].env = [{\"name\": \"TUNNEL_URL\", \"value\": \"http://$name.$name.svc.cluster.local:3000\"}]" "$sd/app/cloudflared-deployment.yaml" ;;
+                sidecar) yq -i '.spec.template.spec.containers += [{"name": "side", "image": "busybox"}]' "$sd/app/cloudflared-deployment.yaml" ;;
+                extra-pod)
+                    printf -- '---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: extra\n  labels:\n    app.kubernetes.io/name: cloudflared\nspec:\n  containers:\n    - name: c\n      image: busybox\n' >"$sd/app/extra.yaml"
+                    yq -i '.resources += ["./extra.yaml"]' "$sd/app/kustomization.yaml" ;;
+                policy-3000) yq -i '(.spec.egress[] | select(.toEndpoints[0].matchLabels["app.kubernetes.io/name"] != null) | .toPorts[0].ports) += [{"port": "3000", "protocol": "TCP"}]' "$sd/app/networkpolicy.yaml" ;;
+                policy-specs) yq -i ".specs = [{\"endpointSelector\": {}, \"egress\": [{\"toEndpoints\": [{\"matchLabels\": {\"io.kubernetes.pod.namespace\": \"$name\"}}], \"toPorts\": [{\"ports\": [{\"port\": \"3000\", \"protocol\": \"TCP\"}]}]}]}]" "$sd/app/networkpolicy.yaml" ;;
+                policy-second-doc) printf -- '---\napiVersion: cilium.io/v2\nkind: CiliumNetworkPolicy\nmetadata:\n  name: cloudflared-more\nspec:\n  endpointSelector: {}\n  egress:\n    - toEntities: [world]\n' >>"$sd/app/networkpolicy.yaml" ;;
+                ks-patches) yq -i '.spec.patches = [{"target": {"kind": "Deployment", "name": "cloudflared"}, "patch": "- op: add\n  path: /spec/template/spec/containers/0/args/-\n  value: --hello-world\n"}]' "$sd/ks.yaml" ;;
+                ks-substitute) yq -i '.spec.postBuild.substitute = {"SECRET_SHARE_ACCESS_AUD": "other-aud"}' "$sd/ks.yaml" ;;
+            esac
+        fi
+        # A sample with the share-admin part gets its own copy of the service's
+        # folder share-admin/, as <name>-share-admin/, whose policy admits this
+        # sample's app, with a stand-in token Secret that holds no credential,
+        # or with `# share-admin-files: <case>` a broken copy.
+        if yq -e '.spec.defaultValues.parts[] | select(. == "share-admin")' "$f" >/dev/null 2>&1; then
+            ad="$nsroot/$name-share-admin"
+            real="kubernetes/apps/personal-apps/share-admin"
+            mkdir -p "$ad/app"
+            cp "$real/kustomization.yaml" "$real/namespace.yaml" "$real/ks.yaml" "$ad/"
+            cp "$real/app/kustomization.yaml" "$real/app/deployment.yaml" "$real/app/service.yaml" "$ad/app/"
+            printf -- '---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: share-admin-credentials\ntype: Opaque\nstringData:\n  cloudflare-token: stand-in\n' >"$ad/app/credentials.sops.yaml"
+            yq "(.spec.ingress[] | select(.fromEndpoints[0].matchLabels[\"app.kubernetes.io/name\"] == \"reports\") | .fromEndpoints[0].matchLabels) |= (.[\"io.kubernetes.pod.namespace\"] = \"$name\" | .[\"app.kubernetes.io/name\"] = \"$name\")" "$real/app/networkpolicy.yaml" >"$ad/app/networkpolicy.yaml"
+            yq -i ".resources += [\"./$name-share-admin\"]" "$nsroot/kustomization.yaml"
+            case "$(sed -n 's/^# share-admin-files: //p' "$f")" in
+                deny-missing) yq -i 'del(.spec.ingressDeny)' "$ad/app/networkpolicy.yaml" ;;
+                ingress-any-namespace) yq -i '.spec.ingress[0].fromEndpoints = [{"matchExpressions": [{"key": "io.kubernetes.pod.namespace", "operator": "Exists"}]}]' "$ad/app/networkpolicy.yaml" ;;
+                egress-world) yq -i '.spec.egress += [{"toEntities": ["world"]}]' "$ad/app/networkpolicy.yaml" ;;
+                policy-specs) yq -i '.specs = [{"endpointSelector": {}, "ingress": [{"fromEntities": ["cluster"], "toPorts": [{"ports": [{"port": "8080", "protocol": "TCP"}]}]}]}]' "$ad/app/networkpolicy.yaml" ;;
+                policy-second-doc) printf -- '---\napiVersion: cilium.io/v2\nkind: CiliumNetworkPolicy\nmetadata:\n  name: share-admin-more\nspec:\n  endpointSelector: {}\n  ingress:\n    - fromEntities: [cluster]\n' >>"$ad/app/networkpolicy.yaml" ;;
+                ks-patches) yq -i '.spec.patches = [{"target": {"kind": "CiliumNetworkPolicy", "name": "share-admin"}, "patch": "- op: remove\n  path: /spec/ingressDeny\n"}]' "$ad/ks.yaml" ;;
             esac
         fi
         # `# mapkit-secret: <case>` gives the sample's folder a mapkit.sops.yaml
