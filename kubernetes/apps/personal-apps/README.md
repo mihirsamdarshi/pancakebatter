@@ -1098,14 +1098,16 @@ checks:
 - that only the worker's Deployment carries the label the app admits;
 - that the folder builds to its restricted Namespace and the Flux Kustomization
   `deal-watch-integrations` unchanged;
-- that nothing outside the folder places objects in its namespace.
+- that nothing outside the folder places objects in its namespace;
+- that the worker folder never exists without the part, so removing the part
+  cannot switch these checks off.
 
 A change to the worker's policy needs the same change in the validator's
 design (`integrations_build_jq`).
 
-To retire, do both in the same change: remove `integrations` from the parts of
-the deal-watch entry, and give the worker another way to reach the app. Do not
-give it the gateway back.
+To retire it, remove `integrations` from the deal-watch entry and the worker
+folder in the same change. The validator refuses the folder without the part.
+Never give the worker the gateway back.
 
 ### Creating ghcr-apps-read
 

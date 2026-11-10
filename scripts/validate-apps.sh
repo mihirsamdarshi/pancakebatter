@@ -85,7 +85,8 @@
 #      Kustomizations of the platform folder and of the folders in 8, as built
 #      through every folder above them, still apply those folders as checked,
 #      no other one applies them, and nothing else is placed in the share,
-#      share-admin and integrations namespaces.
+#      share-admin and integrations namespaces; the worker folder
+#      deal-watch/integrations/ never exists without the integrations part.
 #
 # Every YAML file a check reads field by field must hold exactly one document:
 # yq answers for each document, `jq -e` takes its status from the last one,
@@ -1489,6 +1490,11 @@ check_flux_tree() {
             checked="$(jq -c --arg n "$name" --argjson pb "$pb" '. + [{ks: "\($n)-integrations", path: "./kubernetes/apps/personal-apps/\($n)/integrations/app", ns: "\($n)-integrations", postbuild: $pb, folder: "./kubernetes/apps/personal-apps/\($n)/integrations", ownns: true}]' <<<"$checked")"
         fi
     done
+    # The worker folder is checked only through the integrations part; it must never exist without it.
+    if [[ -d kubernetes/apps/personal-apps/deal-watch/integrations ]] \
+        && ! jq -e 'any(.[]; .ks == "deal-watch-integrations")' <<<"$checked" >/dev/null; then
+        die "kubernetes/apps/personal-apps/deal-watch/integrations exists, but the deal-watch entry has no integrations part: the worker reaches the app only through that part, never through the gateways"
+    fi
     if [[ "$sa" == true ]]; then
         checked="$(jq -c --argjson pb "$pb" '. + [{ks: "share-admin", path: "./kubernetes/apps/personal-apps/share-admin/app", ns: "share-admin", postbuild: $pb, folder: "./kubernetes/apps/personal-apps/share-admin", ownns: true}]' <<<"$checked")"
     fi

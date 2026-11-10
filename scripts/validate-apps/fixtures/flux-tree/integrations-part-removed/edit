@@ -1,0 +1,1 @@
+kubernetes/apps/flux-system/app-platform/apps/deal-watch.yaml .spec.defaultValues.parts -= ["integrations"]
