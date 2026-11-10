@@ -1,0 +1,24 @@
+---
+# expect: -integrations must be exactly
+# integrations-files: cluster-entity
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-integrations-worker-cluster-entity
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/integrations-worker-cluster-entity
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: integrations-worker-cluster-entity
+    parts: [pullsecret, internal-route, integrations]

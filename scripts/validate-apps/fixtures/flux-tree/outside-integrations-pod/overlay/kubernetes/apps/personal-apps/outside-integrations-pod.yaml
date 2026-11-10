@@ -1,0 +1,22 @@
+---
+# Rejected: a second pod labelled deal-watch-integrations in the worker's
+# namespace, from outside its folder. The integrations policy would admit it to
+# the Deal Watch app on 3000.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helper
+  namespace: deal-watch-integrations
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: deal-watch-integrations
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: deal-watch-integrations
+    spec:
+      containers:
+        - name: c
+          image: docker.io/library/busybox:latest
+          args: [wget, -qO-, http://deal-watch.deal-watch.svc.cluster.local/api/dashboard]

@@ -1,0 +1,1 @@
+kubernetes/apps/personal-apps/kustomization.yaml .resources += ["./outside-integrations-pod.yaml"]

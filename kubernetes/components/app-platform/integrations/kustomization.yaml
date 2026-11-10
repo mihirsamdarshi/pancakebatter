@@ -1,0 +1,19 @@
+---
+# `integrations`: lets the app's integration worker call the app directly, on
+# its Service, instead of through envoy-internal (the deal-watch entry; the
+# worker is kubernetes/apps/personal-apps/deal-watch/integrations/). Through
+# the gateway the worker, which fetches untrusted retail pages, could ask for
+# any internal host name; the direct path reaches the app pod only.
+#
+# Adds one thing: the CiliumNetworkPolicy ${APP}-integrations, a second policy
+# beside the namespace policy (the way share and share-admin add one): ingress
+# to the app pod on 3000/TCP from the pods
+# app.kubernetes.io/name=${APP}-integrations in the namespace
+# ${APP}-integrations, and nothing else. The worker's own policy (egress to the
+# app pod on 3000, never the gateways) is the other half; the validator checks
+# both, and that nothing outside the worker's folder places objects in its
+# namespace.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - ./ciliumnetworkpolicy.yaml

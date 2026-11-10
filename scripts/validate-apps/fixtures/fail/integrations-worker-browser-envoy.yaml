@@ -1,0 +1,24 @@
+---
+# expect: names the Envoy gateways
+# integrations-files: browser-envoy
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-integrations-worker-browser-envoy
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/integrations-worker-browser-envoy
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: integrations-worker-browser-envoy
+    parts: [pullsecret, internal-route, integrations]

@@ -50,7 +50,10 @@
 #      part too; its policy also denies 3001
 #      to the node and to every other pod of the namespace; with share-admin, the second
 #      policy <name>-share-admin (egress from the app pod to the share-admin
-#      pods on 8080/TCP only) and the fixed SHARE_ADMIN_URL;
+#      pods on 8080/TCP only) and the fixed SHARE_ADMIN_URL; with integrations,
+#      the second policy <name>-integrations (ingress to the app pod from the
+#      worker pods <name>-integrations of the namespace <name>-integrations on
+#      3000/TCP only);
 #   6. no credentials: no Secret reference in any pod spec, no service-account
 #      token, and gitleaks over the entries and every custom folder. The one
 #      exception is the mapkit part: the app's Deployment, container app, may
@@ -68,15 +71,22 @@
 #      share-admin/: it builds to its restricted Namespace and the Flux
 #      Kustomization that applies app/ unchanged, and app/ holds one policy
 #      that admits only the app pod on 8080 (and the node on the health port)
-#      and reaches only DNS and 443, and no pod on the host network;
+#      and reaches only DNS and 443, and no pod on the host network; with the
+#      integrations part, the worker's folder <name>/integrations/: it builds
+#      to its restricted Namespace and the Flux Kustomization that applies app/
+#      unchanged, and app/ holds exactly the worker's and the browser's
+#      policies as designed (the worker reaches the app pod on 3000), neither
+#      names the Envoy gateways, only the worker's Deployment carries the label
+#      the app admits, and no pod is on the host network;
 #   9. the flux-operator CLI version equals the operator chart tag; the
 #      PrometheusRule app-platform exists, names every entry's namespace and
 #      passes promtool check and its unit tests;
 #  10. what cluster-apps applies (`flux build ks cluster-apps`): the Flux
 #      Kustomizations of the platform folder and of the folders in 8, as built
 #      through every folder above them, still apply those folders as checked,
-#      no other one applies them, and nothing else is placed in the share and
-#      share-admin namespaces.
+#      no other one applies them, and nothing else is placed in the share,
+#      share-admin and integrations namespaces; the worker folder
+#      deal-watch/integrations/ never exists without the integrations part.
 #
 # Every YAML file a check reads field by field must hold exactly one document:
 # yq answers for each document, `jq -e` takes its status from the last one,
@@ -388,7 +398,7 @@ def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|
 | (if ($d.name | isstr) then $d.name else "" end) as $name
 | (if ($d.namespace | isstr) then $d.namespace else $name end) as $ns
 | (if ($d.parts | type) == "array" then $d.parts else ["pullsecret", "internal-route", "backup"] end) as $parts
-| ["pullsecret", "internal-route", "family-route", "family-route-legacy", "backup", "backup-sqlite", "job", "job-egress", "mapkit", "share", "share-admin"] as $known
+| ["pullsecret", "internal-route", "family-route", "family-route-legacy", "backup", "backup-sqlite", "job", "job-egress", "mapkit", "share", "share-admin", "integrations"] as $known
 | ["name", "namespace", "parts", "netpol", "netpolReason", "egress", "pin", "env", "path", "vars"] as $topkeys
 | ["CLAIM", "STORAGE", "STORAGE_CLASS", "HEALTH_PATH", "APP_UID", "APP_GID", "DATA_PATH", "CPU", "MEMORY", "MEMORY_LIMIT", "IMAGE", "PULL_SECRET", "HOST", "FAMILY_HOST", "TITLE", "DESCRIPTION", "ICON", "SQLITE_DBS", "VOLSYNC_SCHEDULE", "SQLITE_SCHEDULE", "JOB_SCHEDULE", "JOB_COMMAND", "JOB_READ_PATH", "JOB_WORK_PATH", "JOB_DEADLINE", "JOB_MEMORY_LIMIT", "JOB_EGRESS_CIDR", "SHARE_HOST", "GUEST_COLLECTIONS"] as $varkeys
 | ["APP", "IMAGE_DIGEST", "APP_NAMESPACE", "VOLSYNC_NAMESPACE", "VOLSYNC_CLAIM"] as $reserved
@@ -445,6 +455,11 @@ def qtybytes: tostring | capture("^(?<n>[0-9]+(\\.[0-9]+)?)(?<u>m|k|M|G|T|Ki|Mi|
     (if ($parts | index("share-admin")) != null then
        (if $name != "reports" and ($fx | not) then "the share-admin part is allowed only for the reports entry for now (the service's policy admits only that app)" else empty end),
        (if $d.netpol == false then "share-admin has no meaning with netpol: false (its policy opens egress to the share-admin pods)" else empty end)
+     else empty end),
+    # integrations: the app's integration worker (outside the platform) calls the app pod directly
+    (if ($parts | index("integrations")) != null then
+       (if $name != "deal-watch" and ($fx | not) then "the integrations part is allowed only for the deal-watch entry for now (the worker's folder deal-watch/integrations/ is the other half)" else empty end),
+       (if $d.netpol == false then "integrations has no meaning with netpol: false (its policy admits the worker to port 3000)" else empty end)
      else empty end),
     # netpol and egress
     (if ($d | has("netpol")) and ($d.netpol | type) != "boolean" then "netpol must be true or false" else empty end),
@@ -564,7 +579,8 @@ policy_jq="$cidr_jq
 $policy_jq"
 
 # A Flux Kustomization that applies a folder outside the platform (the share
-# part's cloudflared, the share-admin service) or the platform itself, as it
+# part's cloudflared, the share-admin service, the integration worker) or the
+# platform itself, as it
 # is built: it must apply that folder as the checks here build it. The one
 # name, path and target namespace, the Git source of this repo, the exact
 # postBuild ($postbuild: substitution only from cluster-secrets, or none), and
@@ -680,6 +696,12 @@ def expected_share_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/na
 def expected_share_admin_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name": $name}},
   egress: [{toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "share-admin", "app.kubernetes.io/name": "share-admin"}}],
             toPorts: [{ports: [{port: "8080", protocol: "TCP"}]}]}]};
+# integrations: a second policy for the app pod only, ingress from the worker
+# pods (both labels: the browser shares their namespace) on 3000/TCP and
+# nothing else (no egress, no other port).
+def expected_integrations_spec: {endpointSelector: {matchLabels: {"app.kubernetes.io/name": $name}},
+  ingress: [{fromEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "\($name)-integrations", "app.kubernetes.io/name": "\($name)-integrations"}}],
+             toPorts: [{ports: [{port: "3000", protocol: "TCP"}]}]}]};
 # The labels of every pod template, by workload (the kinds pods_jq checks).
 def podlabels:
   .[] | select(type == "object" and .kind != null)
@@ -692,21 +714,23 @@ def podlabels:
 | (if $jobegress then [$pols[] | select(.metadata.name == "\($name)-job")] else [] end) as $jobpols
 | [$pols[] | select(.metadata.name == "\($name)-share")] as $sharepols
 | [$pols[] | select(.metadata.name == "\($name)-share-admin")] as $sapols
+| [$pols[] | select(.metadata.name == "\($name)-integrations")] as $intpols
 | [.[] | select(type == "object" and .kind == "Service")] as $svcs
 | [.[] | select(type == "object" and .kind == "Deployment" and .metadata.name == $name) | .spec.template.spec.containers[] | select(.name == "app")][0] as $appc
-| (1 + (if $jobegress then 1 else 0 end) + (if $share then 1 else 0 end) + (if $shareadmin then 1 else 0 end)) as $npols
+| (1 + (if $jobegress then 1 else 0 end) + (if $share then 1 else 0 end) + (if $shareadmin then 1 else 0 end) + (if $integrations then 1 else 0 end)) as $npols
 | [.[] | select(type == "object" and .kind == "HTTPRoute")] as $routes
 | [.[] | select(type == "object" and .kind == "BackendTrafficPolicy")] as $btps
 | [
     # Network policy: the namespace policy, plus the job's own with job-egress.
     (if $netpol | not then
        (if ($pols | length) > 0 then "netpol: false must render no network policy" else empty end)
-     elif ($jobegress | not) and ($share | not) and ($shareadmin | not) and ($pols | length) != 1 then "expected exactly one CiliumNetworkPolicy, found \($pols | length)"
-     elif ($jobegress or $share or $shareadmin) and (($pols | length) != $npols or ($jobpols | length) != (if $jobegress then 1 else 0 end) or ($sharepols | length) != (if $share then 1 else 0 end) or ($sapols | length) != (if $shareadmin then 1 else 0 end)) then "with job-egress, share or share-admin, expected exactly \($npols) CiliumNetworkPolicies, \($name)\(if $jobegress then " and \($name)-job" else "" end)\(if $share then " and \($name)-share" else "" end)\(if $shareadmin then " and \($name)-share-admin" else "" end), found \($pols | length): \([$pols[] | .metadata.name] | join(", "))"
+     elif ($jobegress | not) and ($share | not) and ($shareadmin | not) and ($integrations | not) and ($pols | length) != 1 then "expected exactly one CiliumNetworkPolicy, found \($pols | length)"
+     elif ($jobegress or $share or $shareadmin or $integrations) and (($pols | length) != $npols or ($jobpols | length) != (if $jobegress then 1 else 0 end) or ($sharepols | length) != (if $share then 1 else 0 end) or ($sapols | length) != (if $shareadmin then 1 else 0 end) or ($intpols | length) != (if $integrations then 1 else 0 end)) then "with job-egress, share, share-admin or integrations, expected exactly \($npols) CiliumNetworkPolicies, \($name)\(if $jobegress then " and \($name)-job" else "" end)\(if $share then " and \($name)-share" else "" end)\(if $shareadmin then " and \($name)-share-admin" else "" end)\(if $integrations then " and \($name)-integrations" else "" end), found \($pols | length): \([$pols[] | .metadata.name] | join(", "))"
      elif ($jobegress | not) and ($sharepols | length) != (if $share then 1 else 0 end) then "a policy \($name)-share without the share part"
      elif ($shareadmin | not) and ($sapols | length) != 0 then "a policy \($name)-share-admin without the share-admin part"
+     elif ($integrations | not) and ($intpols | length) != 0 then "a policy \($name)-integrations without the integrations part"
      else
-       ($pols - $jobpols - $sharepols - $sapols)[0] as $p
+       ($pols - $jobpols - $sharepols - $sapols - $intpols)[0] as $p
        | (if $p.kind != "CiliumNetworkPolicy" or $p.metadata.name != $name or $p.metadata.namespace != $ns then "the policy must be a CiliumNetworkPolicy named \($name) in \($ns)" else empty end),
          (if ($p | rules | length) == 0 then "the policy \($name) has no spec" else empty end),
          ($p | rules[] | .at as $at | .r as $r
@@ -738,6 +762,11 @@ def podlabels:
             $sapols[0] as $a
             | (if $a.kind != "CiliumNetworkPolicy" or $a.metadata.namespace != $ns then "the share-admin policy must be a CiliumNetworkPolicy named \($name)-share-admin in \($ns)" else empty end),
               (if ($a | allare(expected_share_admin_spec) | not) then "the share-admin policy \($name)-share-admin must be exactly: endpointSelector app.kubernetes.io/name=\($name), egress to the pods app.kubernetes.io/name=share-admin in the namespace share-admin on 8080/TCP only, and no ingress, in spec and in every entry of specs" else empty end)
+          else empty end),
+         (if $integrations then
+            $intpols[0] as $w
+            | (if $w.kind != "CiliumNetworkPolicy" or $w.metadata.namespace != $ns then "the integrations policy must be a CiliumNetworkPolicy named \($name)-integrations in \($ns)" else empty end),
+              (if ($w | allare(expected_integrations_spec) | not) then "the integrations policy \($name)-integrations must be exactly: endpointSelector app.kubernetes.io/name=\($name), ingress from the pods app.kubernetes.io/name=\($name)-integrations in the namespace \($name)-integrations on 3000/TCP only, and no egress, in spec and in every entry of specs" else empty end)
           else empty end),
          ($pols[] | select(tojson | test("\"world\"|kube-apiserver|toEntities|toFQDNs")) | "the policy \(.metadata.name) has a world, kube-apiserver, toEntities or toFQDNs rule")
      end),
@@ -877,7 +906,8 @@ check_mapkit_secret() {
     echo "    mapkit: $f is an encrypted Secret $name-mapkit with MAPKIT_TOKEN, for the repo's age recipient"
 }
 
-# The folder above a checked app/ folder (<name>-share/, share-admin/), as it
+# The folder above a checked app/ folder (<name>-share/, share-admin/,
+# <name>/integrations/), as it
 # builds, slurped: that is what cluster-apps applies from it. Exactly two
 # objects: the Namespace $ns, restricted by Pod Security (enforce, audit and
 # warn), and the Flux Kustomization $ksname that applies app/ as checked
@@ -1074,9 +1104,104 @@ $share_admin_build_jq")"
     echo "    share-admin: $dir/app admits only the pods $name of $ns on 8080 (the node only on the health port), reaches only DNS and 443 to public ranges, and its pods stay off the host network"
 }
 
+# The integrations part's other half: the worker's folder (outside the
+# platform), slurped from what its app/ folder builds to. The worker fetches
+# untrusted retail pages and its headless browser renders them, so neither may
+# reach the Envoy gateways: through envoy-internal a pod can ask for any
+# internal host name (the hypervisor and NAS logins among them). The checks:
+# - no policy names the network namespace or an Envoy Gateway label
+#   (gateway.envoyproxy.io/...), in matchLabels or matchExpressions, in spec or
+#   any entry of specs (its own message, so this regression reads clearly);
+# - exactly two network policies, both CiliumNetworkPolicies, equal to the
+#   design: the worker's ($name-integrations: the kubelet probe in; out to the
+#   browser on 3000, the eBay receiver on 3001, cluster DNS, the app pod
+#   app.kubernetes.io/name=$name in $ns on 3000, and 443/TCP to 0.0.0.0/0
+#   minus the private and special ranges) and the browser's ($name-browser:
+#   the worker and the kubelet probe in on 3000; out to cluster DNS and 443
+#   and 80/TCP to the same public range). The except lists are compared sorted;
+# - only the Deployment $name-integrations carries the pod label
+#   app.kubernetes.io/name=$name-integrations, which the app admits on 3000;
+# - no pod uses the host's network, PID or IPC namespace or a hostPort.
+# Secret values are never read.
+read -r -d '' integrations_build_jq <<'JQ' || true
+def podtmpls: .[] | select(type == "object")
+  | if .kind == "Pod" then {id: "Pod/\(.metadata.name)", meta: .metadata, spec: .spec}
+    elif (.kind | IN("Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job")) then {id: "\(.kind)/\(.metadata.name)", meta: .spec.template.metadata, spec: .spec.template.spec}
+    elif .kind == "CronJob" then {id: "CronJob/\(.metadata.name)", meta: .spec.jobTemplate.spec.template.metadata, spec: .spec.jobTemplate.spec.template.spec}
+    else empty end;
+def tcp($p): {port: $p, protocol: "TCP"};
+def dnsrule: {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "kube-system", "k8s-app": "kube-dns"}}], toPorts: [{ports: [{port: "53", protocol: "UDP"}, tcp("53")]}]};
+def publicexcept: ["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4"] | sort;
+def public($ports): {toCIDRSet: [{cidr: "0.0.0.0/0", except: publicexcept}], toPorts: [{ports: $ports}]};
+# The except lists sorted, so only their content is compared.
+def sortexcept: if type == "object" and (.egress | type) == "array"
+  then .egress |= map(if type == "object" and (.toCIDRSet | type) == "array" then .toCIDRSet |= map(if type == "object" and (.except | type) == "array" then .except |= sort else . end) else . end)
+  else . end;
+def workerrule: {
+  endpointSelector: {matchLabels: {"app.kubernetes.io/name": "\($name)-integrations"}},
+  ingress: [{fromEntities: ["host"], toPorts: [{ports: [tcp("3000")]}]}],
+  egress: [
+    {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "\($name)-integrations", "app.kubernetes.io/name": "\($name)-browser"}}], toPorts: [{ports: [tcp("3000")]}]},
+    {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": "\($name)-ebay", "app.kubernetes.io/name": "ebay-receiver"}}], toPorts: [{ports: [tcp("3001")]}]},
+    dnsrule,
+    {toEndpoints: [{matchLabels: {"io.kubernetes.pod.namespace": $ns, "app.kubernetes.io/name": $name}}], toPorts: [{ports: [tcp("3000")]}]},
+    public([tcp("443")])]};
+def browserrule: {
+  endpointSelector: {matchLabels: {"app.kubernetes.io/name": "\($name)-browser"}},
+  ingress: [{fromEndpoints: [{matchLabels: {"app.kubernetes.io/name": "\($name)-integrations"}}], toPorts: [{ports: [tcp("3000")]}]},
+            {fromEntities: ["host"], toPorts: [{ports: [tcp("3000")]}]}],
+  egress: [dnsrule, public([tcp("443"), tcp("80")])]};
+# A selector that names the gateways' namespace or an Envoy Gateway label: a
+# matchLabels key gateway.envoyproxy.io/..., the namespace label (also with a
+# Cilium source prefix such as k8s:) equal to network, or a matchExpressions
+# entry on either key.
+def gatewayish: [.. | objects
+  | (to_entries[] | select((.key | test("gateway\\.envoyproxy\\.io/"))
+                            or ((.key | test("(^|:)io\\.kubernetes\\.pod\\.namespace$")) and .value == "network"))),
+    select((.key | type) == "string"
+           and ((.key | test("gateway\\.envoyproxy\\.io/"))
+                or ((.key | test("(^|:)io\\.kubernetes\\.pod\\.namespace$")) and ((.values | type) == "array") and ((.values | index("network")) != null))))]
+  | length > 0;
+[.[] | select(type == "object")] as $all
+| [$all[] | select(.kind | IN("CiliumNetworkPolicy", "CiliumClusterwideNetworkPolicy", "NetworkPolicy"))] as $pols
+| [$pols[] | select(.kind == "CiliumNetworkPolicy" and .apiVersion == "cilium.io/v2" and .metadata.name == "\($name)-integrations")] as $wp
+| [$pols[] | select(.kind == "CiliumNetworkPolicy" and .apiVersion == "cilium.io/v2" and .metadata.name == "\($name)-browser")] as $bp
+| ([$pols[] | select(rules | any(.[]; .r | gatewayish)) | "\(.kind)/\(.metadata.name)"]
+   | if length > 0 then "\(join(", ")) names the Envoy gateways (the namespace network or a gateway.envoyproxy.io/ label): the worker and the browser must never reach envoy-internal, where they could ask for any internal host name; the worker calls the app at http://\($name).\($ns).svc.cluster.local" else empty end),
+  (if ($pols | length) != 2 or ($wp | length) != 1 or ($bp | length) != 1 then
+     "it must build to exactly two network policies, the CiliumNetworkPolicies \($name)-integrations and \($name)-browser; found: \([$pols[] | "\(.kind)/\(.metadata.name)"] | join(", "))"
+   else
+     (if ($wp[0] | allpass(sortexcept == workerrule) | not) then
+        "the policy \($name)-integrations must be exactly: endpointSelector app.kubernetes.io/name=\($name)-integrations; ingress only the kubelet probe on 3000/TCP; egress only the browser pods (\($name)-browser) on 3000/TCP, the pods ebay-receiver in \($name)-ebay on 3001/TCP, cluster DNS, the app pods app.kubernetes.io/name=\($name) in the namespace \($ns) on 3000/TCP, and 443/TCP to 0.0.0.0/0 except \(publicexcept | join(", ")); in this order, in spec and in every entry of specs" else empty end),
+     (if ($bp[0] | allpass(sortexcept == browserrule) | not) then
+        "the policy \($name)-browser must be exactly: endpointSelector app.kubernetes.io/name=\($name)-browser; ingress only the worker pods (\($name)-integrations) and the kubelet probe on 3000/TCP; egress only cluster DNS and 443 and 80/TCP to 0.0.0.0/0 except \(publicexcept | join(", ")); in spec and in every entry of specs" else empty end)
+   end),
+  ([$all | podtmpls | select((.meta.labels // {})["app.kubernetes.io/name"] == "\($name)-integrations") | .id]
+   | if . != ["Deployment/\($name)-integrations"] then "only the Deployment \($name)-integrations may carry the pod label app.kubernetes.io/name=\($name)-integrations (the app admits that label on 3000); found: \(if length == 0 then "none" else join(", ") end)" else empty end),
+  ([$all | podtmpls | .spec | select(.hostNetwork == true or .hostPID == true or .hostIPC == true
+      or ([(.containers // [])[], (.initContainers // [])[] | (.ports // [])[] | select(has("hostPort"))] | length) > 0)]
+   | if length > 0 then "its pods must not use the host network, PID or IPC namespace or a hostPort (a host-network pod is outside its policy)" else empty end)
+JQ
+
+# The integrations part's other half. $1 is the worker's folder
+# <name>/integrations/ under the Namespace folders (in the self-test, a copy per
+# sample): it builds to its Namespace and the Flux Kustomization that applies
+# app/ unchanged (parent_jq), and app/ builds to what integrations_build_jq
+# describes.
+check_integrations_files() {
+    local dir="$1" name="$2" ns="$3" errs
+    check_parent_folder "$dir" "$name-integrations" "$name-integrations" "./kubernetes/apps/personal-apps/$name/integrations/app"
+    kustomize build "$dir/app" --load-restrictor=LoadRestrictionsNone >"$tmp/integrations-build.yaml" 2>"$tmp/integrations-build.err" \
+        || fail "kustomize build $dir/app failed: $(cat "$tmp/integrations-build.err")"
+    errs="$(yq -o=json -N '.' "$tmp/integrations-build.yaml" | jq -s -r --arg name "$name" --arg ns "$ns" "$policy_jq
+$integrations_build_jq")"
+    [[ -z "$errs" ]] || fail "integrations: $dir/app: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
+    echo "    integrations: $dir/app reaches the app pods $name of $ns on 3000 and never the Envoy gateways, its two policies are the design, and only the worker carries the label the app admits"
+}
+
 validate_entry() {
     local file="$1" stem fx=false errs name ns path parts_json pull_json host famhost netpol egress
-    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot mapkit listed other share sharehost guestcols shareadmin sadir
+    local jobegress jobcidr sub_ok count secret_pull n nsdir nsroot mapkit listed other share sharehost guestcols shareadmin sadir integrations intdir
     stem="$(basename "$file" .yaml)"
     entry_label="$stem"
     case "$file" in "$fixtures_dir"/*) fx=true ;; esac
@@ -1107,6 +1232,7 @@ $entry_jq" "$tmp/entry.json")"
     jobcidr="$(yq '.spec.defaultValues.vars.JOB_EGRESS_CIDR // ""' "$file")"
     share="$(echo "$parts_json" | jq 'index("share") != null')"
     shareadmin="$(echo "$parts_json" | jq 'index("share-admin") != null')"
+    integrations="$(echo "$parts_json" | jq 'index("integrations") != null')"
     sharehost="$(yq '.spec.defaultValues.vars.SHARE_HOST // ""' "$file")"
     guestcols="$(yq '.spec.defaultValues.vars.GUEST_COLLECTIONS // ""' "$file")"
     pull_json="$(yq -o=json -I=0 '["apps-ghcr", (.spec.defaultValues.vars.PULL_SECRET // "apps-ghcr")]' "$file")"
@@ -1153,6 +1279,18 @@ $entry_jq" "$tmp/entry.json")"
         yq -e ".resources[] | select(. == \"./$(basename "$sadir")\")" "$nsroot/kustomization.yaml" >/dev/null 2>&1 \
             || fail "$nsroot/kustomization.yaml does not list ./$(basename "$sadir") (the share-admin service)"
         check_share_admin_files "$sadir" "$name" "$ns"
+    fi
+    # 8d. The integration worker lives outside the platform, in the folder
+    # <name>/integrations/ (Namespace <name>-integrations): its policy is the
+    # other half of the app's ingress from it, and must never reach the
+    # gateways. The self-test makes the folder under each sample's own.
+    if [[ "$integrations" == true ]]; then
+        intdir="$nsroot/$name/integrations"
+        [[ -f "$intdir/kustomization.yaml" ]] \
+            || fail "the integrations part needs the folder $intdir/ (the worker in the Namespace $name-integrations)"
+        yq -e ".resources[] | select(. == \"./$name/integrations\")" "$nsroot/kustomization.yaml" >/dev/null 2>&1 \
+            || fail "$nsroot/kustomization.yaml does not list ./$name/integrations (the integration worker)"
+        check_integrations_files "$intdir" "$name" "$ns"
     fi
     # 8a. The MapKit Secret, with the mapkit part only.
     mapkit="$(echo "$parts_json" | jq 'index("mapkit") != null')"
@@ -1266,7 +1404,7 @@ $entry_jq" "$tmp/entry.json")"
     errs="$(jq -r --arg ns "$ns" --arg name "$name" --argjson netpol "$netpol" --arg egress "$egress" \
         --argjson parts "$parts_json" --arg host "$host" --arg famhost "$famhost" \
         --argjson jobegress "$jobegress" --arg jobcidr "$jobcidr" \
-        --argjson share "$share" --argjson shareadmin "$shareadmin" --arg sharehost "$sharehost" --arg guestcols "$guestcols" --arg domain "$fake_domain" \
+        --argjson share "$share" --argjson shareadmin "$shareadmin" --argjson integrations "$integrations" --arg sharehost "$sharehost" --arg guestcols "$guestcols" --arg domain "$fake_domain" \
         --arg shareaud "$fake_share_aud" --arg shareteam "$fake_share_team" \
         --arg local "$fake_local" --arg family "$fake_family" "$policy_jq
 $netpol_jq" "$tmp/build.json")"
@@ -1302,8 +1440,9 @@ check_share_secrets() {
 
 # --- What cluster-apps applies ------------------------------------------------
 
-# The checks above read the platform folder and, with the share and share-admin
-# parts, the folders <name>-share/ and share-admin/. Flux applies them through
+# The checks above read the platform folder and, with the share, share-admin
+# and integrations parts, the folders <name>-share/, share-admin/ and
+# <name>/integrations/. Flux applies them through
 # the Flux Kustomization cluster-apps (kubernetes/flux/cluster/ks.yaml), which
 # builds kubernetes/apps through every kustomization.yaml on the way, and adds
 # its defaults patch to each child. A patch, component or extra file in any
@@ -1313,7 +1452,8 @@ check_share_secrets() {
 # - exactly one Flux Kustomization of its name, passing fluxks as built;
 # - no other Flux Kustomization whose path holds the folder or lies inside
 #   it, or (for the folders with their own namespace) that targets it;
-# - nothing else placed in that namespace (<name>-share, share-admin).
+# - nothing else placed in that namespace (<name>-share, share-admin,
+#   <name>-integrations).
 # Not covered: an object that a folder further down (applied by another Flux
 # Kustomization without a targetNamespace) places in those namespaces with an
 # explicit metadata.namespace.
@@ -1346,7 +1486,15 @@ check_flux_tree() {
             checked="$(jq -c --arg n "$name" --argjson pb "$pb" '. + [{ks: "\($n)-share-tunnel", path: "./kubernetes/apps/personal-apps/\($n)-share/app", ns: "\($n)-share", postbuild: $pb, folder: "./kubernetes/apps/personal-apps/\($n)-share", ownns: true}]' <<<"$checked")"
         fi
         if yq -e '.spec.defaultValues.parts[] | select(. == "share-admin")' "$f" >/dev/null 2>&1; then sa=true; fi
+        if yq -e '.spec.defaultValues.parts[] | select(. == "integrations")' "$f" >/dev/null 2>&1; then
+            checked="$(jq -c --arg n "$name" --argjson pb "$pb" '. + [{ks: "\($n)-integrations", path: "./kubernetes/apps/personal-apps/\($n)/integrations/app", ns: "\($n)-integrations", postbuild: $pb, folder: "./kubernetes/apps/personal-apps/\($n)/integrations", ownns: true}]' <<<"$checked")"
+        fi
     done
+    # The worker folder is checked only through the integrations part; it must never exist without it.
+    if [[ -d kubernetes/apps/personal-apps/deal-watch/integrations ]] \
+        && ! jq -e 'any(.[]; .ks == "deal-watch-integrations")' <<<"$checked" >/dev/null; then
+        die "kubernetes/apps/personal-apps/deal-watch/integrations exists, but the deal-watch entry has no integrations part: the worker reaches the app only through that part, never through the gateways"
+    fi
     if [[ "$sa" == true ]]; then
         checked="$(jq -c --argjson pb "$pb" '. + [{ks: "share-admin", path: "./kubernetes/apps/personal-apps/share-admin/app", ns: "share-admin", postbuild: $pb, folder: "./kubernetes/apps/personal-apps/share-admin", ownns: true}]' <<<"$checked")"
     fi
@@ -1492,7 +1640,7 @@ write_mapkit_standin() {
 }
 
 run_self_test() {
-    local f expect out rc passed=0 failed=0 nsroot="$tmp/fixture-ns" c root name mapkit_case sd ad file expr
+    local f expect out rc passed=0 failed=0 nsroot="$tmp/fixture-ns" c root name mapkit_case sd ad file expr wd gw
     # An entry lives in the namespace of its own name, so each sample gets a
     # Namespace folder of that name under a temporary root (a sample marked
     # `# no-namespace-folder` gets none).
@@ -1607,6 +1755,50 @@ run_self_test() {
                 lan-cidr) yq -i '(.spec.egress[] | select(.toPorts[0].ports[0].port == "443") | .toCIDRSet) += [{"cidr": "192.160.0.0/12"}]' "$ad/app/networkpolicy.yaml" ;;
                 "") ;;
                 *) die "$f: unknown share-admin-files case" ;;
+            esac
+        fi
+        # A sample with the integrations part gets the worker's folder inside its
+        # Namespace folder, <name>/integrations/: the real deal-watch/integrations/
+        # for this sample's names, with stand-in Secrets that hold no credential
+        # (only the real files' names are read), or with
+        # `# integrations-files: <case>` a broken copy. `# no-integrations-folder`
+        # gives it none.
+        if yq -e '.spec.defaultValues.parts[] | select(. == "integrations")' "$f" >/dev/null 2>&1 && ! grep -q '^# no-integrations-folder' "$f"; then
+            wd="$nsroot/$name/integrations"
+            real="kubernetes/apps/personal-apps/deal-watch/integrations"
+            mkdir -p "$wd/app"
+            for file in kustomization.yaml namespace.yaml ks.yaml app/kustomization.yaml app/deployment.yaml app/networkpolicy.yaml \
+                app/browser-deployment.yaml app/browser-service.yaml app/browser-networkpolicy.yaml; do
+                sed "s#deal-watch#$name#g" "$real/$file" >"$wd/$file"
+            done
+            for file in "$real"/app/*.sops.yaml; do
+                printf -- '---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\ntype: Opaque\nstringData:\n  stand-in: stand-in\n' \
+                    "$(yq '.metadata.name' "$file" | sed "s#deal-watch#$name#g")" >"$wd/app/$(basename "$file")"
+            done
+            yq -i ".resources += [\"./$name/integrations\"]" "$nsroot/kustomization.yaml"
+            gw='{"toEndpoints": [{"matchLabels": {"io.kubernetes.pod.namespace": "network", "gateway.envoyproxy.io/owning-gateway-namespace": "network", "gateway.envoyproxy.io/owning-gateway-name": "envoy-internal"}}], "toPorts": [{"ports": [{"port": "10443", "protocol": "TCP"}]}]}'
+            case "$(sed -n 's/^# integrations-files: //p' "$f")" in
+                # The regression the part exists to stop: the gateway rule back,
+                # by labels, by a namespace expression, under specs, on the browser.
+                envoy-egress) yq -i ".spec.egress += [$gw]" "$wd/app/networkpolicy.yaml" ;;
+                envoy-expression) yq -i '.spec.egress += [{"toEndpoints": [{"matchExpressions": [{"key": "io.kubernetes.pod.namespace", "operator": "In", "values": ["network"]}]}]}]' "$wd/app/networkpolicy.yaml" ;;
+                envoy-specs) yq -i ".specs = [{\"endpointSelector\": {\"matchLabels\": {\"app.kubernetes.io/name\": \"$name-integrations\"}}, \"egress\": [$gw]}]" "$wd/app/networkpolicy.yaml" ;;
+                browser-envoy) yq -i ".spec.egress += [$gw]" "$wd/app/browser-networkpolicy.yaml" ;;
+                # Other widening or a missing app rule.
+                app-rule-missing) yq -i "del(.spec.egress[] | select(.toEndpoints[0].matchLabels[\"app.kubernetes.io/name\"] == \"$name\"))" "$wd/app/networkpolicy.yaml" ;;
+                cluster-entity) yq -i '.spec.egress += [{"toEntities": ["cluster"]}]' "$wd/app/networkpolicy.yaml" ;;
+                second-policy) printf -- '---\napiVersion: cilium.io/v2\nkind: CiliumNetworkPolicy\nmetadata:\n  name: more\nspec:\n  endpointSelector: {}\n  egress:\n    - toEndpoints:\n        - matchLabels:\n            io.kubernetes.pod.namespace: kube-system\n' >>"$wd/app/networkpolicy.yaml" ;;
+                # The browser pods given the worker's label, which the app admits.
+                browser-relabelled) yq -i ".spec.selector.matchLabels[\"app.kubernetes.io/name\"] = \"$name-integrations\" | .spec.template.metadata.labels[\"app.kubernetes.io/name\"] = \"$name-integrations\"" "$wd/app/browser-deployment.yaml" ;;
+                hostnetwork) yq -i '.spec.template.spec.hostNetwork = true' "$wd/app/deployment.yaml" ;;
+                ks-patches) yq -i ".spec.patches = [{\"target\": {\"kind\": \"CiliumNetworkPolicy\", \"name\": \"$name-integrations\"}, \"patch\": \"- op: add\\n  path: /spec/egress/-\\n  value: {toEntities: [cluster]}\\n\"}]" "$wd/ks.yaml" ;;
+                namespace-privileged) yq -i '.metadata.labels["pod-security.kubernetes.io/enforce"] = "privileged"' "$wd/namespace.yaml" ;;
+                # A second policy listed in the folder above app/.
+                parent-policy)
+                    printf -- '---\napiVersion: cilium.io/v2\nkind: CiliumNetworkPolicy\nmetadata:\n  name: more\n  namespace: %s-integrations\nspec:\n  endpointSelector: {}\n  egress:\n    - toEntities: [cluster]\n' "$name" >"$wd/more.yaml"
+                    yq -i '.resources += ["./more.yaml"]' "$wd/kustomization.yaml" ;;
+                "") ;;
+                *) die "$f: unknown integrations-files case" ;;
             esac
         fi
         # `# mapkit-secret: <case>` gives the sample's folder a mapkit.sops.yaml

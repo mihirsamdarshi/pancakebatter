@@ -164,10 +164,12 @@ to read credentials, call Production, submit a declaration or activate a source.
 
 Required environment:
 
-- `APP_BASE_URL`: fixed internal HTTPS origin, e.g. `https://deal-watch.local.<zone>`, or
-  exactly `http://deal-watch.deal-watch.svc.cluster.local`, the app's Service inside the
-  cluster (default port, no path). No other plain-HTTP origin is accepted: another
-  Service, another port, a path or credentials stop the worker at startup.
+- `APP_BASE_URL`: exactly `http://deal-watch.deal-watch.svc.cluster.local`, the app's
+  Service inside the cluster (default port, no path), which the deployment uses; or a
+  fixed internal HTTPS origin, e.g. `https://deal-watch.local.<zone>`. Apart from the
+  localhost exception for smoke tests (below), no other plain-HTTP origin is accepted:
+  another Service, another port, a path, a query, a fragment or credentials stop the
+  worker at startup.
 - `WATCH_CONFIG_FILE`: mounted owner-approved JSON `{policyVersion, watches}`.
 - `EBAY_CREDENTIALS_FILE`: optional mounted eBay JSON, only for an approved eBay policy.
 - `DISCORD_WEBHOOK_FILE`: mounted fixed Discord webhook, when delivery is enabled.
@@ -264,6 +266,11 @@ token, read-only mounted credentials and tmpfs. It exposes no Service/route.
 Default-deny permits DNS, public HTTPS excluding private ranges, kubelet health
 probes, and the existing internal Envoy proxy's port 10443. The app retains its
 unchanged default-deny network policy and no outbound internet.
+
+This draft is kept as it was written and is not what runs. The deployed manifests
+are in `kubernetes/apps/personal-apps/deal-watch/integrations/`. There the worker
+calls the app's Service directly and has no rule toward the Envoy proxy, and the
+app admits the worker on port 3000 through the platform's `integrations` part.
 
 The template requires a real `DEAL_WATCH_WORKER_IMAGE` digest, the approved
 `DEAL_WATCH_POLICY_ID` fingerprint (rollout annotation), and the existing

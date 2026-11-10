@@ -27,7 +27,9 @@ app. There are two ways to run one:
   its own Namespace `deal-watch-integrations`. Its Flux Kustomization
   `deal-watch-integrations` stays in `flux-system` and is listed on its own in
   `personal-apps/kustomization.yaml`, so the dashboard's `namespace: deal-watch`
-  does not apply to it.
+  does not apply to it. It calls the dashboard directly on its Service, never
+  through `envoy-internal`; the deal-watch entry's `integrations` part admits it
+  (see "integrations").
 - **Claude API proxy** (`claude-proxy/`): holds the Anthropic API key and caps
   daily spend for platform apps that run a Claude agent (`egress:
   claude-proxy`). Its code is `integrations/claude-proxy/` in this repo. It
@@ -214,7 +216,11 @@ Cloudflare Access; needs `vars.SHARE_HOST` and `vars.GUEST_COLLECTIONS` and the
 folder `personal-apps/<name>-share/`; see "Guest sharing (the share part)") and
 `share-admin` (the `SHARE_ADMIN_URL` variable and a second policy that lets the
 app pod, and no other pod, reach the share-admin service on 8080/TCP; the
-reports entry only; see "share-admin").
+reports entry only; see "share-admin") and `integrations` (a second policy that
+admits the app's integration worker, and no other pod, to the app pod on
+3000/TCP, so the worker needs no route through `envoy-internal`; needs the
+folder `personal-apps/<name>/integrations/`; the deal-watch entry only; see
+"integrations").
 The `netpol` and `egress` keys add the `netpol` component and then
 `netpol-egress-internet` or `netpol-egress-claude-proxy` after the parts, so an
 explicit `parts: []` still gets the policy.
@@ -265,6 +271,9 @@ opens 3001 to the cloudflared pods of `<name>-share` and denies 3001 to the node
 and to every other pod of the app's namespace (see "Guest sharing"); `share-admin` lets the app
 pod send to the pods in the namespace `share-admin` on 8080/TCP, so the app does
 reach another namespace there, and nothing else in its namespace gets that.
+`integrations` opens 3000 on the app pod to the integration worker's pods
+(namespace `<name>-integrations`, label `app.kubernetes.io/name:
+<name>-integrations`), so that worker reaches the app without the gateway.
 
 Hubble is off in this cluster. To see drops, run `cilium-dbg monitor --type drop`
 in the node's Cilium agent pod. Do not widen a policy to fix a drop without a
@@ -1060,6 +1069,45 @@ To retire: remove `share-admin` from the parts of the reports entry, remove
 `./share-admin` from `personal-apps/kustomization.yaml` and the folder, remove
 `share-admin` from the `inputs` of `apps-pull`, delete the token in Cloudflare
 and delete the `share-admin` Namespace by hand (prune-disabled).
+
+### integrations
+
+The Deal Watch worker (`personal-apps/deal-watch/integrations/`, Namespace
+`deal-watch-integrations`) fetches untrusted retail pages, and its headless
+browser renders them. It calls the dashboard directly on its Service,
+`http://deal-watch.deal-watch.svc.cluster.local` (the worker accepts that exact
+plain-HTTP origin and no other). It used to go through `envoy-internal`, and
+through the gateway a pod can ask for any internal host name, the hypervisor
+and NAS logins among them. So neither the worker nor the browser may reach the
+gateways.
+
+The `integrations` part of the deal-watch entry adds the policy
+`deal-watch-integrations` in the namespace `deal-watch`: ingress to the app pod
+on 3000/TCP from the pods `app.kubernetes.io/name: deal-watch-integrations` in
+the namespace `deal-watch-integrations`, and nothing else. Both labels are
+pinned, because the browser shares that namespace.
+
+The worker's own policy is the other half: egress to the app pods on 3000/TCP,
+the browser, the eBay receiver, cluster DNS and public 443, and never the
+namespace `network` or an Envoy Gateway label. `scripts/validate-apps.sh`
+checks:
+
+- the part's policy exactly;
+- the worker folder's two policies exactly (the worker's and the browser's), and
+  separately that neither names the gateways;
+- that only the worker's Deployment carries the label the app admits;
+- that the folder builds to its restricted Namespace and the Flux Kustomization
+  `deal-watch-integrations` unchanged;
+- that nothing outside the folder places objects in its namespace;
+- that the worker folder never exists without the part, so removing the part
+  cannot switch these checks off.
+
+A change to the worker's policy needs the same change in the validator's
+design (`integrations_build_jq`).
+
+To retire it, remove `integrations` from the deal-watch entry and the worker
+folder in the same change. The validator refuses the folder without the part.
+Never give the worker the gateway back.
 
 ### Creating ghcr-apps-read
 

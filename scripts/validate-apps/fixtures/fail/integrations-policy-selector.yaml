@@ -1,0 +1,24 @@
+---
+# expect: the integrations policy
+# mutate: map(if .kind=="CiliumNetworkPolicy" and .metadata.name=="integrations-policy-selector-integrations" then .spec.ingress[0].fromEndpoints[0].matchLabels |= del(.["app.kubernetes.io/name"]) else . end)
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-integrations-policy-selector
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/integrations-policy-selector
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: integrations-policy-selector
+    parts: [pullsecret, internal-route, integrations]
