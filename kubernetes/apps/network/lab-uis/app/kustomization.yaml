@@ -1,9 +1,20 @@
 ---
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# One file per UI, plus one per pinned backend certificate. The BackendTLSPolicy
-# objects name the CA ConfigMaps directly, so they are plain ConfigMaps, not
-# generated ones (a generator's hash suffix would break that reference).
+# One file per UI, one per pinned backend certificate, and the TrueNAS relay.
+# The BackendTLSPolicy objects name the CA ConfigMaps directly, so those are
+# plain ConfigMaps, not generated ones (a generator's hash suffix would break
+# that reference).
 resources:
   - ./hobbes.yaml
   - ./hobbes-ca.yaml
+  - ./truenas.yaml
+  - ./truenas-ca.yaml
+  - ./truenas-relay.yaml
+  - ./truenas-relay-netpol.yaml
+configMapGenerator:
+  # The TrueNAS relay's HAProxy config. The hash suffix rolls the relay pod
+  # when the config changes (kustomize updates the Deployment's reference).
+  - name: truenas-relay-config
+    files:
+      - haproxy.cfg=./resources/truenas-relay.cfg

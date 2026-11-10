@@ -1,0 +1,123 @@
+---
+# truenas.${SECRET_DOMAIN_LOCAL}: the TrueNAS web UI over HTTPS, with the
+# backend certificate verified (truenas-ca.yaml). Envoy connects to the
+# one-replica TCP relay (truenas-relay.yaml), which forwards the bytes to the
+# TrueNAS VLAN 10 leg, 192.168.10.75:443. TLS runs end to end from Envoy to
+# TrueNAS; the relay only gives TrueNAS one stable client address.
+#
+# Why 192.168.10.75 and not 192.168.1.75: the relay's connections leave from a
+# node on VLAN 10 (Cilium masquerades pod traffic to the node address).
+# TrueNAS also has a leg on VLAN 10, so its reply to a request sent to
+# 192.168.1.75 would leave straight out of that leg and skip the router that
+# carried the request: an asymmetric path through a stateful firewall.
+# 192.168.10.75 keeps both directions on one segment. This needs the TrueNAS UI
+# to keep listening there: the storage-leg runbook in the owner's notes lists
+# an optional follow-up to narrow the NFS allowlists to .21-.23 and bind the UI
+# and SMB to 192.168.1.75. If the UI is bound to 192.168.1.75, this route stops
+# working. Change the relay first.
+#
+# Who can reach it: everyone who can reach envoy-internal could already reach
+# the TrueNAS UI directly. Keep it that way: a workload whose policy blocks
+# the LAN must not be allowed egress to the envoy-internal pods, because
+# through Envoy it reaches this login page (review F3;
+# deal-watch-integrations lost that rule for this reason). The same goes for
+# the relay pod, a raw TCP path to 192.168.10.75:443: such a workload must
+# not be allowed egress to it by its labels, by the network namespace or by
+# the cluster entity. A CIDR exception does not protect this path, because
+# Cilium CIDR rules never match pods.
+apiVersion: v1
+kind: Service
+metadata:
+  name: truenas
+spec:
+  # The relay pod. Envoy routes to its address on port `relay`, and the
+  # BackendTLSPolicy below applies to this Service.
+  selector:
+    app.kubernetes.io/name: truenas-relay
+  ports:
+    - name: https
+      protocol: TCP
+      # Forces HTTP/1.1 to this backend. With a BackendTLSPolicy, Envoy Gateway
+      # otherwise uses ALPN auto mode (h2,http/1.1); TrueNAS's nginx picks h2,
+      # and WebSocket upgrades over h2 fail (envoyproxy/gateway#9121). The relay
+      # passes the TLS handshake through, so TrueNAS's nginx is the peer here.
+      appProtocol: kubernetes.io/wss
+      port: 443
+      targetPort: relay
+---
+# Envoy connects with TLS, sends SNI `localhost` and accepts only a certificate
+# that chains to the pinned one in truenas-ca.yaml and has the DNS SAN
+# `localhost` (the TrueNAS self-signed UI certificate has no other name). The
+# relay forwards the handshake unchanged, so this checks TrueNAS itself.
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: truenas
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: truenas
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: truenas-ui-ca
+    hostname: localhost
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: truenas
+spec:
+  parentRefs:
+    - name: envoy-internal
+      namespace: network
+      sectionName: https
+  hostnames:
+    - truenas.${SECRET_DOMAIN_LOCAL}
+  rules:
+    # Two named rules so the BackendTrafficPolicy below can switch retries off
+    # for writes only. GET and HEAD (which include the UI's /websocket and
+    # /api/current upgrades) are more specific than the catch-all, so they
+    # always land on `reads`.
+    - name: reads
+      matches:
+        - method: GET
+        - method: HEAD
+      backendRefs:
+        - name: truenas
+          port: 443
+    - name: writes
+      backendRefs:
+        - name: truenas
+          port: 443
+---
+# The gateway-wide policy (network/envoy-gateway) retries a request twice when
+# the upstream connection resets. A TrueNAS write (a file sent to /_upload, a
+# REST call) may already have been applied when that happens, so the `writes`
+# rule gets no retries. mergeType keeps everything else from the gateway-wide
+# policy (compression, keepalive, requestTimeout 0s) instead of replacing it.
+# Same pattern as personal-apps/quilt-planner/internal.
+#
+# With no retries, a write must not land on a connection nginx is closing.
+# TrueNAS's nginx closes an idle connection after 65 s (keepalive_timeout), so
+# Envoy drops its own at 60 s, first. Each Envoy connection is one relay
+# connection, and the relay's own idle limit is far longer, so nginx's 65 s is
+# still the one to stay under. This reaches only this rule's cluster.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: truenas-writes
+spec:
+  mergeType: StrategicMerge
+  retry:
+    numRetries: 0
+  timeout:
+    http:
+      connectionIdleTimeout: 60s
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: truenas
+      sectionName: writes

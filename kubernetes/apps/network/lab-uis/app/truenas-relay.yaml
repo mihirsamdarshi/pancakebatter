@@ -1,0 +1,89 @@
+---
+# A plain TCP relay between Envoy and the TrueNAS UI:
+# envoy-internal -> Service truenas -> this pod -> 192.168.10.75:443.
+#
+# Why it exists: TrueNAS 25.10 ties login and one-time tokens to the client IP
+# it sees. Cilium masquerades a pod's traffic to TrueNAS to its node's address,
+# so through the two envoy-internal pods TrueNAS would see two addresses, and a
+# token made through one pod would be refused through the other (reload, new
+# tab, Shell, uploads, downloads). Only this pod connects to TrueNAS, so
+# TrueNAS sees one address for every proxied connection.
+#
+# It must stay at ONE replica, with the Recreate strategy. Two relay pods on two
+# nodes bring back two addresses, and a RollingUpdate would run the old and new
+# pod side by side for the length of each rollout.
+#
+# When the pod moves (node drain, image update), the TrueNAS name answers 503
+# for a few seconds, and TrueNAS then sees a new address: open tabs go back to
+# the login form once. https://192.168.1.75 is never affected.
+#
+# It does not terminate TLS (resources/truenas-relay.cfg): Envoy's TLS session
+# with SNI localhost and the pinned certificate reaches TrueNAS unchanged.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: truenas-relay
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: truenas-relay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: truenas-relay
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # HAProxy closes what is left 5 s after the stop signal (hard-stop-after),
+      # so the old pod is gone well within this.
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        # The image's user `haproxy` is uid and gid 99. A numeric user lets the
+        # kubelet check runAsNonRoot.
+        runAsNonRoot: true
+        runAsUser: 99
+        runAsGroup: 99
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: haproxy
+          # haproxy 3.4.7-alpine (multi-arch index digest from Docker Hub)
+          image: docker.io/library/haproxy:3.4.7-alpine@sha256:b9fe316f718d5015c5cfebd8ca019591f3e44656f61d93cb8b59a1028961e530
+          ports:
+            - name: relay
+              containerPort: 8443
+            # Probe only: answers without touching TrueNAS.
+            - name: health
+              containerPort: 8404
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            tcpSocket:
+              port: health
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: health
+            periodSeconds: 20
+            failureThreshold: 3
+          volumeMounts:
+            # The image runs haproxy -f /usr/local/etc/haproxy/haproxy.cfg.
+            - name: config
+              mountPath: /usr/local/etc/haproxy
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: truenas-relay-config

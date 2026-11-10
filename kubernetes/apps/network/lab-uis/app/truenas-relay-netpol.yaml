@@ -1,0 +1,38 @@
+---
+# Only the envoy-internal pods may open the relay, and the relay may open only
+# the TrueNAS UI. Without this, any pod whose egress is not restricted could use
+# the relay as a raw TCP path to 192.168.10.75:443, and TrueNAS would see it as
+# the proxy's address. Kubelet probes come from the node (entity host). Envoy
+# runs no active health checks here, so only its real traffic reaches 8443.
+# The relay needs no DNS: its backend is an IP literal.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: truenas-relay
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: truenas-relay
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: envoy-internal
+      toPorts:
+        - ports:
+            - port: "8443"
+              protocol: TCP
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "8404"
+              protocol: TCP
+  egress:
+    - toCIDR:
+        - 192.168.10.75/32
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
