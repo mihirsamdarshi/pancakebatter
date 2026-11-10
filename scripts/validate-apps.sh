@@ -7,6 +7,7 @@
 #   validate-apps.sh --entry FILE  validate one entry file (also used for the fixtures)
 #   validate-apps.sh --self-test   run the fixtures: scripts/validate-apps/fixtures
 #   validate-apps.sh --structure ROOT   only check the shape of the app-platform folders
+#   validate-apps.sh --flux-tree ROOT   only check what cluster-apps applies from the checked folders
 #
 # scripts/validate-kubernetes.sh calls it, so the Kubernetes workflow and
 # `just template configure` run it too. A tree without the app platform is
@@ -58,17 +59,24 @@
 #   7. the pull Secret that `apps-pull` renders;
 #   8. the Namespace folder under kubernetes/apps/personal-apps, and renames;
 #      with the mapkit part, its SOPS Secret mapkit.sops.yaml there; with the
-#      share part, the folder <name>-share/ for its cloudflared: its Flux
-#      Kustomization applies the folder unchanged, and the folder builds to
-#      exactly the Deployment cloudflared (one container, fixed args, no env,
-#      the routing file mounted from the generated ConfigMap), that ConfigMap,
-#      its policy and the tunnel Secret; with the share-admin part, the
-#      service's folder share-admin/: its Flux Kustomization applies the
-#      folder unchanged, and its one policy admits only the app pod on 8080
-#      (and the node on the health port) and reaches only DNS and 443;
+#      share part, the folder <name>-share/ for its cloudflared: it builds to
+#      its restricted Namespace and the Flux Kustomization that applies app/
+#      unchanged, and app/ builds to exactly the Deployment cloudflared (the
+#      design, where only the image digest, resources, annotations and replicas
+#      may change), the ConfigMap with the routing file, its policy and the
+#      tunnel Secret; with the share-admin part, the service's folder
+#      share-admin/: it builds to its restricted Namespace and the Flux
+#      Kustomization that applies app/ unchanged, and app/ holds one policy
+#      that admits only the app pod on 8080 (and the node on the health port)
+#      and reaches only DNS and 443, and no pod on the host network;
 #   9. the flux-operator CLI version equals the operator chart tag; the
 #      PrometheusRule app-platform exists, names every entry's namespace and
-#      passes promtool check and its unit tests.
+#      passes promtool check and its unit tests;
+#  10. what cluster-apps applies (`flux build ks cluster-apps`): the Flux
+#      Kustomizations of the platform folder and of the folders in 8, as built
+#      through every folder above them, still apply those folders as checked,
+#      no other one applies them, and nothing else is placed in the share and
+#      share-admin namespaces.
 #
 # Every YAML file a check reads field by field must hold exactly one document:
 # yq answers for each document, `jq -e` takes its status from the last one,
@@ -320,6 +328,25 @@ check_templates_in_sync() {
 
 # --- 1. The entry ------------------------------------------------------------
 
+# IPv4 ranges, for the job's egress CIDR and the policies' public ranges.
+# Prepended to entry_jq and to policy_jq.
+read -r -d '' cidr_jq <<'JQ' || true
+def octet: "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])";
+def cidrany: type == "string" and test("^\(octet)\\.\(octet)\\.\(octet)\\.\(octet)/([0-9]|[12][0-9]|3[0-2])$");
+def cidrnum: split("/") | {a: (.[0] | split(".") | map(tonumber) | .[0] * 16777216 + .[1] * 65536 + .[2] * 256 + .[3]), p: (.[1] | tonumber)};
+# No bitwise operators in jq: two ranges overlap when their addresses agree on
+# the shorter of the two prefixes.
+def overlaps($o): (cidrnum) as $x | ($o | cidrnum) as $y | pow(2; 32 - ([$x.p, $y.p] | min)) as $s
+  | (($x.a / $s) | floor) == (($y.a / $s) | floor);
+def hostbitszero: cidrnum | pow(2; 32 - .p) as $s | ((.a / $s) | floor) * $s == .a;
+# The except list of netpol-egress-internet (keep the two equal), plus "this
+# network" and loopback.
+def notpublic: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16", "192.0.0.0/24", "198.18.0.0/15", "224.0.0.0/3", "0.0.0.0/8", "127.0.0.0/8"];
+# A public range: a network address, /12 or smaller, that overlaps none of
+# notpublic (so 192.160.0.0/12, which holds 192.168.0.0/16, is not public).
+def publiccidr: cidrany and hostbitszero and ((cidrnum | .p) >= 12) and (. as $c | all(notpublic[]; . as $r | $c | overlaps($r) | not));
+JQ
+
 read -r -d '' entry_jq <<'JQ' || true
 def isstr: type == "string";
 def secretish: test("TOKEN|SECRET|PASSWORD|PASSWD|PASS|PWD|KEY|CREDENTIAL|AUTH|PRIVATE|CERT"; "i");
@@ -333,17 +360,7 @@ def qty: ((isstr) or (type == "number")) and (tostring | test("^[0-9]+(\\.[0-9]+
 # number) and is not a YAML boolean or null word; its segments never start with
 # a dot (no hidden folder, no . or ..).
 def jobpath: isstr and test("^[A-Za-z][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$") and (yamlword | not);
-def octet: "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])";
 def cidr4: isstr and test("^\(octet)\\.\(octet)\\.\(octet)\\.\(octet)/(1[6-9]|2[0-9]|3[0-2])$");
-def cidrnum: split("/") | {a: (.[0] | split(".") | map(tonumber) | .[0] * 16777216 + .[1] * 65536 + .[2] * 256 + .[3]), p: (.[1] | tonumber)};
-# No bitwise operators in jq: two ranges overlap when their addresses agree on
-# the shorter of the two prefixes.
-def overlaps($o): (cidrnum) as $x | ($o | cidrnum) as $y | pow(2; 32 - ([$x.p, $y.p] | min)) as $s
-  | (($x.a / $s) | floor) == (($y.a / $s) | floor);
-def hostbitszero: cidrnum | pow(2; 32 - .p) as $s | ((.a / $s) | floor) * $s == .a;
-# The except list of netpol-egress-internet (keep the two equal), plus "this
-# network" and loopback.
-def notpublic: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16", "192.0.0.0/24", "198.18.0.0/15", "224.0.0.0/3", "0.0.0.0/8", "127.0.0.0/8"];
 # The ranges the API server's cron parser accepts: each comma-separated item is
 # *, a value or a range a-b, optionally with a step /n (n >= 1). Month and
 # weekday also take names.
@@ -535,15 +552,38 @@ JQ
 # policy's `spec` and every entry of its `specs` list alike, so a check that
 # looked at `spec` alone would pass a rule added under `specs`. `rules` lists
 # them all, each with the prefix a message names it by ("" for spec); a policy
-# with neither has no rule and passes no check. `private` is true for an IPv4
-# address in a range that is not public; `publiccidrs` accepts a non-empty
-# toCIDRSet of public ranges, each /12 or smaller.
+# with neither has no rule and passes no check. `publiccidrs` accepts a
+# non-empty toCIDRSet of public ranges (publiccidr in cidr_jq).
 read -r -d '' policy_jq <<'JQ' || true
 def rules: [(.spec // empty | {at: "", r: .}), ((.specs // []) | to_entries[] | {at: "specs[\(.key)]: ", r: .value})];
 def allpass(f): (rules | length) > 0 and all(rules[]; .r | f);
 def allare($want): allpass(. == $want);
-def private: test("^(0|10|127)\\.|^192\\.168\\.|^172\\.(1[6-9]|2[0-9]|3[01])\\.|^100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\.|^169\\.254\\.|^22[4-9]\\.|^2[3-5][0-9]\\.");
-def publiccidrs: length > 0 and all(keys == ["cidr"] and (.cidr | test("^[0-9.]+/[0-9]+$")) and (.cidr | private | not) and ((.cidr | split("/")[1] | tonumber) >= 12));
+def publiccidrs: length > 0 and all(keys == ["cidr"] and (.cidr | publiccidr));
+JQ
+policy_jq="$cidr_jq
+$policy_jq"
+
+# A Flux Kustomization that applies a folder outside the platform (the share
+# part's cloudflared, the share-admin service) or the platform itself, as it
+# is built: it must apply that folder as the checks here build it. The one
+# name, path and target namespace, the Git source of this repo, the exact
+# postBuild ($postbuild: substitution only from cluster-secrets, or none), and
+# no other spec key: components, images, a name prefix or a substitute value
+# would change the objects (or the Access audience) after those checks. Patches
+# may only target HelmReleases, as cluster-apps' defaults patch adds to every
+# child (none of these folders holds one). `normpath` writes a path as
+# a/b/c, for comparing.
+read -r -d '' flux_ks_jq <<'JQ' || true
+def normpath: sub("^(\\./)+"; "") | gsub("/+"; "/") | sub("/$"; "");
+def fluxks($ksname; $path; $ns; $postbuild): type == "object"
+  and .apiVersion == "kustomize.toolkit.fluxcd.io/v1" and .kind == "Kustomization"
+  and .metadata.name == $ksname and .metadata.namespace == "flux-system"
+  and .spec.path == $path and .spec.targetNamespace == $ns
+  and .spec.sourceRef == {kind: "GitRepository", name: "flux-system", namespace: "flux-system"}
+  and .spec.postBuild == $postbuild
+  and ((.spec.patches // []) | all(.target.kind == "HelmRelease"))
+  and ((.spec | keys) - ["decryption", "deletionPolicy", "dependsOn", "interval", "path", "patches", "postBuild", "prune", "retryInterval", "sourceRef", "targetNamespace", "timeout", "wait"] == []);
+def fluxksmsg($ksname; $path; $ns; $postbuild): "the Flux Kustomization must be \($ksname) in flux-system for path \($path) with targetNamespace \($ns), sourceRef GitRepository flux-system/flux-system, postBuild \($postbuild | tojson), patches only for HelmReleases, and no other spec key (no components, images, namePrefix, nameSuffix or substitute)";
 JQ
 
 # Pod specs of a built manifest stream (slurped). Checks the restricted fields,
@@ -837,37 +877,88 @@ check_mapkit_secret() {
     echo "    mapkit: $f is an encrypted Secret $name-mapkit with MAPKIT_TOKEN, for the repo's age recipient"
 }
 
-# A Flux Kustomization that applies a folder outside the platform (the share
-# part's cloudflared, the share-admin service), checked so that it applies the
-# folder as the checks here build it: the one path, the target namespace, the
-# Git source of this repo, substitution only from cluster-secrets, and no other
-# spec key. patches, components, images, a name prefix or a substitute value
-# would change the objects (or the Access audience) after those checks.
-check_flux_ks() {
-    local f="$1" path="$2" ns="$3"
-    [[ -f "$f" ]] || fail "$f is missing (the Flux Kustomization that applies $path)"
-    yq -o=json -N '.' "$f" | jq -s -e --arg path "$path" --arg ns "$ns" 'length == 1 and (.[0]
-        | .apiVersion == "kustomize.toolkit.fluxcd.io/v1" and .kind == "Kustomization" and .metadata.namespace == "flux-system"
-        and .spec.path == $path and .spec.targetNamespace == $ns
-        and .spec.sourceRef == {kind: "GitRepository", name: "flux-system", namespace: "flux-system"}
-        and .spec.postBuild == {substituteFrom: [{name: "cluster-secrets", kind: "Secret"}]}
-        and ((.spec | keys) - ["dependsOn", "decryption", "interval", "path", "postBuild", "prune", "retryInterval", "sourceRef", "targetNamespace", "timeout", "wait"] == []))' >/dev/null \
-        || fail "$f must hold one Flux Kustomization in flux-system for path $path with targetNamespace $ns, sourceRef GitRepository flux-system/flux-system and postBuild only substituteFrom the Secret cluster-secrets, and no other spec key (no patches, components, images, namePrefix, nameSuffix or substitute): Flux must apply the folder as it is checked here"
+# The folder above a checked app/ folder (<name>-share/, share-admin/), as it
+# builds, slurped: that is what cluster-apps applies from it. Exactly two
+# objects: the Namespace $ns, restricted by Pod Security (enforce, audit and
+# warn), and the Flux Kustomization $ksname that applies app/ as checked
+# (fluxks). A second Kustomization, a patch that re-points it, or any other
+# object in the folder (a pod, a policy) fails.
+read -r -d '' parent_jq <<'JQ' || true
+[.[] | select(type == "object")] as $all
+| [$all[] | select(.kind == "Namespace")] as $nss
+| [$all[] | select(.kind == "Kustomization" and ((.apiVersion // "") | startswith("kustomize.toolkit.fluxcd.io/")))] as $kss
+| {substituteFrom: [{name: "cluster-secrets", kind: "Secret"}]} as $pb
+| if ($all | length) != 2 or ($nss | length) != 1 or ($kss | length) != 1 then
+    "it must build to exactly the Namespace \($ns) and the Flux Kustomization \($ksname), nothing else; found: \([$all[] | "\(.kind)/\(.metadata.name)"] | join(", "))"
+  else
+    (if $nss[0].metadata.name != $ns
+        or [($nss[0].metadata.labels // {}) | .["pod-security.kubernetes.io/enforce"], .["pod-security.kubernetes.io/audit"], .["pod-security.kubernetes.io/warn"]] != ["restricted", "restricted", "restricted"]
+     then "the Namespace must be \($ns) with the labels pod-security.kubernetes.io/enforce, audit and warn all restricted" else empty end),
+    (if ($kss[0] | fluxks($ksname; $path; $ns; $pb) | not) then fluxksmsg($ksname; $path; $ns; $pb) else empty end)
+  end
+JQ
+
+# $1 is the folder above a checked app/ folder; see parent_jq.
+check_parent_folder() {
+    local dir="$1" ns="$2" ksname="$3" path="$4" errs
+    kustomize build "$dir" --load-restrictor=LoadRestrictionsNone >"$tmp/parent-build.yaml" 2>"$tmp/parent-build.err" \
+        || fail "kustomize build $dir failed: $(cat "$tmp/parent-build.err")"
+    errs="$(yq -o=json -N '.' "$tmp/parent-build.yaml" | jq -s -r --arg ns "$ns" --arg ksname "$ksname" --arg path "$path" "$flux_ks_jq
+$parent_jq")"
+    [[ -z "$errs" ]] || fail "$dir: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
 }
 
 # What the share part's cloudflared folder builds to, slurped. Exactly four
 # objects: the Deployment cloudflared, one ConfigMap, the policy cloudflared
 # and the tunnel Secret (any other pod in the namespace labelled cloudflared
-# would reach 3001). The Deployment has one container, no command, the fixed
-# args (their --config is the mounted routing file), no env (cloudflared reads
-# its flags, --url and --token among them, from TUNNEL_ variables too), and
-# mounts the routing file once, from the generated ConfigMap, whose only key
-# config.yaml is the routing file checked before ($routing). The policy allows
-# only cluster DNS, the app pod on 3001, the tunnel (7844) and 443 to public
-# ranges, and admits only the kubelet probe. Image, resources and probes are
-# not compared. Secret values are never read.
+# would reach 3001).
+# The Deployment must be the design (cfdeploy) except for four fields that may
+# change: the image (its own rule below: the cloudflared repository, pinned by
+# digest, so only the digest moves), resources, annotations and replicas. So
+# one container with the fixed args (their --config is the mounted routing
+# file), no command, env or envFrom (cloudflared reads its flags, --url and
+# --token among them, from TUNNEL_ variables too), no lifecycle hook, httpGet
+# probes only, no init or ephemeral container, no host namespace, and exactly
+# the three volumes and mounts (a second mount, such as an alias of the config
+# path with a doubled slash, is an extra entry and fails). The message lists
+# the paths that differ.
+# The generated ConfigMap's only key config.yaml is the routing file checked
+# before ($routing). The policy allows only cluster DNS, the app pod on 3001,
+# the tunnel (7844) and 443 to public ranges, and admits only the kubelet
+# probe. Secret values are never read.
 read -r -d '' share_build_jq <<'JQ' || true
-def args: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "--config", "/etc/cloudflared/config.yaml", "run"];
+def cfdeploy($cm): {
+  apiVersion: "apps/v1", kind: "Deployment",
+  metadata: {name: "cloudflared", namespace: "\($name)-share"},
+  spec: {
+    selector: {matchLabels: {"app.kubernetes.io/name": "cloudflared"}},
+    template: {
+      metadata: {labels: {"app.kubernetes.io/name": "cloudflared"}},
+      spec: {
+        automountServiceAccountToken: false,
+        securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: "RuntimeDefault"}},
+        containers: [{
+          name: "cloudflared",
+          args: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "--config", "/etc/cloudflared/config.yaml", "run"],
+          ports: [{name: "metrics", containerPort: 2000}],
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}},
+          livenessProbe: {httpGet: {path: "/ready", port: "metrics"}, periodSeconds: 20, failureThreshold: 3},
+          readinessProbe: {httpGet: {path: "/ready", port: "metrics"}, periodSeconds: 15},
+          volumeMounts: [
+            {name: "tmp", mountPath: "/tmp"},
+            {name: "config", mountPath: "/etc/cloudflared/config.yaml", subPath: "config.yaml", readOnly: true},
+            {name: "credentials", mountPath: "/etc/cloudflared/credentials", readOnly: true}]}],
+        volumes: [
+          {name: "tmp", emptyDir: {sizeLimit: "32Mi"}},
+          {name: "config", configMap: {name: $cm}},
+          {name: "credentials", secret: {secretName: "\($name)-share-tunnel", items: [{key: "credentials.json", path: "credentials.json"}]}}]}}}};
+# The fields that may change, removed (without adding a key that is missing).
+def masked: del(.metadata.annotations, .spec.replicas, .spec.template.metadata.annotations)
+  | if (.spec.template.spec.containers | type) == "array" then .spec.template.spec.containers |= map(if type == "object" then del(.image, .resources) else . end) else . end;
+def leaves: [paths((type | IN("object", "array") | not) or length == 0)];
+def differs($a; $b): ($a | leaves) + ($b | leaves) | unique
+  | map(select(. as $p | (try ($a | getpath($p)) catch "(other type)") != (try ($b | getpath($p)) catch "(other type)")) | map(tostring) | join("."));
+def cfimage: type == "string" and test("^docker\\.io/cloudflare/cloudflared@sha256:[0-9a-f]{64}$");
 def cfrule: type == "object" and keys == ["egress", "endpointSelector", "ingress"]
   and .endpointSelector == {}
   and .ingress == [{fromEntities: ["host"], toPorts: [{ports: [{port: "2000", protocol: "TCP"}]}]}]
@@ -886,18 +977,12 @@ def cfrule: type == "object" and keys == ["egress", "endpointSelector", "ingress
 | if ([$deps, $cms, $pols, $secrets] | map(length)) != [1, 1, 1, 1] or ($all | length) != 4 then
     "it must build to exactly the Deployment cloudflared, one ConfigMap, the CiliumNetworkPolicy cloudflared and the Secret \($name)-share-tunnel, nothing else (any other pod there labelled cloudflared would reach 3001); found: \([$all[] | "\(.kind)/\(.metadata.name)"] | join(", "))"
   else
-    $deps[0].spec.template.spec as $s | $cms[0] as $cm | $pols[0] as $p
-    | (if (($s.containers // []) | length) != 1 or (($s.initContainers // []) | length) > 0 or (($s.ephemeralContainers // []) | length) > 0
-       then "the Deployment cloudflared must have exactly one container and no init or ephemeral container"
-       else
-         $s.containers[0] as $c
-         | [($c.volumeMounts // [])[] | select(.mountPath == "/etc/cloudflared/config.yaml")] as $m
-         | (if ($c | has("command")) or $c.args != args then "the cloudflared container must set no command, and its args must be exactly: \(args | join(" ")) (no --url, --hello-world, --token or other --config)" else empty end),
-           (if (($c.env // []) | length) > 0 or (($c.envFrom // []) | length) > 0 then "the cloudflared container must have no env or envFrom (cloudflared reads its flags, --url and --token among them, from TUNNEL_ variables too)" else empty end),
-           (if ($m | length) != 1 or ($m[0] | keys - ["readOnly"]) != ["mountPath", "name", "subPath"] or $m[0].subPath != "config.yaml"
-               or [($s.volumes // [])[] | select(.name == $m[0].name)] != [{name: $m[0].name, configMap: {name: $cm.metadata.name}}]
-            then "the cloudflared container must mount /etc/cloudflared/config.yaml once, as subPath config.yaml of a volume that is the generated ConfigMap \($cm.metadata.name) and nothing else" else empty end)
-       end),
+    $deps[0] as $d | $cms[0] as $cm | $pols[0] as $p
+    | ($d | masked) as $got | cfdeploy($cm.metadata.name) as $want
+    | (if $got != $want
+       then "the Deployment cloudflared must be the design, where only the image digest, resources, annotations and replicas may change (one container with the fixed args, no command, env, envFrom or lifecycle hook, httpGet probes, no init or ephemeral container, no host namespace, exactly the three volumes and mounts); it differs at: \(differs($got; $want) | .[0:12] | join(", "))" else empty end),
+      ([$d.spec.template.spec.containers[]? | .image | select(cfimage | not) | tostring]
+       | if length > 0 then "the cloudflared image must be docker.io/cloudflare/cloudflared pinned by digest (@sha256:<64 hex>), not \(join(", "))" else empty end),
       (if ($cm | keys) != ["apiVersion", "data", "kind", "metadata"] or $cm.data != {"config.yaml": $routing}
        then "the ConfigMap \($cm.metadata.name) must hold only config.yaml, equal to resources/cloudflared.yaml (its configMapGenerator must read the routing file checked here)" else empty end),
       (if $p.apiVersion != "cilium.io/v2" or ($p.metadata | keys - ["name", "namespace"]) != [] or ($p | allpass(cfrule) | not)
@@ -906,14 +991,14 @@ def cfrule: type == "object" and keys == ["egress", "endpointSelector", "ingress
 JQ
 
 # The share part's cloudflared, compared with the design. $1 is the folder
-# <name>-share/app: its Flux Kustomization ../ks.yaml applies it unchanged;
-# the routing file is one document (cloudflared reads only the first) with
-# exactly the guest host to the guest Service on 3001 with cloudflared's own
-# Access check required, then a 404; and the folder builds to what
-# share_build_jq describes.
+# <name>-share/app: the folder above it builds to its Namespace and the Flux
+# Kustomization that applies it unchanged (parent_jq); the routing file is one
+# document (cloudflared reads only the first) with exactly the guest host to
+# the guest Service on 3001 with cloudflared's own Access check required, then
+# a 404; and the folder builds to what share_build_jq describes.
 check_share_files() {
     local dir="$1" name="$2" host="$3" f errs
-    check_flux_ks "$(dirname "$dir")/ks.yaml" "./kubernetes/apps/personal-apps/$name-share/app" "$name-share"
+    check_parent_folder "$(dirname "$dir")" "$name-share" "$name-share-tunnel" "./kubernetes/apps/personal-apps/$name-share/app"
     f="$dir/resources/cloudflared.yaml"
     [[ -f "$f" ]] || fail "the share part needs $f"
     [[ "$(yq ea '[.] | length' "$f")" == "1" ]] || fail "$f must hold exactly one document (cloudflared reads only the first)"
@@ -941,7 +1026,14 @@ $share_build_jq")"
 # (app.kubernetes.io/name=$name in $ns), 8081/TCP (/healthz only) from the node
 # for probes, and 8080 denied to the node (Cilium lets the node reach every
 # port otherwise); egress only cluster DNS and 443/TCP to public IPv4 ranges.
+# And no pod there uses the host's network, PID or IPC namespace or a hostPort:
+# a host-network pod is part of the node, outside its own policy.
 read -r -d '' share_admin_build_jq <<'JQ' || true
+def podspecs: .[] | select(type == "object")
+  | if .kind == "Pod" then .spec
+    elif (.kind | IN("Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job")) then .spec.template.spec
+    elif .kind == "CronJob" then .spec.jobTemplate.spec.template.spec
+    else empty end;
 def tcp($p): [{ports: [{port: $p, protocol: "TCP"}]}];
 def sarule: type == "object" and keys == ["egress", "endpointSelector", "ingress", "ingressDeny"]
   and .endpointSelector == {}
@@ -953,28 +1045,33 @@ def sarule: type == "object" and keys == ["egress", "endpointSelector", "ingress
   and (.egress[1] | keys) == ["toCIDRSet", "toPorts"]
   and .egress[1].toPorts == tcp("443")
   and (.egress[1].toCIDRSet | publiccidrs);
-[.[] | select(type == "object" and (.kind | IN("CiliumNetworkPolicy", "CiliumClusterwideNetworkPolicy", "NetworkPolicy")))] as $pols
-| if ($pols | length) != 1 or $pols[0].kind != "CiliumNetworkPolicy" or $pols[0].metadata.name != "share-admin" then
-    "it must build to exactly one network policy, the CiliumNetworkPolicy share-admin; found: \([$pols[] | "\(.kind)/\(.metadata.name)"] | join(", "))"
-  elif $pols[0].apiVersion != "cilium.io/v2" or ($pols[0] | allpass(sarule) | not) then
-    "the policy share-admin must be exactly: endpointSelector {}; ingress 8080/TCP only from the pods app.kubernetes.io/name=\($name) in the namespace \($ns) and 8081/TCP from the host entity; ingressDeny 8080/TCP from the host entity; egress only cluster DNS and 443/TCP to public IPv4 ranges (/12 or smaller, none private); in spec and in every entry of specs"
-  else empty end
+. as $all
+| [.[] | select(type == "object" and (.kind | IN("CiliumNetworkPolicy", "CiliumClusterwideNetworkPolicy", "NetworkPolicy")))] as $pols
+| (if ($pols | length) != 1 or $pols[0].kind != "CiliumNetworkPolicy" or $pols[0].metadata.name != "share-admin" then
+     "it must build to exactly one network policy, the CiliumNetworkPolicy share-admin; found: \([$pols[] | "\(.kind)/\(.metadata.name)"] | join(", "))"
+   elif $pols[0].apiVersion != "cilium.io/v2" or ($pols[0] | allpass(sarule) | not) then
+     "the policy share-admin must be exactly: endpointSelector {}; ingress 8080/TCP only from the pods app.kubernetes.io/name=\($name) in the namespace \($ns) and 8081/TCP from the host entity; ingressDeny 8080/TCP from the host entity; egress only cluster DNS and 443/TCP to public IPv4 ranges (/12 or smaller, none private); in spec and in every entry of specs"
+   else empty end),
+  ([$all | podspecs | select(.hostNetwork == true or .hostPID == true or .hostIPC == true
+      or ([(.containers // [])[], (.initContainers // [])[] | (.ports // [])[] | select(has("hostPort"))] | length) > 0)]
+   | if length > 0 then "its pods must not use the host network, PID or IPC namespace or a hostPort (a host-network pod is outside the share-admin policy)" else empty end)
 JQ
 
 # The share-admin part's other half: the service's own folder (outside the
 # platform) admits only this app's pod. $1 is the folder share-admin/ (in the
-# self-test, a copy per sample): its Flux Kustomization ks.yaml applies app/
-# unchanged, and app/ builds to the one policy share_admin_build_jq describes.
-# Only the policies are compared; Secret values are never read.
+# self-test, a copy per sample): it builds to its Namespace and the Flux
+# Kustomization that applies app/ unchanged (parent_jq), and app/ builds to
+# what share_admin_build_jq describes. Only the policies and the host fields
+# of the pods are compared; Secret values are never read.
 check_share_admin_files() {
     local dir="$1" name="$2" ns="$3" errs
-    check_flux_ks "$dir/ks.yaml" "./kubernetes/apps/personal-apps/share-admin/app" "share-admin"
+    check_parent_folder "$dir" "share-admin" "share-admin" "./kubernetes/apps/personal-apps/share-admin/app"
     kustomize build "$dir/app" --load-restrictor=LoadRestrictionsNone >"$tmp/share-admin-build.yaml" 2>"$tmp/share-admin-build.err" \
         || fail "kustomize build $dir/app failed: $(cat "$tmp/share-admin-build.err")"
     errs="$(yq -o=json -N '.' "$tmp/share-admin-build.yaml" | jq -s -r --arg name "$name" --arg ns "$ns" "$policy_jq
 $share_admin_build_jq")"
-    [[ -z "$errs" ]] || fail "share-admin: $dir/app: $errs"
-    echo "    share-admin: $dir/app admits only the pods $name of $ns on 8080 (the node only on the health port) and reaches only DNS and 443 to public ranges"
+    [[ -z "$errs" ]] || fail "share-admin: $dir/app: $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
+    echo "    share-admin: $dir/app admits only the pods $name of $ns on 8080 (the node only on the health port), reaches only DNS and 443 to public ranges, and its pods stay off the host network"
 }
 
 validate_entry() {
@@ -992,7 +1089,8 @@ validate_entry() {
     errs="$(jq -r --arg stem "$stem" --argjson fx "$fx" --arg base "$base_path" \
         --argjson retain "$(jq -R . "$tmp/retain.list" | jq -s .)" \
         --argjson pullsecrets "$(jq -R . "$tmp/secrets.list" | jq -s .)" \
-        "$entry_jq" "$tmp/entry.json")"
+        "$cidr_jq
+$entry_jq" "$tmp/entry.json")"
     [[ -z "$errs" ]] || fail "$(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
 
     name="$(yq '.spec.defaultValues.name' "$file")"
@@ -1202,6 +1300,67 @@ check_share_secrets() {
     echo "--- share: cluster-secrets holds the two share keys as encrypted values"
 }
 
+# --- What cluster-apps applies ------------------------------------------------
+
+# The checks above read the platform folder and, with the share and share-admin
+# parts, the folders <name>-share/ and share-admin/. Flux applies them through
+# the Flux Kustomization cluster-apps (kubernetes/flux/cluster/ks.yaml), which
+# builds kubernetes/apps through every kustomization.yaml on the way, and adds
+# its defaults patch to each child. A patch, component or extra file in any
+# folder above them would change what Flux applies without touching what was
+# checked. So that build, made as Flux makes it, must hold for each checked
+# folder ($checked: ks, path, ns, postbuild, folder, ownns):
+# - exactly one Flux Kustomization of its name, passing fluxks as built;
+# - no other Flux Kustomization whose path holds the folder or lies inside
+#   it, or (for the folders with their own namespace) that targets it;
+# - nothing else placed in that namespace (<name>-share, share-admin).
+# Not covered: an object that a folder further down (applied by another Flux
+# Kustomization without a targetNamespace) places in those namespaces with an
+# explicit metadata.namespace.
+read -r -d '' flux_tree_jq <<'JQ' || true
+def holds($outer; $inner): $outer == "" or $outer == "." or $inner == $outer or ($inner | startswith($outer + "/"));
+[.[] | select(type == "object")] as $all
+| [$all[] | select(.kind == "Kustomization" and ((.apiVersion // "") | startswith("kustomize.toolkit.fluxcd.io/")))] as $kss
+| $checked[] as $c
+| ($c.folder | normpath) as $f
+| [$kss[] | select(.metadata.name == $c.ks)] as $own
+| (if ($own | length) != 1 then "it must hold exactly one Flux Kustomization \($c.ks), found \($own | length)"
+   elif ($own[0] | fluxks($c.ks; $c.path; $c.ns; $c.postbuild) | not) then "\($c.ks), as built: " + fluxksmsg($c.ks; $c.path; $c.ns; $c.postbuild)
+   else empty end),
+  ($kss[] | select(.metadata.name != $c.ks) | ((.spec.path // "") | normpath) as $p
+   | select(holds($p; $f) or holds($f; $p) or ($c.ownns and .spec.targetNamespace == $c.ns))
+   | "the Flux Kustomization \(.metadata.namespace // "")/\(.metadata.name) (path \(.spec.path // ""), targetNamespace \(.spec.targetNamespace // "none")) also applies \($c.folder) or targets \($c.ns): only \($c.ks) may"),
+  (if $c.ownns then $all[] | select(.metadata.namespace == $c.ns)
+     | "\(.kind)/\(.metadata.name) is placed in the namespace \($c.ns) from outside \($c.folder): only the Flux Kustomization \($c.ks) may put objects there"
+   else empty end)
+JQ
+
+check_flux_tree() {
+    local f name sa=false errs pb='{"substituteFrom": [{"name": "cluster-secrets", "kind": "Secret"}]}'
+    local cluster="kubernetes/flux/cluster/ks.yaml" checked
+    checked="[{\"ks\": \"app-platform\", \"path\": \"./$platform_dir\", \"ns\": \"flux-system\", \"postbuild\": null, \"folder\": \"./$platform_dir\", \"ownns\": false}]"
+    for f in "$apps_dir"/*.yaml; do
+        [[ "$(basename "$f")" != kustomization.yaml ]] || continue
+        name="$(yq '.spec.defaultValues.name' "$f")"
+        if yq -e '.spec.defaultValues.parts[] | select(. == "share")' "$f" >/dev/null 2>&1; then
+            checked="$(jq -c --arg n "$name" --argjson pb "$pb" '. + [{ks: "\($n)-share-tunnel", path: "./kubernetes/apps/personal-apps/\($n)-share/app", ns: "\($n)-share", postbuild: $pb, folder: "./kubernetes/apps/personal-apps/\($n)-share", ownns: true}]' <<<"$checked")"
+        fi
+        if yq -e '.spec.defaultValues.parts[] | select(. == "share-admin")' "$f" >/dev/null 2>&1; then sa=true; fi
+    done
+    if [[ "$sa" == true ]]; then
+        checked="$(jq -c --argjson pb "$pb" '. + [{ks: "share-admin", path: "./kubernetes/apps/personal-apps/share-admin/app", ns: "share-admin", postbuild: $pb, folder: "./kubernetes/apps/personal-apps/share-admin", ownns: true}]' <<<"$checked")"
+    fi
+    [[ -f "$cluster" ]] || die "$cluster is missing (the Flux Kustomization cluster-apps)"
+    [[ "$(yq ea '[.] | length' "$cluster")" == "1" ]] || die "$cluster must hold exactly one document"
+    flux build ks cluster-apps --namespace flux-system --dry-run --path ./kubernetes/apps \
+        --kustomization-file "$cluster" >"$tmp/cluster-apps.yaml" 2>"$tmp/cluster-apps.err" \
+        || die "flux build ks cluster-apps failed: $(cat "$tmp/cluster-apps.err")"
+    errs="$(yq -o=json -N '.' "$tmp/cluster-apps.yaml" | jq -s -r --argjson checked "$checked" "$flux_ks_jq
+$flux_tree_jq")"
+    [[ -z "$errs" ]] || die "what cluster-apps applies ($cluster): $(printf '%s\n' "$errs" | sed '2,$s/^/    /')"
+    echo "--- cluster-apps: applies $(jq -r '[.[].ks] | join(", ")' <<<"$checked") as checked, nothing else applies their folders, and nothing else is placed in $(jq -r '[.[] | select(.ownns) | .ns] | join(", ")' <<<"$checked")"
+}
+
 # --- Cross-entry checks ------------------------------------------------------
 
 check_unique() {
@@ -1333,7 +1492,7 @@ write_mapkit_standin() {
 }
 
 run_self_test() {
-    local f expect out rc passed=0 failed=0 nsroot="$tmp/fixture-ns" c root name mapkit_case sd ad
+    local f expect out rc passed=0 failed=0 nsroot="$tmp/fixture-ns" c root name mapkit_case sd ad file expr
     # An entry lives in the namespace of its own name, so each sample gets a
     # Namespace folder of that name under a temporary root (a sample marked
     # `# no-namespace-folder` gets none).
@@ -1351,13 +1510,14 @@ run_self_test() {
         if yq -e '.spec.defaultValues.parts[] | select(. == "share")' "$f" >/dev/null 2>&1 && ! grep -q '^# no-share-folder' "$f"; then
             sd="$nsroot/$name-share"
             mkdir -p "$sd/app/resources"
-            printf -- '---\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n' >"$sd/kustomization.yaml"
             yq -i ".resources += [\"./$name-share\"]" "$nsroot/kustomization.yaml"
             # The real folder reports-share/ for this sample's names, with a
             # stand-in tunnel Secret that holds no credentials, or with
             # `# share-files: <case>` a broken copy.
             real="kubernetes/apps/personal-apps/reports-share"
             sh_host="$(yq '.spec.defaultValues.vars.SHARE_HOST' "$f")"
+            sed "s#reports-share#$name-share#g" "$real/kustomization.yaml" >"$sd/kustomization.yaml"
+            sed "s#reports-share#$name-share#g" "$real/namespace.yaml" >"$sd/namespace.yaml"
             sed "s#reports-share#$name-share#g" "$real/ks.yaml" >"$sd/ks.yaml"
             sed "s#reports-share#$name-share#g" "$real/app/kustomization.yaml" >"$sd/app/kustomization.yaml"
             sed "s#reports-share#$name-share#g" "$real/app/cloudflared-deployment.yaml" >"$sd/app/cloudflared-deployment.yaml"
@@ -1387,6 +1547,35 @@ run_self_test() {
                 policy-second-doc) printf -- '---\napiVersion: cilium.io/v2\nkind: CiliumNetworkPolicy\nmetadata:\n  name: cloudflared-more\nspec:\n  endpointSelector: {}\n  egress:\n    - toEntities: [world]\n' >>"$sd/app/networkpolicy.yaml" ;;
                 ks-patches) yq -i '.spec.patches = [{"target": {"kind": "Deployment", "name": "cloudflared"}, "patch": "- op: add\n  path: /spec/template/spec/containers/0/args/-\n  value: --hello-world\n"}]' "$sd/ks.yaml" ;;
                 ks-substitute) yq -i '.spec.postBuild.substitute = {"SECRET_SHARE_ACCESS_AUD": "other-aud"}' "$sd/ks.yaml" ;;
+                # The folder above app/: a patch that re-points the Flux
+                # Kustomization, a second cloudflared pod, a second Kustomization.
+                parent-path) yq -i ".patches = [{\"target\": {\"group\": \"kustomize.toolkit.fluxcd.io\", \"kind\": \"Kustomization\", \"name\": \"$name-share-tunnel\"}, \"patch\": \"- op: replace\\n  path: /spec/path\\n  value: ./kubernetes/apps/personal-apps/$name-share/app-b\\n\"}]" "$sd/kustomization.yaml" ;;
+                parent-extra-pod)
+                    printf -- '---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: helper\n  namespace: %s-share\nspec:\n  selector: {matchLabels: {app.kubernetes.io/name: cloudflared}}\n  template:\n    metadata:\n      labels: {app.kubernetes.io/name: cloudflared}\n    spec:\n      containers:\n        - name: c\n          image: docker.io/cloudflare/cloudflared:latest\n          args: [tunnel, --url, http://%s-share.%s.svc.cluster.local:3001]\n' "$name" "$name" "$name" >"$sd/extra.yaml"
+                    yq -i '.resources += ["./extra.yaml"]' "$sd/kustomization.yaml" ;;
+                parent-second-ks)
+                    yq ".metadata.name = \"$name-share-tunnel-2\"" "$sd/ks.yaml" >"$sd/ks2.yaml"
+                    yq -i '.resources += ["./ks2.yaml"]' "$sd/kustomization.yaml" ;;
+                # The Deployment beyond args and env: another image, a hook, an
+                # exec probe, an alias mount of the config path from a pod
+                # annotation, the host network, envFrom, an init container.
+                image) yq -i '.spec.template.spec.containers[0].image = "ghcr.io/example/not-cloudflared:latest"' "$sd/app/cloudflared-deployment.yaml" ;;
+                lifecycle) yq -i ".spec.template.spec.containers[0].lifecycle = {\"postStart\": {\"exec\": {\"command\": [\"cloudflared\", \"tunnel\", \"--url\", \"http://$name-share.$name.svc.cluster.local:3001\"]}}}" "$sd/app/cloudflared-deployment.yaml" ;;
+                exec-probe) yq -i ".spec.template.spec.containers[0].livenessProbe = {\"exec\": {\"command\": [\"cloudflared\", \"tunnel\", \"--url\", \"http://$name-share.$name.svc.cluster.local:3001\"]}, \"timeoutSeconds\": 3600, \"periodSeconds\": 3600}" "$sd/app/cloudflared-deployment.yaml" ;;
+                alias-mount) yq -i ".spec.template.metadata.annotations.cfg = \"ingress:\\n  - service: http://$name-share.$name.svc.cluster.local:3001\\n\"
+                    | .spec.template.spec.volumes += [{\"name\": \"alt\", \"downwardAPI\": {\"items\": [{\"path\": \"config.yaml\", \"fieldRef\": {\"fieldPath\": \"metadata.annotations['cfg']\"}}]}}]
+                    | .spec.template.spec.containers[0].volumeMounts += [{\"name\": \"alt\", \"mountPath\": \"/etc/cloudflared//config.yaml\", \"subPath\": \"config.yaml\", \"readOnly\": true}]" "$sd/app/cloudflared-deployment.yaml" ;;
+                hostnetwork) yq -i '.spec.template.spec.hostNetwork = true' "$sd/app/cloudflared-deployment.yaml" ;;
+                envfrom) yq -i '.spec.template.spec.containers[0].envFrom = [{"configMapRef": {"name": "extra"}}]' "$sd/app/cloudflared-deployment.yaml" ;;
+                init-container) yq -i '.spec.template.spec.initContainers = [{"name": "init", "image": "busybox"}]' "$sd/app/cloudflared-deployment.yaml" ;;
+                # A /12 that holds the LAN range 192.168.0.0/16.
+                lan-cidr) yq -i '(.spec.egress[] | select(.toPorts[0].ports[0].port == "443") | .toCIDRSet) += [{"cidr": "192.160.0.0/12"}]' "$sd/app/networkpolicy.yaml" ;;
+                # Changes that must pass: the image digest, resources, annotations, replicas.
+                harmless) yq -i '.spec.replicas = 2 | .metadata.annotations.note = "x" | .spec.template.metadata.annotations.note = "x"
+                    | .spec.template.spec.containers[0].image = "docker.io/cloudflare/cloudflared@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    | .spec.template.spec.containers[0].resources = {"requests": {"cpu": "50m", "memory": "64Mi"}, "limits": {"memory": "256Mi"}}' "$sd/app/cloudflared-deployment.yaml" ;;
+                "") ;;
+                *) die "$f: unknown share-files case" ;;
             esac
         fi
         # A sample with the share-admin part gets its own copy of the service's
@@ -1409,6 +1598,15 @@ run_self_test() {
                 policy-specs) yq -i '.specs = [{"endpointSelector": {}, "ingress": [{"fromEntities": ["cluster"], "toPorts": [{"ports": [{"port": "8080", "protocol": "TCP"}]}]}]}]' "$ad/app/networkpolicy.yaml" ;;
                 policy-second-doc) printf -- '---\napiVersion: cilium.io/v2\nkind: CiliumNetworkPolicy\nmetadata:\n  name: share-admin-more\nspec:\n  endpointSelector: {}\n  ingress:\n    - fromEntities: [cluster]\n' >>"$ad/app/networkpolicy.yaml" ;;
                 ks-patches) yq -i '.spec.patches = [{"target": {"kind": "CiliumNetworkPolicy", "name": "share-admin"}, "patch": "- op: remove\n  path: /spec/ingressDeny\n"}]' "$ad/ks.yaml" ;;
+                # A second policy listed in the folder above app/.
+                parent-policy)
+                    printf -- '---\napiVersion: cilium.io/v2\nkind: CiliumNetworkPolicy\nmetadata:\n  name: share-admin-more\n  namespace: share-admin\nspec:\n  endpointSelector: {}\n  ingress:\n    - fromEntities: [cluster]\n      toPorts: [{ports: [{port: "8080", protocol: TCP}]}]\n' >"$ad/more.yaml"
+                    yq -i '.resources += ["./more.yaml"]' "$ad/kustomization.yaml" ;;
+                namespace-privileged) yq -i '.metadata.labels["pod-security.kubernetes.io/enforce"] = "privileged"' "$ad/namespace.yaml" ;;
+                hostnetwork) yq -i '.spec.template.spec.hostNetwork = true' "$ad/app/deployment.yaml" ;;
+                lan-cidr) yq -i '(.spec.egress[] | select(.toPorts[0].ports[0].port == "443") | .toCIDRSet) += [{"cidr": "192.160.0.0/12"}]' "$ad/app/networkpolicy.yaml" ;;
+                "") ;;
+                *) die "$f: unknown share-admin-files case" ;;
             esac
         fi
         # `# mapkit-secret: <case>` gives the sample's folder a mapkit.sops.yaml
@@ -1490,6 +1688,46 @@ run_self_test() {
             failed=$((failed + 1))
         fi
     done
+    # What cluster-apps applies: a copy of kubernetes/ with each broken sample
+    # applied to it (flux-tree/<case>/overlay, files relative to the repo root;
+    # flux-tree/<case>/edit, lines "<file> <yq expression>" applied with yq -i;
+    # the expected text in flux-tree/<case>/expect). Without a case the copy
+    # itself must pass. The cases use the live entries (reports and its parts).
+    for c in "" "$fixtures_dir"/flux-tree/*/; do
+        if [[ -n "$c" ]]; then
+            [[ -d "$c" ]] || continue
+            name="$(basename "$c")"
+            expect="$(<"$c/expect")"
+        else
+            name="baseline"
+            expect=""
+        fi
+        root="$tmp/flux-tree/$name"
+        mkdir -p "$root"
+        cp -R kubernetes "$root/"
+        if [[ -n "$c" ]]; then
+            if [[ -d "$c/overlay" ]]; then cp -R "$c/overlay/." "$root/"; fi
+            if [[ -f "$c/edit" ]]; then
+                while read -r file expr; do
+                    [[ -n "$file" ]] || continue
+                    yq -i "$expr" "$root/$file"
+                done <"$c/edit"
+            fi
+        fi
+        rc=0
+        out="$("$script_path" --flux-tree "$root" 2>&1)" || rc=$?
+        if [[ -z "$expect" ]] && ((rc == 0)); then
+            echo "pass  flux-tree/$name (a copy of kubernetes/)"
+            passed=$((passed + 1))
+        elif [[ -n "$expect" ]] && ((rc != 0)) && [[ "$out" == *"$expect"* ]]; then
+            echo "reject flux-tree/$name ($expect)"
+            passed=$((passed + 1))
+        else
+            echo "FAIL  flux-tree/$name (expected: ${expect:-valid}; exit $rc):" >&2
+            printf '%s\n' "$out" >&2
+            failed=$((failed + 1))
+        fi
+    done
     echo "self-test: $passed ok, $failed failed"
     ((failed == 0)) || exit 1
 }
@@ -1502,8 +1740,9 @@ main() {
         case "$1" in
             --self-test) mode=selftest ;;
             --structure) mode=structure ;;
+            --flux-tree) mode=fluxtree ;;
             --entry) mode=entry; entry="${2:?--entry needs a file}"; shift ;;
-            -h | --help) sed -n '2,12p' "$script_path"; exit 0 ;;
+            -h | --help) sed -n '2,13p' "$script_path"; exit 0 ;;
             *) root="$1" ;;
         esac
         shift
@@ -1525,6 +1764,7 @@ main() {
     case "$mode" in
         selftest) run_self_test; return ;;
         structure) check_structure; return ;;
+        fluxtree) check_flux_tree; return ;;
         entry)
             collect_git_facts
             validate_entry "$entry"
@@ -1553,6 +1793,7 @@ main() {
             || die "$apps_dir/kustomization.yaml does not list ./$(basename "$f")"
     done
     check_share_secrets
+    check_flux_tree
     check_cross_entry
     check_retired_list
     check_alert_namespaces

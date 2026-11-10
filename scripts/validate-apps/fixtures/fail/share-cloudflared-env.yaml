@@ -1,5 +1,5 @@
 ---
-# expect: must have no env or envFrom
+# expect: containers.0.env.0
 # share-files: env-url
 # Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
 apiVersion: fluxcd.controlplane.io/v1

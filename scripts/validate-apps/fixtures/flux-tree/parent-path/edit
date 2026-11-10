@@ -1,0 +1,1 @@
+kubernetes/apps/personal-apps/reports-share/kustomization.yaml .patches = [{"target": {"group": "kustomize.toolkit.fluxcd.io", "kind": "Kustomization", "name": "reports-share-tunnel"}, "patch": "- op: replace\n  path: /spec/path\n  value: ./kubernetes/apps/personal-apps/reports-share/app-b\n"}]

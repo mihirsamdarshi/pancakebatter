@@ -1,0 +1,17 @@
+---
+# Rejected: a second Flux Kustomization that applies the tunnel's folder, from
+# outside it, with its own patches.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: outside
+  namespace: flux-system
+spec:
+  interval: 1h
+  path: ./kubernetes/apps/personal-apps/reports-share/app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: reports-share

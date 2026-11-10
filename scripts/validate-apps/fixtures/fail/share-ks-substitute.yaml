@@ -1,5 +1,5 @@
 ---
-# expect: no other spec key (no patches
+# expect: the Flux Kustomization must be share-ks-substitute-share-tunnel
 # share-files: ks-substitute
 # Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
 apiVersion: fluxcd.controlplane.io/v1

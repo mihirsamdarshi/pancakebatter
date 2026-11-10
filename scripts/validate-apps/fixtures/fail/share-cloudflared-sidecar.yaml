@@ -1,5 +1,5 @@
 ---
-# expect: the Deployment cloudflared must have exactly one container
+# expect: containers.1.name
 # share-files: sidecar
 # Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
 apiVersion: fluxcd.controlplane.io/v1

@@ -1,5 +1,5 @@
 ---
-# expect: must mount /etc/cloudflared/config.yaml once
+# expect: volumes.1.configMap.name
 # share-files: config-volume
 # Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
 apiVersion: fluxcd.controlplane.io/v1

@@ -1,5 +1,5 @@
 ---
-# expect: its args must be exactly
+# expect: containers.0.args
 # share-files: args-url
 # Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
 apiVersion: fluxcd.controlplane.io/v1

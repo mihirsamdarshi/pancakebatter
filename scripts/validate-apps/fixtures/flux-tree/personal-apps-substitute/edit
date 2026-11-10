@@ -1,0 +1,1 @@
+kubernetes/apps/personal-apps/kustomization.yaml .patches = [{"target": {"group": "kustomize.toolkit.fluxcd.io", "kind": "Kustomization", "name": "reports-share-tunnel"}, "patch": "- op: add\n  path: /spec/postBuild/substitute\n  value: {SECRET_SHARE_ACCESS_AUD: other-aud}\n"}]

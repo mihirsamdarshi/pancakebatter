@@ -1,0 +1,16 @@
+---
+# Rejected: a second policy in the share-admin namespace, from outside its
+# folder, that opens 8080 to every pod of the cluster.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: share-admin-more
+  namespace: share-admin
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEntities: [cluster]
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
