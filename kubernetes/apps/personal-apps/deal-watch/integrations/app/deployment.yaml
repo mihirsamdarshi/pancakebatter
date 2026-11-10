@@ -30,10 +30,13 @@ spec:
           type: RuntimeDefault
       containers:
         - name: worker
-          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-integrations@sha256:8a075368f36c1226820dd45f7b05c4c7b6e33a251bf554658419d09d4b339c0c
+          image: ghcr.io/mihirsamdarshi/pancakebatter/deal-watch-integrations@sha256:f9dc918f909ce1ada628fac538e9203280be4ef7b2dc8b4e0bcdd0a3f610c37e
           env:
+            # The app's Service, directly, not through envoy-internal, so this
+            # pod needs no path to the gateway (where it could ask for any
+            # internal host name). The worker accepts no other plain-HTTP origin.
             - name: APP_BASE_URL
-              value: https://deal-watch.${SECRET_DOMAIN_LOCAL}
+              value: http://deal-watch.deal-watch.svc.cluster.local
             - name: WATCH_CONFIG_FILE
               value: /run/credentials/watch-policy.json
             - name: DISCORD_WEBHOOK_FILE

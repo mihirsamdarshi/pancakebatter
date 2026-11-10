@@ -10,10 +10,9 @@ spec:
   dependsOn:
     # app-deal-watch is generated from live registry inputs. Keep the Git DAG
     # statically renderable; the worker gates every cycle on the app/policy.
+    # No gateway: the worker calls the app's Service directly.
     - name: app-platform
       namespace: flux-system
-    - name: envoy-gateway
-      namespace: network
   decryption:
     provider: sops
   interval: 1h

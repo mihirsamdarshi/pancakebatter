@@ -40,14 +40,17 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
+    # The Deal Watch app pod, directly (its Service port 80 is the pod's 3000).
+    # Never the Envoy gateways: through them this pod could ask for any
+    # internal host name. scripts/validate-apps.sh checks this whole policy
+    # (the deal-watch entry's `integrations` part).
     - toEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: network
-            gateway.envoyproxy.io/owning-gateway-namespace: network
-            gateway.envoyproxy.io/owning-gateway-name: envoy-internal
+            io.kubernetes.pod.namespace: deal-watch
+            app.kubernetes.io/name: deal-watch
       toPorts:
         - ports:
-            - port: "10443"
+            - port: "3000"
               protocol: TCP
     - toCIDRSet:
         - cidr: 0.0.0.0/0

@@ -1,0 +1,25 @@
+---
+# Test fixture for scripts/validate-apps.sh: the integrations part (the Deal
+# Watch shape). The self-test gives it a Namespace folder with the worker's
+# folder integrations/ inside, a copy of deal-watch/integrations/. Never
+# applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-integrations
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/integrations
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: integrations
+    parts: [pullsecret, internal-route, integrations]

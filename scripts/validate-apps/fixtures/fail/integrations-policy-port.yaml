@@ -1,0 +1,24 @@
+---
+# expect: the integrations policy
+# mutate: map(if .kind=="CiliumNetworkPolicy" and .metadata.name=="integrations-policy-port-integrations" then .spec.ingress[0].toPorts[0].ports += [{"port":"3001","protocol":"TCP"}] else . end)
+# Test fixture for scripts/validate-apps.sh. Never applied to a cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: app-integrations-policy-port
+  namespace: flux-system
+  labels:
+    platform/apps: "true"
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 2m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/mihirsamdarshi/apps/integrations-policy-port
+  secretRef:
+    name: ghcr-apps-read
+  filter:
+    includeTag: "^main$"
+    limit: 1
+  defaultValues:
+    name: integrations-policy-port
+    parts: [pullsecret, internal-route, integrations]

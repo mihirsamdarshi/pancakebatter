@@ -1,0 +1,26 @@
+---
+# A second policy beside the namespace policy ${APP} (the netpol component).
+# Cilium adds up the policies that select a pod, so this opens 3000/TCP on the
+# app pod to the integration worker's pods and nothing else: no egress section,
+# no other port. It selects the app pod only (the job's and the backup pods
+# carry other labels). Both labels of the source are pinned: the worker's
+# namespace also runs the headless browser, which renders untrusted pages and
+# must not reach the app. The worker's side is in
+# kubernetes/apps/personal-apps/${APP}/integrations/app/networkpolicy.yaml.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ${APP}-integrations
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: ${APP}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ${APP}-integrations
+            app.kubernetes.io/name: ${APP}-integrations
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP

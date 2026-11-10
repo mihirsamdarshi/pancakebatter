@@ -18,7 +18,7 @@ spec:
     limit: 1
   defaultValues:
     name: deal-watch
-    parts: [pullsecret, internal-route, backup, backup-sqlite]
+    parts: [pullsecret, internal-route, backup, backup-sqlite, integrations]
     vars:
       TITLE: Deal Watch
       DESCRIPTION: Price and deal tracker
