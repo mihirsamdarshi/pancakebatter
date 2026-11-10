@@ -11,6 +11,7 @@ resources:
   - ./truenas.yaml
   - ./truenas-ca.yaml
   - ./truenas-relay.yaml
+  - ./truenas-relay-netpol.yaml
 configMapGenerator:
   # The TrueNAS relay's HAProxy config. The hash suffix rolls the relay pod
   # when the config changes (kustomize updates the Deployment's reference).

@@ -17,11 +17,14 @@
 # working. Change the relay first.
 #
 # Who can reach it: everyone who can reach envoy-internal could already reach
-# the TrueNAS UI directly, except deal-watch-integrations. Until the
-# deal-watch-integrations follow-up merges, that workload can reach this login
-# page through envoy-internal; the follow-up removes that path. The relay adds
-# no other path for it: its policy allows only the envoy-internal pods and
-# excludes 10.0.0.0/8, so it cannot reach the relay pod directly.
+# the TrueNAS UI directly. Keep it that way: a workload whose policy blocks
+# the LAN must not be allowed egress to the envoy-internal pods, because
+# through Envoy it reaches this login page (review F3;
+# deal-watch-integrations lost that rule for this reason). The same goes for
+# the relay pod, a raw TCP path to 192.168.10.75:443: such a workload must
+# not be allowed egress to it by its labels, by the network namespace or by
+# the cluster entity. A CIDR exception does not protect this path, because
+# Cilium CIDR rules never match pods.
 apiVersion: v1
 kind: Service
 metadata:
