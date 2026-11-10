@@ -164,7 +164,10 @@ to read credentials, call Production, submit a declaration or activate a source.
 
 Required environment:
 
-- `APP_BASE_URL`: fixed internal HTTPS origin, e.g. `https://deal-watch.local.<zone>`.
+- `APP_BASE_URL`: fixed internal HTTPS origin, e.g. `https://deal-watch.local.<zone>`, or
+  exactly `http://deal-watch.deal-watch.svc.cluster.local`, the app's Service inside the
+  cluster (default port, no path). No other plain-HTTP origin is accepted: another
+  Service, another port, a path or credentials stop the worker at startup.
 - `WATCH_CONFIG_FILE`: mounted owner-approved JSON `{policyVersion, watches}`.
 - `EBAY_CREDENTIALS_FILE`: optional mounted eBay JSON, only for an approved eBay policy.
 - `DISCORD_WEBHOOK_FILE`: mounted fixed Discord webhook, when delivery is enabled.

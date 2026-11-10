@@ -419,13 +419,62 @@ describe("worker independent safeguards", () => {
     await expect(worker.runOnce()).rejects.toThrow();
     expect(h.discordCalls).toBe(0);
   });
-  test("only fixed HTTPS app origins accepted outside explicit local tests", () => {
+  test("only fixed HTTPS app origins and the in-cluster app Service accepted outside explicit local tests", () => {
     expect(() => new Worker({ baseUrl: "http://app.test", watches })).toThrow();
     expect(() => new Worker({ baseUrl: "https://user:password@app.test", watches })).toThrow();
     expect(() => new Worker({ baseUrl: "https://app.test/other", watches })).toThrow();
     expect(
       () => new Worker({ baseUrl: "http://localhost:3000", watches, allowLocalHttp: true }),
     ).not.toThrow();
+    // The local exception stays behind the flag and stays local.
+    expect(() => new Worker({ baseUrl: "http://localhost:3000", watches })).toThrow();
+    expect(
+      () => new Worker({ baseUrl: "http://app.test", watches, allowLocalHttp: true }),
+    ).toThrow();
+    // Plain HTTP to the deal-watch Service: this exact host on the default port, with or without
+    // the trailing slash; an explicit :80 parses to the same origin.
+    for (const baseUrl of [
+      "http://deal-watch.deal-watch.svc.cluster.local",
+      "http://deal-watch.deal-watch.svc.cluster.local/",
+      "http://deal-watch.deal-watch.svc.cluster.local:80",
+    ])
+      expect(() => new Worker({ baseUrl, watches })).not.toThrow();
+    for (const baseUrl of [
+      // Other in-cluster names: another Service, another namespace, the short forms.
+      "http://other.deal-watch.svc.cluster.local",
+      "http://deal-watch.other.svc.cluster.local",
+      "http://deal-watch.deal-watch.svc",
+      "http://deal-watch.deal-watch",
+      // Lookalikes: a longer name, a trailing dot.
+      "http://deal-watch.deal-watch.svc.cluster.local.app.test",
+      "http://xdeal-watch.deal-watch.svc.cluster.local",
+      "http://deal-watch.deal-watch.svc.cluster.local.",
+      // Userinfo, including the host name used as a user name in front of another host.
+      "http://user:password@deal-watch.deal-watch.svc.cluster.local",
+      "http://deal-watch.deal-watch.svc.cluster.local@app.test",
+      // A port other than the default.
+      "http://deal-watch.deal-watch.svc.cluster.local:3000",
+      "http://deal-watch.deal-watch.svc.cluster.local:443",
+      // A path, query or fragment.
+      "http://deal-watch.deal-watch.svc.cluster.local/api",
+      "http://deal-watch.deal-watch.svc.cluster.local/?x=1",
+      "http://deal-watch.deal-watch.svc.cluster.local/#x",
+    ])
+      expect(() => new Worker({ baseUrl, watches })).toThrow();
+  });
+  test("app requests go to the in-cluster app Service at its root", async () => {
+    const seen: string[] = [];
+    const worker = new Worker({
+      baseUrl: "http://deal-watch.deal-watch.svc.cluster.local:80",
+      watches,
+      fetcher: async (request) => {
+        seen.push(request.url);
+        return new Response("unavailable", { status: 503 });
+      },
+      startupDelay: false,
+    });
+    await expect(worker.runOnce()).rejects.toThrow("App request failed");
+    expect(seen).toEqual(["http://deal-watch.deal-watch.svc.cluster.local/api/dashboard"]);
   });
 });
 

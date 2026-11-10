@@ -40,6 +40,12 @@ interface AppWatch {
 const isObject = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 const uuid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/.test(v);
+/**
+ * The deal-watch Service inside the cluster: the only plain-HTTP app origin accepted outside local
+ * tests, so the worker needs no route through the internal gateway. Compared as a whole origin: the
+ * scheme, this exact host and the default port (an explicit `:80` parses to the same origin).
+ */
+const CLUSTER_APP_ORIGIN = "http://deal-watch.deal-watch.svc.cluster.local";
 export interface Options {
   baseUrl: string;
   ebay?: EbayClient;
@@ -102,12 +108,13 @@ export class Worker {
       this.base.pathname !== "/" ||
       !(
         this.base.protocol === "https:" ||
+        this.base.origin === CLUSTER_APP_ORIGIN ||
         (options.allowLocalHttp === true &&
           this.base.protocol === "http:" &&
           ["localhost", "127.0.0.1"].includes(this.base.hostname))
       )
     )
-      throw new Error("App URL must be the fixed HTTPS origin");
+      throw new Error("App URL must be the fixed HTTPS origin or the in-cluster app Service");
     for (const w of this.watches) {
       validateWatch(w);
       for (const b of w.bindings)
