@@ -1,0 +1,127 @@
+---
+# hobbes.${SECRET_DOMAIN_LOCAL}: the Proxmox web UI on Hobbes (pveproxy, port
+# 8006) over HTTPS, with the backend certificate verified against the Proxmox
+# cluster CA (hobbes-ca.yaml). Hobbes has only a LAN address, so traffic goes
+# VLAN 10 -> router -> LAN and back the same way.
+#
+# Who can reach it: everyone who can reach envoy-internal could already reach
+# https://192.168.1.62:8006 directly. Keep it that way: a workload whose
+# policy blocks the LAN must not be allowed egress to the envoy-internal
+# pods, because through Envoy it reaches this login page (review F3;
+# deal-watch-integrations lost that rule for this reason).
+#
+# SPICE does not work through this name: the UI points the .vv file at
+# hobbes.${SECRET_DOMAIN_LOCAL}:3128, which Envoy does not serve. Use the
+# direct address https://192.168.1.62:8006 for SPICE. noVNC and xterm.js
+# consoles work here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hobbes
+spec:
+  # No selector: the EndpointSlice below names the backend.
+  ports:
+    - name: https
+      protocol: TCP
+      # Forces HTTP/1.1 to this backend. With a BackendTLSPolicy, Envoy Gateway
+      # otherwise uses ALPN auto mode (h2,http/1.1), and WebSocket upgrades
+      # over h2 fail (envoyproxy/gateway#9121). pveproxy offers no ALPN today,
+      # so here this guards against a later pveproxy that offers h2.
+      appProtocol: kubernetes.io/wss
+      port: 8006
+      targetPort: 8006
+---
+# The port name and protocol must match the Service port: Envoy Gateway skips
+# an EndpointSlice port that differs in either.
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: hobbes
+  labels:
+    kubernetes.io/service-name: hobbes
+    endpointslice.kubernetes.io/managed-by: flux
+addressType: IPv4
+ports:
+  - name: https
+    protocol: TCP
+    port: 8006
+endpoints:
+  - addresses:
+      - 192.168.1.62
+    conditions:
+      ready: true
+---
+# Envoy connects with TLS, sends SNI `hobbes` and accepts only a certificate
+# that chains to the Proxmox cluster CA in hobbes-ca.yaml and has the DNS SAN
+# `hobbes` (pveproxy's node certificate has it).
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: hobbes
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: hobbes
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: hobbes-pve-ca
+    hostname: hobbes
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hobbes
+spec:
+  parentRefs:
+    - name: envoy-internal
+      namespace: network
+      sectionName: https
+  hostnames:
+    - hobbes.${SECRET_DOMAIN_LOCAL}
+  rules:
+    # Two named rules so the BackendTrafficPolicy below can switch retries off
+    # for writes only. GET and HEAD (which include the noVNC and xterm.js
+    # console websockets) are more specific than the catch-all, so they always
+    # land on `reads`.
+    - name: reads
+      matches:
+        - method: GET
+        - method: HEAD
+      backendRefs:
+        - name: hobbes
+          port: 8006
+    - name: writes
+      backendRefs:
+        - name: hobbes
+          port: 8006
+---
+# The gateway-wide policy (network/envoy-gateway) retries a request twice when
+# the upstream connection resets. A Proxmox API write (POST, PUT or DELETE under
+# /api2/json: start, stop, reboot, create, delete, upload) may already have
+# been applied when that happens, so the `writes` rule gets no retries.
+# mergeType keeps everything else from the gateway-wide policy (compression,
+# keepalive, requestTimeout 0s) instead of replacing it. Same pattern as
+# personal-apps/quilt-planner/internal.
+#
+# With no retries, a write must not land on a connection pveproxy is closing.
+# pveproxy closes an idle connection after 5 s (PVE::APIServer::AnyEvent), so
+# Envoy drops its own at 4 s, first. This reaches only this rule's cluster.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: hobbes-writes
+spec:
+  mergeType: StrategicMerge
+  retry:
+    numRetries: 0
+  timeout:
+    http:
+      connectionIdleTimeout: 4s
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: hobbes
+      sectionName: writes

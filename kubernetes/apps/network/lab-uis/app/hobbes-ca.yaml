@@ -1,0 +1,62 @@
+---
+# The pinned trust anchor for the hobbes BackendTLSPolicy (hobbes.yaml): the
+# Proxmox cluster CA. Public certificate only.
+#
+# pveproxy on Hobbes serves its node certificate /etc/pve/local/pve-ssl.pem
+# (no custom pveproxy-ssl.pem is installed), which this CA signs and which has
+# the SAN DNS:hobbes, so the policy's hostname is `hobbes`. A renewed node
+# certificate is signed by the same CA, so renewals need no change here.
+#   CA: CN=Proxmox Virtual Environment, O=PVE Cluster Manager CA
+#   SHA-256 fingerprint:
+#     18:20:E5:6E:48:06:5D:82:F9:3A:5D:04:AC:85:B8:9C:B9:E1:D0:6D:5D:DC:58:48:13:6A:24:7D:94:3F:24:FF
+#   valid until 2033-04-23 03:58 UTC
+#
+# Where it came from (November 10, 2026):
+#   ssh root@192.168.1.62 cat /etc/pve/pve-root-ca.pem
+#
+# If pveproxy ever serves a certificate this CA did not sign (a custom or ACME
+# certificate set under Hobbes > System > Certificates), or the cluster CA is
+# replaced, the hobbes route answers 503 (upstream TLS verify error) until the
+# new issuer's CA is put here and `hostname` in hobbes.yaml still matches a
+# DNS SAN. The direct address https://192.168.1.62:8006 keeps working
+# meanwhile.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hobbes-pve-ca
+data:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIFzTCCA7WgAwIBAgIUSELX+PoG7lyVJ2oNFp/HnU3At9cwDQYJKoZIhvcNAQEL
+    BQAwdjEkMCIGA1UEAwwbUHJveG1veCBWaXJ0dWFsIEVudmlyb25tZW50MS0wKwYD
+    VQQLDCRmNDE3MDM3NC1hMzViLTQ0YjUtYTIxMy04ZDUyM2I4NTQ4NWUxHzAdBgNV
+    BAoMFlBWRSBDbHVzdGVyIE1hbmFnZXIgQ0EwHhcNMjMwNDI2MDM1ODAwWhcNMzMw
+    NDIzMDM1ODAwWjB2MSQwIgYDVQQDDBtQcm94bW94IFZpcnR1YWwgRW52aXJvbm1l
+    bnQxLTArBgNVBAsMJGY0MTcwMzc0LWEzNWItNDRiNS1hMjEzLThkNTIzYjg1NDg1
+    ZTEfMB0GA1UECgwWUFZFIENsdXN0ZXIgTWFuYWdlciBDQTCCAiIwDQYJKoZIhvcN
+    AQEBBQADggIPADCCAgoCggIBAKqvn/VSdyTaSW7O7o1WltRIJH4AOYDo9mHPiPbs
+    uUM6CrOFVEygE2y5j1hgd5udmPo1agAKl06HGKawvPwJoq5XauISkU93ozdTBB/C
+    EKvGHZoYvuJylQHTf8yTnqZD+Z/bzZmRADzLBDjM20PsJbaySZMTmbpF29s2XZb8
+    BzFWI0961qCImQPWoWvA6nwqIPoJmSYGuAL1EgwqnqawtC91wnJf3UxtQpCGTcgD
+    JovactUBvyv8zUG8vn/0afMJfoYSX3KeSeP0g5aQWINkSEl5n/+L74xECJ7Td1VK
+    /d13JOHB91rHo6bXn1XaWk2d1SBe+C4GfBlg9SOWgjhRByWJoxljM9IHoIfjKByC
+    K7tnrTYwKkxGgYyYIrNJbSW2Db5pT6XN9hCRLZ5o/JJ/kKy9vE20rEYSjh78DOXk
+    rwxKrROc+JJZ6TZnkTA21xz+7Wf5m4+MbKJVO7Jwl3bMBGAvEiQwn/8VbfUoTaK5
+    MOBt0iZmGhXfeIsNnX2B6Mqa+6exBBFDzx8Ed5Hz58jFBGno7pATo41hzyJhDeQZ
+    +bvTpbDxd5CsiDQzPe6ZBZzBy3JBLJWs7ZNYxaBau5ueqHH1TPWQegbSFSeQgpAY
+    2rcK6WyezN6STR9rZoMg/YbfNnVBxfz01AExIS4zphqo1swdZ2ruZZFABbstbMXM
+    6qjVAgMBAAGjUzBRMB0GA1UdDgQWBBSa2s6hZ6XFhQ+LSCrMPPY2CuFQ+DAfBgNV
+    HSMEGDAWgBSa2s6hZ6XFhQ+LSCrMPPY2CuFQ+DAPBgNVHRMBAf8EBTADAQH/MA0G
+    CSqGSIb3DQEBCwUAA4ICAQAuPlmaCMkMKb7Sg9q+ukLpXQaKW/dt67bHTyWdYJQ2
+    78svIq+jiUtHPfhSdHu0B6iG7+7WZeZ6+PzqwHDFPfozKWJN2tn9OGwpEAgAMFnJ
+    sXK/f01CqHdBwx5egMPXSeC2LuYTZ4hAHCq7I0izYSxW88dgiku8Yuh+LwHLIgdW
+    69f2Ac3GHBx/6LtPq2E0mc9cb/zH1cNnIRltErmOg+yNRhk3AIhlTd8ZazT1IDA/
+    +1/aIlBWPs9U1CFsugxAb6v8v5d1FuFNMaOTO3c6SGHzPYG9I5opTqkT04rJp5SB
+    24LlbiAO9XvEGTXC+3g9SIjh9nUrYKlWbLJDlEWiwcLuLwHw1MSgALsvt+Z/gX63
+    vFq46q4VtG7YXmPNEVVzew/UkvZ3q4UZqapQmPdYVwbPfQjMoBWrCLwZdt/LAavu
+    7DlBORqfl8XwjUykIttY3Ufxoa2qdNouAbSKqZ0qqdz8NLdW1LdHaMlsZtBjzL/5
+    zlswZrrUC6m+NbT5Y9YsDUR6nqyk2ReaedrmH1v1aGRI/6lUPeXMk7qMbGb+7tz3
+    O2CUbczoFMhxYsjsCi/N7y9yAGmANzq+4rofyxp5VP2dW8hnJg4UlRks+rWXwi1x
+    +Va4YHSLeECtTna2SxHiJmJkSV/soffQMVOfjtM6pXR4/LoWcIFmPYG2mPOw4FMu
+    TA==
+    -----END CERTIFICATE-----

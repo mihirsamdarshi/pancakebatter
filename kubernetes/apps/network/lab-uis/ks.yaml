@@ -1,0 +1,26 @@
+---
+# Web UIs of lab machines outside the cluster, on envoy-internal as
+# <name>.${SECRET_DOMAIN_LOCAL}; one file per UI under app/. The backends are
+# fixed lab addresses and the pinned backend certificates are this lab's, so
+# this app is specific to this cluster and not part of template/ (only its line
+# in network/kustomization.yaml is mirrored).
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: lab-uis
+spec:
+  dependsOn:
+    - name: envoy-gateway
+  interval: 1h
+  path: ./kubernetes/apps/network/lab-uis/app
+  postBuild:
+    substituteFrom:
+      - name: cluster-secrets
+        kind: Secret
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: network
+  wait: false
