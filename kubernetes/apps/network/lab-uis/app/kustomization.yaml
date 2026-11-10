@@ -7,3 +7,5 @@ kind: Kustomization
 resources:
   - ./hobbes.yaml
   - ./hobbes-ca.yaml
+  - ./truenas.yaml
+  - ./truenas-ca.yaml
