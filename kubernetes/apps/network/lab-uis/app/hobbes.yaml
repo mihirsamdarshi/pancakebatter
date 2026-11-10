@@ -5,9 +5,10 @@
 # VLAN 10 -> router -> LAN and back the same way.
 #
 # Who can reach it: everyone who can reach envoy-internal could already reach
-# https://192.168.1.62:8006 directly, except deal-watch-integrations. Until the
-# deal-watch-integrations follow-up merges, that workload can reach this login
-# page through envoy-internal; the follow-up removes that path.
+# https://192.168.1.62:8006 directly. Keep it that way: a workload whose
+# policy blocks the LAN must not be allowed egress to the envoy-internal
+# pods, because through Envoy it reaches this login page (review F3;
+# deal-watch-integrations lost that rule for this reason).
 #
 # SPICE does not work through this name: the UI points the .vv file at
 # hobbes.${SECRET_DOMAIN_LOCAL}:3128, which Envoy does not serve. Use the
