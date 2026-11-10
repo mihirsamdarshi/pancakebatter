@@ -1,0 +1,104 @@
+---
+# hobbes.${SECRET_DOMAIN_LOCAL}: the Proxmox web UI on Hobbes (pveproxy, port
+# 8006) over HTTPS, with the backend certificate verified against the Proxmox
+# cluster CA (hobbes-ca.yaml). Hobbes has only a LAN address, so traffic goes
+# VLAN 10 -> router -> LAN and back the same way.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hobbes
+spec:
+  # No selector: the EndpointSlice below names the backend.
+  ports:
+    - name: https
+      protocol: TCP
+      port: 8006
+      targetPort: 8006
+---
+# The port name and protocol must match the Service port: Envoy Gateway skips
+# an EndpointSlice port that differs in either.
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: hobbes
+  labels:
+    kubernetes.io/service-name: hobbes
+    endpointslice.kubernetes.io/managed-by: flux
+addressType: IPv4
+ports:
+  - name: https
+    protocol: TCP
+    port: 8006
+endpoints:
+  - addresses:
+      - 192.168.1.62
+    conditions:
+      ready: true
+---
+# Envoy connects with TLS, sends SNI `hobbes` and accepts only a certificate
+# that chains to the Proxmox cluster CA in hobbes-ca.yaml and has the DNS SAN
+# `hobbes` (pveproxy's node certificate has it).
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: hobbes
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: hobbes
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: hobbes-pve-ca
+    hostname: hobbes
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hobbes
+spec:
+  parentRefs:
+    - name: envoy-internal
+      namespace: network
+      sectionName: https
+  hostnames:
+    - hobbes.${SECRET_DOMAIN_LOCAL}
+  rules:
+    # Two named rules so the BackendTrafficPolicy below can switch retries off
+    # for writes only. GET and HEAD (which include the noVNC and xterm.js
+    # console websockets) are more specific than the catch-all, so they always
+    # land on `reads`.
+    - name: reads
+      matches:
+        - method: GET
+        - method: HEAD
+      backendRefs:
+        - name: hobbes
+          port: 8006
+    - name: writes
+      backendRefs:
+        - name: hobbes
+          port: 8006
+---
+# The gateway-wide policy (network/envoy-gateway) retries a request twice when
+# the upstream connection resets. A Proxmox API write (POST, PUT or DELETE under
+# /api2/json: start, stop, reboot, create, delete, upload) may already have
+# been applied when that happens, so the `writes` rule gets no retries.
+# mergeType keeps everything else from the gateway-wide policy (compression,
+# keepalive, requestTimeout 0s) instead of replacing it. Same pattern as
+# personal-apps/quilt-planner/internal.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: hobbes-writes
+spec:
+  mergeType: StrategicMerge
+  retry:
+    numRetries: 0
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: hobbes
+      sectionName: writes

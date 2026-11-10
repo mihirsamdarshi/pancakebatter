@@ -1,0 +1,51 @@
+---
+# The pinned trust anchor for the truenas BackendTLSPolicy (truenas.yaml).
+# Public certificate only; never put a private key here.
+#
+# It is TrueNAS's own self-signed UI certificate `truenas_default`: subject and
+# issuer CN=localhost, SAN DNS:localhost only, so the policy's hostname is
+# `localhost`. Envoy accepts a certificate from its trusted CA list as a trust
+# anchor even when it is not a CA certificate.
+#   SHA-256 fingerprint:
+#     0F:87:ED:8C:31:BF:A6:A4:60:F2:B9:B3:7B:B7:EF:40:8B:6B:84:7D:21:AE:3E:40:B1:41:E6:8D:15:89:B0:00
+#   valid until 2027-11-19 01:05 UTC
+#
+# Where it came from (November 10, 2026; this prints the public PEM only):
+#   ssh root@192.168.1.62 "echo | openssl s_client -connect 192.168.1.75:443 -servername localhost 2>/dev/null | openssl x509"
+# Never read it through the TrueNAS API calls system.general.config or
+# certificate.query without a filter: they also return the private key.
+#
+# When the TrueNAS UI certificate changes (it is renewed or regenerated, or
+# another certificate is chosen for the UI), the truenas route answers 503
+# (upstream TLS verify error) until this PEM is replaced with the new one,
+# read with the same command. If the new certificate has other names, also set
+# `hostname` in truenas.yaml to one of its DNS SANs. The direct address
+# https://192.168.1.75 keeps working meanwhile.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: truenas-ui-ca
+data:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIDrTCCApWgAwIBAgIENbgZ6DANBgkqhkiG9w0BAQsFADCBgDELMAkGA1UEBhMC
+    VVMxEjAQBgNVBAoMCWlYc3lzdGVtczESMBAGA1UEAwwJbG9jYWxob3N0MSEwHwYJ
+    KoZIhvcNAQkBFhJpbmZvQGl4c3lzdGVtcy5jb20xEjAQBgNVBAgMCVRlbm5lc3Nl
+    ZTESMBAGA1UEBwwJTWFyeXZpbGxlMB4XDTI2MTAxODAxMDUzM1oXDTI3MTExOTAx
+    MDUzM1owgYAxCzAJBgNVBAYTAlVTMRIwEAYDVQQKDAlpWHN5c3RlbXMxEjAQBgNV
+    BAMMCWxvY2FsaG9zdDEhMB8GCSqGSIb3DQEJARYSaW5mb0BpeHN5c3RlbXMuY29t
+    MRIwEAYDVQQIDAlUZW5uZXNzZWUxEjAQBgNVBAcMCU1hcnl2aWxsZTCCASIwDQYJ
+    KoZIhvcNAQEBBQADggEPADCCAQoCggEBAL2MFKOtHg4YlxXAlpCa5W9QtqP+HJWj
+    UZFC809qdtDsg9PoLTd7f9KfXmFV0dk6FPWWghzuOdlUcGU++et9zHftrAmjD6QA
+    GYy0UXBmwcEyDzSpvBC6LHTRna84lB2L48ti8nHwfBZzAmp1AmhCiunB9aZdygSF
+    flWpDcX1XbtpLaIVXy4UB4UaTfcGAE6mrND3Ie64rFoXAjA3hdu4cA1+rdyg1urD
+    NItUWPWLUfmtPBcoEOH1s1LzpwSb1Vva4ieI3omGHftXCtUH9hRt5Vb0ljTmQebP
+    8Mm7y1pE5V2n4f/uiBPZD+MdJAxfEysAISepTZ5cl7KBPCJRLLE53aMCAwEAAaMt
+    MCswFAYDVR0RBA0wC4IJbG9jYWxob3N0MBMGA1UdJQQMMAoGCCsGAQUFBwMBMA0G
+    CSqGSIb3DQEBCwUAA4IBAQBYO6GAkje2BnVUw0jPnPQ3FFOxyPIHvKCNIsRBkXRn
+    IehzANGyJR41DTo3XVRAH/N020qRQzynTIJSz0IpLNDeTbprNMYSWfBZA1gihUzj
+    rsI7+VMWqGis1uS3uKMq2ijXlUsS/0jIQ5LbJjKZJap5Q3RYIk86eXYsCtOIChDo
+    UEkka9n22Lwp5ANPT6j+b+f6F74u7vBJIS/14BGsfKztw8biQizK237PuuM7Qpg4
+    GYsXNeIA0ZhJAr+TF4gdF0p6F3gm1glzWX/oBymR6Kd0maWfJ47ci5AL/6A7HVYy
+    +TRvX2mT9nnR2MZLNy+X7v25oI5OSiWKF6t+yUKfTghE
+    -----END CERTIFICATE-----
