@@ -2,7 +2,8 @@
 # Delivery alerts for the log collectors. Receipt at Alloy is not storage in
 # Loki: these show when Alloy cannot hand lines to Loki, or drops them on
 # purpose. Loki's own alerts are in the loki rule. TrueNASLogsSilent (no
-# syslog from TrueNAS) ships with the step that points TrueNAS at the receiver.
+# syslog from TrueNAS) must merge only after the first TrueNAS line has reached
+# the receiver: until TrueNAS sends, the counter exists at 0 and the rule fires.
 # Unit tests: scripts/validate-rules/alloy.test.yaml.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -43,3 +44,11 @@ spec:
           annotations:
             summary: "Alloy cannot parse syslog messages in {{ $labels.component_id }}"
             description: "A sender uses another format or framing than the listener expects (TrueNAS: RFC 5424, octet counting; UCG: RFC 3164)."
+        - alert: TrueNASLogsSilent
+          expr: absent(loki_source_syslog_entries_total{component_id=~".*truenas.*"}) or sum(rate(loki_source_syslog_entries_total{component_id=~".*truenas.*"}[1h])) == 0
+          for: 6h
+          labels:
+            severity: warning
+          annotations:
+            summary: "No syslog lines from TrueNAS for 6 hours"
+            description: "The receiver got no line from TrueNAS (192.168.10.75, TCP 514) for 6 hours, or its counter is missing. Check that syslog-ng is active on TrueNAS and its syslog server is still 192.168.10.12 (TCP), and that alloy-receiver runs. A line from any other source address is dropped by the receiver's network policy without a count, so this alert is the only sign of it. Receipt is not storage: AlloyWriteDropping shows lines Alloy could not hand to Loki."
