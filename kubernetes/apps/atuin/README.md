@@ -1,8 +1,8 @@
 # atuin
 
-Two [Atuin](https://docs.atuin.sh/) sync servers. Atuin keeps shell history,
-and the AI sessions it captures, in an encrypted store on each machine and
-syncs that store through a server.
+Two [Atuin](https://docs.atuin.sh/) sync servers. Atuin syncs shell history,
+and the AI sessions it captures, between a group of machines through a
+server. The server only holds them encrypted with the group's key.
 
 | Server        | For                                           | Address                            | Node     |
 | ------------- | --------------------------------------------- | ---------------------------------- | -------- |
@@ -10,9 +10,10 @@ syncs that store through a server.
 | `atuin-mac`   | The Macs                                      | `https://atuin-mac.local.<zone>`   | talos-03 |
 
 Each is its own namespace, Flux Kustomization, HelmRelease, volume, backup,
-route and network policy. They share nothing but the cluster, the internal
-gateway and the backup share (each has its own restic repository there). Both
-are on `envoy-internal` only: no public, family or Tailscale route.
+route and network policy. They share only the cluster, the internal gateway
+and the backup share. On that share each has its own restic repository, under
+the one restic password that every app's backup uses. Both are on
+`envoy-internal` only: no public, family or Tailscale route.
 
 ## Never one server with two accounts
 
@@ -43,12 +44,12 @@ Other machines of the group join with `atuin login`, never `atuin register`.
 
 ## Keys
 
-Each group has one 1Password item in the owner's vault, "Atuin Linux group"
-and "Atuin Mac group": user name, password and encryption key. Paste them at
-`atuin login` in your own terminal. The key never goes into Git, SOPS, Beads or
-a Claude session. The server holds only ciphertext: without the key its copy
-cannot be read, but every member machine keeps its own data and can re-key and
-push it again (`atuin store push`).
+Each group has one 1Password item in the owner's vault, made at registration:
+"Atuin Linux group" and "Atuin Mac group", each with the user name, password
+and encryption key. Paste them at `atuin login` in your own terminal. The key
+never goes into Git, SOPS, Beads or a Claude session. Without the key the
+server's copy cannot be read, but every member machine keeps its own data and
+can re-key and push it again (`atuin store push`).
 
 ## Storage and backup
 
