@@ -11,6 +11,8 @@
 # Issuers, External Secrets objects (they name 1Password items, they hold no
 # values) and pod and node metrics. So keep credentials out of literal env
 # values, args, ConfigMaps and HelmRelease values, and out of app logs.
+# Values Flux substitutes from cluster-secrets are readable wherever they
+# land, so cluster-secrets must hold identifiers only, never credentials.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -27,8 +29,9 @@ automountServiceAccountToken: false
 # 10 seconds. Flux re-creates the ServiceAccount (new UID) and this Secret at
 # its next reconcile (interval 1h, or `flux reconcile ks workspace-reader -n
 # agent-access`), and the workspace needs the new token copied again.
-# Deleting only this Secret revokes nothing: the token is derived from the
-# ServiceAccount UID and the Secret name, so it comes back identical.
+# Deleting only this Secret is not a reliable revoke: whether the re-created
+# token equals the old one depends on the signing key type. Always delete
+# the ServiceAccount.
 apiVersion: v1
 kind: Secret
 metadata:
