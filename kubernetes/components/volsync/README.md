@@ -96,7 +96,9 @@ ten minutes before.
 | reports                | none           | 13:00                 |
 | job-tracker            | 13:05          | 13:15                 |
 | fantasy                | 13:20          | 13:30                 |
-| next platform apps     | 13:35, 13:50 … | 13:45, 14:00 …        |
+| atuin-linux            | 13:35          | 13:45                 |
+| atuin-mac              | 13:50          | 14:00                 |
+| next platform apps     | 14:05, 14:20 … | 14:15, 14:30 …        |
 
 ## SQLite
 

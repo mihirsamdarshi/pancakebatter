@@ -2,7 +2,9 @@
 
 Two [Atuin](https://docs.atuin.sh/) sync servers. Atuin syncs shell history,
 and the AI sessions it captures, between a group of machines through a
-server. The server only holds them encrypted with the group's key.
+server. The server holds them encrypted with the group's key, plus the account
+(name, email, password hash, session token) and each record's host, time, tag
+and size in the clear.
 
 | Server        | For                                           | Address                            | Node     |
 | ------------- | --------------------------------------------- | ---------------------------------- | -------- |
@@ -13,7 +15,9 @@ Each is its own namespace, Flux Kustomization, HelmRelease, volume, backup,
 route and network policy. They share only the cluster, the internal gateway
 and the backup share. On that share each has its own restic repository, under
 the one restic password that every app's backup uses. Both are on
-`envoy-internal` only: no public, family or Tailscale route.
+`envoy-internal` only: no public or family route. The LAN, VLAN 10, cluster
+pods and devices on the owner's tailnet (through the router's subnet route) can
+reach them; the family gateway and family tailnets cannot.
 
 ## Never one server with two accounts
 
@@ -28,23 +32,38 @@ do not add a second account to either.
 
 ## Registration
 
-Registration is open in the first change (`ATUIN_OPEN_REGISTRATION: "true"` in
-each `app/helmrelease.yaml`), and anyone who can reach the server can register.
-To close it:
+Registration is closed (`ATUIN_OPEN_REGISTRATION: "false"` in each
+`app/helmrelease.yaml`), so `atuin register` is refused. The owner makes each
+group's one account on its server with `atuin-server admin user create`, which
+works while registration is closed:
 
-1. On one machine of the group, in your own terminal, point Atuin at the
-   group's server (`sync_address` in `~/.config/atuin/config.toml`) and run
-   `atuin register`. Save the name, password and key (`atuin key`) in the
-   group's 1Password item (below).
-2. Do the same for the other server, from a machine of the other group.
-3. A follow-up change sets `ATUIN_OPEN_REGISTRATION` to `"false"` on both.
-   After it is merged, a second `atuin register` must be refused.
+1. In your own terminal:
+   `kubectl -n atuin-linux exec -it deploy/atuin-linux -- atuin-server admin user create --email <email> <name>`.
+   The password is prompted twice and never appears in arguments. The exec
+   inherits `ATUIN_DB_URI` and `ATUIN_CONFIG_DIR`. The command writes only to
+   `/config`, opens the same SQLite file in WAL mode beside the running server,
+   and runs migrations (a no-op).
+2. On the first Linux machine, `atuin key` must print a key. The key file is
+   made on first use: the daemon, a recorded command or `atuin search` all
+   create it. If `atuin key` errors, use Atuin in a shell once, then retry. Set
+   `sync_address = "https://atuin-linux.local.<zone>"` in
+   `~/.config/atuin/config.toml`. Run `atuin logout` if the machine is logged
+   in elsewhere. Then run `atuin login -u <name>`, give the password, and leave
+   the key blank to use the existing key file. Run `atuin sync`, then save the
+   name, password and `atuin key` output in "Atuin Linux group".
+3. Repeat with `-n atuin-mac` (`deploy/atuin-mac`,
+   `https://atuin-mac.local.<zone>`, "Atuin Mac group") from a Mac. The Mac's
+   config points at the dead 2024 server, so run `atuin logout` first.
+4. Check that registration is refused:
+   `curl -sS -X POST https://atuin-linux.local.<zone>/register -H 'Content-Type: application/json' -d '{"username":"probe","email":"probe@example.invalid","password":"probe"}'`
+   must return `this server is not open for registrations`. Repeat for
+   `atuin-mac`.
 
 Other machines of the group join with `atuin login`, never `atuin register`.
 
 ## Keys
 
-Each group has one 1Password item in the owner's vault, made at registration:
+Each group has one 1Password item in the owner's vault, made with its account:
 "Atuin Linux group" and "Atuin Mac group", each with the user name, password
 and encryption key. Paste them at `atuin login` in your own terminal. The key
 never goes into Git, SOPS, Beads or a Claude session. Without the key the

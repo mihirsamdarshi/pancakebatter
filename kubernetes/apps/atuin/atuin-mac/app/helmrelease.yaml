@@ -3,10 +3,8 @@
 # atuin-linux, which shares nothing with this one. Never log a Linux machine in
 # here: see ../../README.md.
 #
-# Registration is open in this first change only, so that the owner can
-# register the group's one account. A follow-up change sets
-# ATUIN_OPEN_REGISTRATION to "false" once that account exists; after that,
-# `atuin register` is refused.
+# Registration is closed. The group's one account is made on the server with
+# `atuin-server admin user create` (README.md, Registration).
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -56,8 +54,8 @@ spec:
               # Set explicitly. A Service link can inject ATUIN_PORT=tcp://...
               # (the chart turns service links off, but the docs ask for this).
               ATUIN_PORT: "8888"
-              # Closed by the follow-up change described at the top.
-              ATUIN_OPEN_REGISTRATION: "true"
+              # Closed: see the top of this file.
+              ATUIN_OPEN_REGISTRATION: "false"
               # The server creates the file on first start.
               ATUIN_DB_URI: sqlite:///config/atuin.db
             probes:

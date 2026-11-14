@@ -10,3 +10,21 @@ resources:
   - ./ciliumnetworkpolicy.yaml
   - ./helmrelease.yaml
   - ./ocirepository.yaml
+
+patches:
+  # Pin the backup mover to the server's node even before the server pod
+  # exists, so the first backup cannot bind the new volume on another node.
+  - target:
+      kind: ReplicationSource
+    patch: |-
+      - op: add
+        path: /spec/restic/moverAffinity
+        value:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: kubernetes.io/hostname
+                      operator: In
+                      values:
+                        - talos-02
