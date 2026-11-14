@@ -1,0 +1,12 @@
+#cloud-config
+# Vendor data for VM 401 (terraform/workspace). Root copies this file by hand to
+# Hobbes as /var/lib/vz/snippets/workspace-vendor.yaml.
+# - Edits apply only to a new instance: cloud-init runs vendor data once per
+#   instance, so a running guest never sees them.
+# - Never rename the file: vendor_data_file_id forces a new VM, and the VM
+#   reads the file at every start (a missing file means it does not start).
+packages: [qemu-guest-agent]
+ssh_pwauth: false # explicit; the image default is already "no"
+ssh_deletekeys: false # keep the SSH host keys if first boot ever runs again
+runcmd:
+  - [systemctl, start, qemu-guest-agent] # belt-and-braces; postinst already starts it

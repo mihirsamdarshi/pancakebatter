@@ -17,6 +17,9 @@ mod? talos 'talos'
 [group('vms')]
 mod? vms 'terraform'
 
+[group('workspace')]
+mod? workspace 'terraform/workspace'
+
 [group('dns')]
 mod? dns 'terraform/dns'
 
