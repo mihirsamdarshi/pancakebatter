@@ -87,6 +87,7 @@ is busiest then.
 | profilarr     | media         | 11:35  | 11:45  | `data/profilarr.db`                 |
 | qbittorrent   | downloads     | 11:50  | 12:00  | `qBittorrent/torrents.db`           |
 
-The next free slot is export 12:05, backup 12:15. The volume claim for each app
-is named after its release because the chart creates only one PVC per app: if a
+The next free slot is export 14:05, backup 14:15; every slot in use is listed in
+`kubernetes/components/volsync/README.md`. The volume claim for each app is
+named after its release because the chart creates only one PVC per app: if a
 second PVC is ever added, the name changes and `VOLSYNC_CLAIM` must follow.

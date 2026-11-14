@@ -1,0 +1,40 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: atuin-linux
+spec:
+  dependsOn:
+    - name: local-path-provisioner
+      namespace: storage
+    - name: volsync
+      namespace: volsync-system
+  interval: 1h
+  path: ./kubernetes/apps/atuin/atuin-linux/app
+  postBuild:
+    substitute:
+      # Unique across the cluster: it names the VolSync PV (cluster-scoped) and
+      # the restic repository directory on the TrueNAS share.
+      APP: atuin-linux
+      # The chart's only PVC, so it is named after the release.
+      VOLSYNC_CLAIM: atuin-linux
+      VOLSYNC_NAMESPACE: atuin-linux
+      VOLSYNC_SCHEDULE: "45 13 * * *"
+      # The image runs as its `atuin` user (1000:1000), so the export and the
+      # backup mover do too.
+      APP_UID: "1000"
+      APP_GID: "1000"
+      # The server opens its database in WAL mode, so the backup reads the
+      # export, not the live files.
+      SQLITE_DBS: atuin.db
+      SQLITE_SCHEDULE: "35 13 * * *"
+    substituteFrom:
+      - name: cluster-secrets
+        kind: Secret
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: atuin-linux
+  wait: false

@@ -1,0 +1,12 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: atuin-mac
+  annotations:
+    # A pruned Namespace takes its PVC, the server's database, with it.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # The server, the sqlite-export job and the VolSync mover all run non-root
+    # with no capabilities and the RuntimeDefault seccomp profile.
+    pod-security.kubernetes.io/enforce: restricted
