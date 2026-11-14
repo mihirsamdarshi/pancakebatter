@@ -1,0 +1,142 @@
+---
+# Atuin sync server for the Linux machines (the workspace VM and the Linux PC
+# desktop). The Macs have their own server, atuin-mac, which shares nothing
+# with this one. Never log a Mac in here: see ../../README.md.
+#
+# Registration is open in this first change only, so that the owner can
+# register the group's one account. A follow-up change sets
+# ATUIN_OPEN_REGISTRATION to "false" once that account exists; after that,
+# `atuin register` is refused.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: atuin-linux
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: atuin-linux
+  interval: 1h
+  values:
+    defaultPodOptions:
+      # The volume is node-local (local-retain), so the server stays on one
+      # node: talos-02 here, talos-03 for the Macs' server. talos-01 is short
+      # of memory.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - talos-02
+      # The image runs as its `atuin` user, 1000:1000. It names the user rather
+      # than the number, so runAsNonRoot needs the number here.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+    controllers:
+      atuin-linux:
+        # RWO volume with a single SQLite writer: never two pods at once.
+        strategy: Recreate
+        containers:
+          app:
+            image:
+              repository: ghcr.io/atuinsh/atuin
+              tag: 18.24.8@sha256:2bc3a558b236283cd64ce64cf9aa463c24e34f97fc36a4b1a5b2b1853a5dcb49
+            args:
+              - start
+            env:
+              ATUIN_HOST: 0.0.0.0
+              # Set explicitly. A Service link can inject ATUIN_PORT=tcp://...
+              # (the chart turns service links off, but the docs ask for this).
+              ATUIN_PORT: "8888"
+              # Closed by the follow-up change described at the top.
+              ATUIN_OPEN_REGISTRATION: "true"
+              # The server creates the file on first start.
+              ATUIN_DB_URI: sqlite:///config/atuin.db
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: &port 8888
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: *port
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /healthz
+                    port: *port
+                  periodSeconds: 5
+                  failureThreshold: 60
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
+            resources:
+              requests:
+                cpu: 25m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+    service:
+      atuin-linux:
+        controller: atuin-linux
+        ports:
+          http:
+            port: *port
+    route:
+      atuin-linux:
+        hostnames:
+          - atuin-linux.${SECRET_DOMAIN_LOCAL}
+        parentRefs:
+          - name: envoy-internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: atuin-linux
+                port: *port
+    persistence:
+      # server.toml (written on first start) and the SQLite database.
+      config:
+        type: persistentVolumeClaim
+        storageClass: local-retain
+        accessMode: ReadWriteOnce
+        size: 5Gi
+        retain: true
+        advancedMounts:
+          atuin-linux:
+            app:
+              - path: /config
+      # The root filesystem is read-only; SQLite puts its temporary files here.
+      tmp:
+        type: emptyDir
+        sizeLimit: 256Mi
+        advancedMounts:
+          atuin-linux:
+            app:
+              - path: /tmp

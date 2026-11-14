@@ -16,6 +16,7 @@ kind: Kustomization
 resources:
   - ./arc-runners
   - ./arc-systems
+  - ./atuin
   - ./cert-manager
   - ./default
   - ./downloads

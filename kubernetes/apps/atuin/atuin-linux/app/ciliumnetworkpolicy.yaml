@@ -1,0 +1,43 @@
+---
+# Selecting every pod in the namespace turns on default-deny in both
+# directions: for the server, the sqlite-export job and the VolSync mover.
+# Conventions follow headlamp and components/app-platform/netpol: the
+# gateway's Envoy pods matched by owning-gateway name and namespace, kubelet
+# probes via fromEntities host. Replies to allowed connections are stateful
+# and need no rule.
+#
+# Ingress: the internal gateway's Envoy pods, to 8888. The family gateway and
+# Tailscale are deliberately absent.
+#
+# Egress: none. The server uses SQLite on its volume and has no webhooks set,
+# so it needs no network of its own (not even DNS). The export reads the
+# node-local PVC, and the mover's repository is an NFS volume that the kubelet
+# mounts, which is outside pod policy.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: atuin-linux
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: network
+            gateway.envoyproxy.io/owning-gateway-namespace: network
+            gateway.envoyproxy.io/owning-gateway-name: envoy-internal
+      toPorts:
+        - ports:
+            - port: "8888"
+              protocol: TCP
+    # Kubelet probes come from the node. Cilium admits the local host anyway
+    # (allow-localhost), so this rule only states it.
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "8888"
+              protocol: TCP
+  # An empty egress rule allows nothing; its presence turns on default-deny
+  # for egress (Cilium's documented deny-all-egress form).
+  egress:
+    - {}

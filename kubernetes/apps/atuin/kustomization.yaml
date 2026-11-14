@@ -1,0 +1,10 @@
+---
+# Two Atuin sync servers that share nothing: atuin-linux for the Linux
+# machines and atuin-mac for the Macs (see README.md). Each folder sets its own
+# `namespace:`, so they are listed here as folders. A `namespace:` in this file
+# would move both Flux Kustomizations into one namespace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./atuin-linux
+  - ./atuin-mac

@@ -1,0 +1,13 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: atuin-mac
+
+components:
+  # cluster-secrets in this namespace, for the Flux Kustomization's
+  # substituteFrom (the route's hostname).
+  - ../../../components/sops
+
+resources:
+  - ./namespace.yaml
+  - ./ks.yaml
