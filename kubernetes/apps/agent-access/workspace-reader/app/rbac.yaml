@@ -1,0 +1,81 @@
+---
+# The identity Claude sessions on the workspace VM read the cluster with:
+# built-in `view` plus the two read-only kinds the Flux MCP server needs.
+# No Secrets, no exec, attach or port-forward, no writes.
+#
+# What `view` lets it read in this cluster (checked Nov 14, 2026): ConfigMaps,
+# pod specs and pod logs, events, workloads, Services, PVCs, ServiceAccounts
+# (names), every Flux kind (Kustomizations, HelmReleases with their inline
+# values, sources, Alerts, Providers, Receivers with status.webhookPath),
+# ResourceSets and their input providers, cert-manager Certificates and
+# Issuers, External Secrets objects (they name 1Password items, they hold no
+# values) and pod and node metrics. So keep credentials out of literal env
+# values, args, ConfigMaps and HelmRelease values, and out of app logs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: workspace-reader
+automountServiceAccountToken: false
+---
+# A long-lived token for the ServiceAccount. The manifest holds no token:
+# Kubernetes fills data.token, data["ca.crt"] and data.namespace in. It is not
+# listed in the ServiceAccount's `secrets` field, so the legacy token cleaner
+# never deletes it.
+#
+# Revoke: delete the ServiceAccount (`kubectl -n agent-access delete
+# serviceaccount workspace-reader`). The old token stops working within about
+# 10 seconds. Flux re-creates the ServiceAccount (new UID) and this Secret at
+# its next reconcile (interval 1h, or `flux reconcile ks workspace-reader -n
+# agent-access`), and the workspace needs the new token copied again.
+# Deleting only this Secret revokes nothing: the token is derived from the
+# ServiceAccount UID and the Secret name, so it comes back identical.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: workspace-reader-token
+  annotations:
+    kubernetes.io/service-account.name: workspace-reader
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: workspace-reader-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: workspace-reader
+    namespace: agent-access
+---
+# What `view` lacks for the Flux MCP server's read tools:
+# get_kubernetes_api_versions lists CustomResourceDefinitions, and
+# get_flux_instance reads FluxInstance and FluxReport, which Flux Operator does
+# not aggregate to `view`. get, list and watch only. Never add secrets, a
+# wildcard, or a write verb here.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: workspace-reader-read
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["fluxcd.controlplane.io"]
+    resources: ["fluxinstances", "fluxreports"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: workspace-reader-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: workspace-reader-read
+subjects:
+  - kind: ServiceAccount
+    name: workspace-reader
+    namespace: agent-access

@@ -1,0 +1,15 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: workspace-reader
+spec:
+  interval: 1h
+  path: ./kubernetes/apps/agent-access/workspace-reader/app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: agent-access
+  wait: false

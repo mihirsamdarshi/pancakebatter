@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-access
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    # Holds identities for agents (a ServiceAccount and its token). It runs
+    # no pods.
+    pod-security.kubernetes.io/enforce: restricted
