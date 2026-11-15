@@ -1,0 +1,10 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-access
+
+# No sops component and no postBuild substitution: nothing here needs
+# cluster-secrets, so this namespace holds no copy of it.
+resources:
+  - ./namespace.yaml
+  - ./workspace-reader/ks.yaml
